@@ -1,7 +1,26 @@
+use clap::Parser;
 use std::{cmp::max, collections::HashSet};
 
+/// Differnece between YAML documents
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    left: camino::Utf8PathBuf,
+    right: camino::Utf8PathBuf,
+}
+
 fn main() {
-    println!("Hello, world!");
+    let args = Args::parse();
+
+    let left = std::fs::File::open(args.left).unwrap();
+    let left_doc: serde_yaml::Value = serde_yaml::from_reader(left).unwrap();
+
+    let right = std::fs::File::open(args.right).unwrap();
+    let right_doc: serde_yaml::Value = serde_yaml::from_reader(right).unwrap();
+
+    let diffs = diff(Context::new(), &left_doc, &right_doc);
+
+    dbg!(diffs);
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -22,35 +41,64 @@ pub enum Difference {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Path(Vec<String>);
+pub enum Segment {
+    Field(serde_yaml::Value),
+    Index(usize),
+}
+
+impl From<&str> for Segment {
+    fn from(value: &str) -> Self {
+        Segment::Field(value.into())
+    }
+}
+
+impl From<serde_yaml::Value> for Segment {
+    fn from(val: serde_yaml::Value) -> Self {
+        Segment::Field(val)
+    }
+}
+
+impl From<usize> for Segment {
+    fn from(val: usize) -> Self {
+        Segment::Index(val)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Path(Vec<Segment>);
 
 impl Path {
-    pub fn push(&self, value: impl ToString) -> Self {
+    pub fn push(&self, value: impl Into<Segment>) -> Self {
         let mut copy = self.clone();
-        copy.0.push(value.to_string());
+        copy.0.push(value.into());
         copy
     }
 
     #[cfg(test)]
-    pub fn from_unchecked(path: Vec<&str>) -> Self {
-        let path = path.iter().map(ToString::to_string).collect();
+    pub fn from_unchecked(path: Vec<Segment>) -> Self {
         Path(path)
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct Context {
+pub struct Context {
     path: Path,
+}
+
+impl Default for Context {
+    fn default() -> Self {
+        Self {
+            path: Path(vec![".".into()]),
+        }
+    }
 }
 
 impl Context {
     pub fn new() -> Self {
-        Self {
-            path: Path(vec![".".to_string()]),
-        }
+        Self::default()
     }
 
-    pub fn for_key(&self, key: impl ToString) -> Context {
+    pub fn for_key(&self, key: impl Into<Segment>) -> Context {
         let mut copy = self.clone();
         copy.path = self.path.push(key);
         copy
@@ -69,19 +117,19 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
             let all_keys: HashSet<_> = left_keys.union(&right_keys).collect();
             let mut diffs = Vec::new();
             for key in all_keys {
-                let key_value = key.as_str().unwrap_or("unknown");
+                let path = ctx.path.push((*key).clone());
                 match (left.get(key), right.get(key)) {
                     (None, None) => unreachable!("the key must be from either left or right!"),
                     (None, Some(addition)) => diffs.push(Difference::Added {
-                        path: ctx.path.push(key_value),
+                        path,
                         value: addition.clone(),
                     }),
                     (Some(removal), None) => diffs.push(Difference::Removed {
-                        path: ctx.path.push(key_value),
+                        path,
                         value: removal.clone(),
                     }),
                     (Some(left), Some(right)) => {
-                        diffs.append(&mut diff(ctx.for_key(key_value), left, right));
+                        diffs.append(&mut diff(ctx.for_key((*key).clone()), left, right));
                     }
                 }
             }
@@ -104,7 +152,7 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
                         value: removal.clone(),
                     }),
                     (Some(left), Some(right)) => {
-                        diffs.append(&mut diff(ctx.for_key(idx.to_string()), left, right));
+                        diffs.append(&mut diff(ctx.for_key(idx), left, right));
                     }
                 }
             }
@@ -149,7 +197,7 @@ mod tests {
             vec![Difference::Changed {
                 left: serde_yaml::Value::Number(1.into()),
                 right: serde_yaml::Value::Number(2.into()),
-                path: Path::from_unchecked(vec![".", "foo", "bar",])
+                path: Path::from_unchecked(vec![".".into(), "foo".into(), "bar".into(),])
             }]
         )
     }
@@ -181,10 +229,10 @@ mod tests {
                 Difference::Changed {
                     left: serde_yaml::Value::String("a".into()),
                     right: serde_yaml::Value::String("x".into()),
-                    path: Path::from_unchecked(vec![".", "foo", "0",])
+                    path: Path::from_unchecked(vec![".".into(), "foo".into(), 0.into(),])
                 },
                 Difference::Added {
-                    path: Path::from_unchecked(vec![".", "foo", "3"]),
+                    path: Path::from_unchecked(vec![".".into(), "foo".into(), 3.into()]),
                     value: serde_yaml::Value::String("d".to_string())
                 }
             ]
@@ -213,7 +261,7 @@ mod tests {
         assert_eq!(
             differences,
             vec![Difference::Removed {
-                path: Path::from_unchecked(vec![".", "foo", "2"]),
+                path: Path::from_unchecked(vec![".".into(), "foo".into(), 2.into()]),
                 value: serde_yaml::Value::String("c".to_string())
             }]
         )
@@ -240,7 +288,7 @@ mod tests {
             vec![Difference::Changed {
                 left: serde_yaml::Value::String("12".into()),
                 right: serde_yaml::Value::Bool(false),
-                path: Path::from_unchecked(vec![".", "foo", "bar",])
+                path: Path::from_unchecked(vec![".".into(), "foo".into(), "bar".into(),])
             },]
         )
     }
@@ -273,7 +321,14 @@ mod tests {
         assert_eq!(
             differences,
             vec![Difference::Removed {
-                path: Path::from_unchecked(vec![".", "egress", "0", "ports", "0", "protocol"]),
+                path: Path::from_unchecked(vec![
+                    ".".into(),
+                    "egress".into(),
+                    0.into(),
+                    "ports".into(),
+                    0.into(),
+                    "protocol".into()
+                ]),
                 value: serde_yaml::Value::String("TCP".into()),
             }]
         )
