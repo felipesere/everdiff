@@ -85,7 +85,7 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
                     }
                 }
             }
-            return diffs;
+            diffs
         }
         (Value::Sequence(left_elements), Value::Sequence(right_elements)) => {
             // we start by comparing the in order
@@ -108,21 +108,18 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
                     }
                 }
             }
-            return diffs;
+            diffs
         }
-        (Value::Null, Value::Null) => {}
-        (Value::Bool(left), Value::Bool(right)) if left == right => {}
-        (Value::Number(left), Value::Number(right)) if left == right => {}
-        (Value::String(left), Value::String(right)) if left == right => {}
+        // if the values are the same, no need to further diff
+        (left, right) if left == right => Vec::new(),
         (left, right) => {
-            return vec![Difference::Changed {
+            vec![Difference::Changed {
                 path: ctx.path.clone(),
                 left: left.clone(),
                 right: right.clone(),
             }]
         }
     }
-    Vec::new()
 }
 
 #[cfg(test)]
