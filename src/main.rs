@@ -1,10 +1,13 @@
 use clap::Parser;
 use std::{cmp::max, collections::HashSet};
 
+mod multidoc;
+
 /// Differnece between YAML documents
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    multidoc: bool,
     left: camino::Utf8PathBuf,
     right: camino::Utf8PathBuf,
 }

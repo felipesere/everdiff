@@ -7,7 +7,9 @@ edition = "2021"
 anyhow = "1.0.94"
 camino = "1.1.9"
 clap = { version = "4.5.23", features = ["derive"] }
+serde = "1.0.215"
 serde_yaml = "0.9.34"
 
 [dev-dependencies]
 indoc = "2.0.5"
+pretty_assertions = "1.4.1"
