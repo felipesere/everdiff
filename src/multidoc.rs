@@ -2,8 +2,6 @@ use std::collections::BTreeMap;
 
 use crate::Difference as Diff;
 
-pub struct Context {}
-
 #[derive(Debug)]
 struct MatchingDocs {
     key: DocKey,
@@ -11,9 +9,22 @@ struct MatchingDocs {
     right: usize,
 }
 
+struct MissingDoc {
+    key: DocKey,
+    left: usize,
+}
+
+struct AdditionalDoc {
+    key: DocKey,
+    right: usize,
+}
+
+#[derive(Default, Debug)]
+pub struct Context;
+
 impl Context {
     pub fn new() -> Self {
-        Context {}
+        Context::default()
     }
 }
 
@@ -21,32 +32,27 @@ fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey>>(
     lefts: &[serde_yaml::Value],
     rights: &[serde_yaml::Value],
     extract: F,
-) -> (
-    Vec<MatchingDocs>,
-    Vec<serde_yaml::Value>,
-    Vec<serde_yaml::Value>,
-) {
-    // let mut lefty_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
-    let mut righty_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
+) -> (Vec<MatchingDocs>, Vec<MissingDoc>, Vec<AdditionalDoc>) {
+    let mut seen_right_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
     let mut matches = Vec::new();
+    let mut missing_docs = Vec::new();
+    let mut _added_docs: Vec<AdditionalDoc> = Vec::new();
 
     let mut last_idx_used_on_right = 0usize;
-    for (idx, doc) in lefts.iter().enumerate() {
+    'x: for (idx, doc) in lefts.iter().enumerate() {
         if let Some(key) = extract(idx, doc) {
-            // lefty_docs.insert(key.clone(), idx);
-            if let Some(right) = righty_docs.get(&key) {
+            if let Some(right) = seen_right_docs.get(&key) {
                 matches.push(MatchingDocs {
                     key,
                     left: idx,
                     right: *right,
                 });
-                continue;
+                continue 'x;
             }
 
-            for right in last_idx_used_on_right..rights.len() {
-                let doc = &rights[right];
+            for (right, doc) in rights.iter().enumerate().skip(last_idx_used_on_right) {
                 if let Some(right_key) = extract(right, doc) {
-                    righty_docs.insert(right_key.clone(), idx);
+                    seen_right_docs.insert(right_key.clone(), idx);
                     if right_key == key {
                         matches.push(MatchingDocs {
                             key,
@@ -54,14 +60,15 @@ fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey>>(
                             right,
                         });
                         last_idx_used_on_right = right;
-                        break;
+                        continue 'x;
                     }
                 }
             }
+            missing_docs.push(MissingDoc { key, left: idx })
         }
     }
 
-    (matches, Vec::new(), Vec::new())
+    (matches, missing_docs, Vec::new())
 }
 
 /// Newtype used to identify a document.
@@ -71,6 +78,7 @@ fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey>>(
 /// * apiVersion
 /// * kind
 /// * metadata.name
+///
 /// from a Kubernetes resource to diff
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct DocKey(BTreeMap<String, String>);
@@ -81,9 +89,9 @@ pub struct DocKey(BTreeMap<String, String>);
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum DocDifference {
-    AdditionalDocument(usize),
-    MissingDocument(usize),
-    ChangedDocument {
+    Addition(usize),
+    Missing(usize),
+    Changed {
         key: DocKey,
         left_doc: usize,
         right_doc: usize,
@@ -95,7 +103,7 @@ pub fn diff(
     lefts: &[serde_yaml::Value],
     rights: &[serde_yaml::Value],
 ) -> Vec<DocDifference> {
-    let (matches, _missing, _added) = matching_docs(lefts, rights, |_, doc| {
+    let (matches, missing, _) = matching_docs(lefts, rights, |_, doc| {
         doc.get("metadata")
             .and_then(|m| m.get("name"))
             .and_then(|n| n.as_str())
@@ -114,13 +122,16 @@ pub fn diff(
         let right_doc = &rights[right];
         let diffs = super::diff(super::Context::new(), left_doc, right_doc);
         if !diffs.is_empty() {
-            xs.push(DocDifference::ChangedDocument {
+            xs.push(DocDifference::Changed {
                 key,
                 left_doc: left,
                 right_doc: right,
                 differences: diffs,
             })
         }
+    }
+    for MissingDoc { key: _, left } in missing {
+        xs.push(DocDifference::Missing(left))
     }
     xs
 }
@@ -163,6 +174,12 @@ mod tests {
         spec:
           thing: 12
         ...
+        ---
+        metadata:
+          name: charlie
+        spec:
+          wheels: 6
+        ...
         "#});
 
         let right = docs(indoc! {r#"
@@ -185,7 +202,7 @@ mod tests {
         assert_eq!(
             differences,
             vec![
-                DocDifference::ChangedDocument {
+                DocDifference::Changed {
                     key: DocKey(BTreeMap::from([(
                         "metadata.name".to_string(),
                         "bravo".to_string()
@@ -198,7 +215,7 @@ mod tests {
                         right: serde_yaml::Value::String("blue".into()),
                     }]
                 },
-                DocDifference::ChangedDocument {
+                DocDifference::Changed {
                     key: DocKey(BTreeMap::from([(
                         "metadata.name".to_string(),
                         "alpha".to_string()
@@ -210,7 +227,8 @@ mod tests {
                         left: serde_yaml::Value::Number(12.into()),
                         right: serde_yaml::Value::Number(24.into()),
                     }]
-                }
+                },
+                DocDifference::Missing(2),
             ]
         )
     }
