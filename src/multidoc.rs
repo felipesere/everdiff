@@ -15,56 +15,53 @@ impl Context {
     pub fn new() -> Self {
         Context {}
     }
+}
 
-    fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey>>(
-        &self,
-        lefts: &[serde_yaml::Value],
-        rights: &[serde_yaml::Value],
-        extract: F,
-    ) -> (
-        Vec<MatchingDocs>,
-        Vec<serde_yaml::Value>,
-        Vec<serde_yaml::Value>,
-    ) {
-        // let mut lefty_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
-        let mut righty_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
-        let mut matches = Vec::new();
+fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey>>(
+    lefts: &[serde_yaml::Value],
+    rights: &[serde_yaml::Value],
+    extract: F,
+) -> (
+    Vec<MatchingDocs>,
+    Vec<serde_yaml::Value>,
+    Vec<serde_yaml::Value>,
+) {
+    // let mut lefty_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
+    let mut righty_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
+    let mut matches = Vec::new();
 
-        let mut last_idx_used_on_right = 0usize;
-        for (idx, doc) in lefts.iter().enumerate() {
-            if let Some(key) = extract(idx, doc) {
-                // lefty_docs.insert(key.clone(), idx);
-                if let Some(right) = righty_docs.get(&key) {
-                    matches.push(MatchingDocs {
-                        key,
-                        left: idx,
-                        right: *right,
-                    });
-                    continue;
-                }
+    let mut last_idx_used_on_right = 0usize;
+    for (idx, doc) in lefts.iter().enumerate() {
+        if let Some(key) = extract(idx, doc) {
+            // lefty_docs.insert(key.clone(), idx);
+            if let Some(right) = righty_docs.get(&key) {
+                matches.push(MatchingDocs {
+                    key,
+                    left: idx,
+                    right: *right,
+                });
+                continue;
+            }
 
-                for right in last_idx_used_on_right..rights.len() {
-                    let doc = &rights[right];
-                    if let Some(right_key) = extract(right, doc) {
-                        righty_docs.insert(right_key.clone(), idx);
-                        if right_key == key {
-                            matches.push(MatchingDocs {
-                                key,
-                                left: idx,
-                                right,
-                            });
-                            last_idx_used_on_right = right;
-                            break;
-                        }
+            for right in last_idx_used_on_right..rights.len() {
+                let doc = &rights[right];
+                if let Some(right_key) = extract(right, doc) {
+                    righty_docs.insert(right_key.clone(), idx);
+                    if right_key == key {
+                        matches.push(MatchingDocs {
+                            key,
+                            left: idx,
+                            right,
+                        });
+                        last_idx_used_on_right = right;
+                        break;
                     }
                 }
             }
         }
-        dbg!(&matches);
-
-        // Naive one should go number by number...
-        (matches, Vec::new(), Vec::new())
     }
+
+    (matches, Vec::new(), Vec::new())
 }
 
 /// Newtype used to identify a document.
@@ -94,11 +91,11 @@ pub enum DocDifference {
     },
 }
 pub fn diff(
-    ctx: Context,
-    lefts: &Vec<serde_yaml::Value>,
-    rights: &Vec<serde_yaml::Value>,
+    _ctx: Context,
+    lefts: &[serde_yaml::Value],
+    rights: &[serde_yaml::Value],
 ) -> Vec<DocDifference> {
-    let (matches, _missing, _added) = ctx.matching_docs(lefts, rights, |_, doc| {
+    let (matches, _missing, _added) = matching_docs(lefts, rights, |_, doc| {
         doc.get("metadata")
             .and_then(|m| m.get("name"))
             .and_then(|n| n.as_str())
