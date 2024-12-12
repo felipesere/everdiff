@@ -233,7 +233,7 @@ mod tests {
         "#});
 
         let ctx = Context::new_with_doc_identifier(Box::new(
-            crate::identifier::kubernetes::by_api_namespace_name(),
+            crate::identifier::kubernetes::metadata_name(),
         ));
         let differences = diff(ctx, &left, &right);
 
