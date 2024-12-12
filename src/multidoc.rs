@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::{identifier, Difference as Diff};
+use crate::{diff::Difference as Diff, identifier};
 
 #[derive(Debug)]
 pub struct MatchingDocs {
@@ -148,7 +148,7 @@ pub fn diff(
     for MatchingDocs { key, left, right } in matches {
         let left_doc = &lefts[left];
         let right_doc = &rights[right];
-        let diffs = super::diff(super::Context::new(), left_doc, right_doc);
+        let diffs = crate::diff::diff(crate::diff::Context::new(), left_doc, right_doc);
         if !diffs.is_empty() {
             differences.push(DocDifference::Changed {
                 key,
@@ -173,8 +173,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::{
+        diff::{Difference, Path},
         multidoc::{diff, AdditionalDoc, Context, DocDifference, DocKey, MissingDoc},
-        Difference, Path,
     };
     use indoc::indoc;
     use serde::Deserialize;
