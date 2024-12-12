@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::Difference as Diff;
+use crate::{identifier, Difference as Diff};
 
 #[derive(Debug)]
 pub struct MatchingDocs {
@@ -21,12 +21,31 @@ pub struct AdditionalDoc {
     right: usize,
 }
 
-#[derive(Default, Debug)]
-pub struct Context;
+pub struct Context {
+    doc_identifier: Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>>,
+}
+
+impl std::fmt::Debug for Context {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Context")
+            .field("doc_identifier", &"a fn")
+            .finish()
+    }
+}
 
 impl Context {
     pub fn new() -> Self {
-        Context::default()
+        Context {
+            doc_identifier: Box::new(identifier::by_index()),
+        }
+    }
+
+    pub fn new_with_doc_identifier(
+        identifier: Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>>,
+    ) -> Self {
+        Context {
+            doc_identifier: identifier,
+        }
     }
 }
 
@@ -96,6 +115,12 @@ fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey>>(
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct DocKey(BTreeMap<String, String>);
 
+impl From<BTreeMap<String, String>> for DocKey {
+    fn from(value: BTreeMap<String, String>) -> Self {
+        Self(value)
+    }
+}
+
 /// Newtype around a usize to index into the collection of Documents
 // #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 //struct DocIdx(usize);
@@ -113,21 +138,11 @@ pub enum DocDifference {
 }
 
 pub fn diff(
-    _ctx: Context,
+    ctx: Context,
     lefts: &[serde_yaml::Value],
     rights: &[serde_yaml::Value],
 ) -> Vec<DocDifference> {
-    let (matches, missing, added) = matching_docs(lefts, rights, |_, doc| {
-        doc.get("metadata")
-            .and_then(|m| m.get("name"))
-            .and_then(|n| n.as_str())
-            .map(|name| {
-                DocKey(BTreeMap::from([(
-                    "metadata.name".to_string(),
-                    name.to_string(),
-                )]))
-            })
-    });
+    let (matches, missing, added) = matching_docs(lefts, rights, ctx.doc_identifier);
 
     let mut differences = Vec::new();
     for MatchingDocs { key, left, right } in matches {
@@ -158,13 +173,11 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::{
-        multidoc::{diff, AdditionalDoc, DocDifference, DocKey, MissingDoc},
+        multidoc::{diff, AdditionalDoc, Context, DocDifference, DocKey, MissingDoc},
         Difference, Path,
     };
     use indoc::indoc;
     use serde::Deserialize;
-
-    use super::Context;
 
     pub fn docs(raw: &str) -> Vec<serde_yaml::Value> {
         let mut docs = Vec::new();
@@ -219,7 +232,10 @@ mod tests {
         ...
         "#});
 
-        let differences = diff(Context::new(), &left, &right);
+        let ctx = Context::new_with_doc_identifier(Box::new(
+            crate::identifier::kubernetes::by_api_namespace_name(),
+        ));
+        let differences = diff(ctx, &left, &right);
 
         assert_eq!(
             differences,

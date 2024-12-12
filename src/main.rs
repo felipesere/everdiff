@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::{cmp::max, collections::HashSet};
 
+mod identifier;
 mod multidoc;
 
 /// Differnece between YAML documents
