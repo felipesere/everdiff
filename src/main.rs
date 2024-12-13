@@ -14,8 +14,9 @@ enum Commands {
     },
 
     MultiDoc {
-        #[clap(short, long, default_value = "index")]
-        compare_docs_by: CompareDocsBy,
+        /// Use Kubernetes comparison
+        #[arg(short = 'k', long, default_value = "false")]
+        kubernetes: bool,
         #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
         left: Vec<camino::Utf8PathBuf>,
         #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
@@ -24,7 +25,7 @@ enum Commands {
 }
 
 #[derive(Default, ValueEnum, Clone, Debug)]
-enum CompareDocsBy {
+enum Comparison {
     #[default]
     Index,
     Kubernetes,
@@ -53,18 +54,22 @@ fn main() -> anyhow::Result<()> {
 
             render(diffs);
         }
-
         Commands::MultiDoc {
             left,
             right,
-            compare_docs_by,
+            kubernetes,
         } => {
             let left = read_all_docs(&left)?;
             let right = read_all_docs(&right)?;
+            let comparator = if kubernetes {
+                Comparison::Kubernetes
+            } else {
+                Comparison::Index
+            };
 
-            let id = match compare_docs_by {
-                CompareDocsBy::Index => identifier::by_index(),
-                CompareDocsBy::Kubernetes => identifier::kubernetes::metadata_name(),
+            let id = match comparator {
+                Comparison::Index => identifier::by_index(),
+                Comparison::Kubernetes => identifier::kubernetes::metadata_name(),
             };
 
             let ctx = multidoc::Context::new_with_doc_identifier(id);
