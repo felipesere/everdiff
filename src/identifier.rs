@@ -1,10 +1,13 @@
 use crate::multidoc::DocKey;
 use std::collections::BTreeMap;
 
+/// Fn that identifies a document by inspecting keys
+pub type IdentifierFn = Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>>;
+
 /// Naively assume that a document is identified by its index in the document.
 /// This effectively means that documents are diffed pair-wise in the
 /// order they show up in the YAML
-pub fn by_index() -> Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>> {
+pub fn by_index() -> IdentifierFn {
     Box::new(|idx, _| {
         Some(DocKey::from(BTreeMap::from([(
             "idx".to_string(),
@@ -22,10 +25,11 @@ pub mod kubernetes {
     }
 
     /// Keys to identify immutable kinds
-    pub fn gvk() -> Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>> {
+    pub fn gvk() -> IdentifierFn {
         Box::new(|_, doc| {
             let api_version = string_of(doc.get("apiVersion"));
             let kind = string_of(doc.get("kind"));
+            // TODO: don't bail on missing metadata
             let name = string_of(doc.get("metadata")?.get("name"));
 
             Some(DocKey::from(BTreeMap::from([
@@ -37,8 +41,9 @@ pub mod kubernetes {
     }
 
     /// Keys used to find renamed kinds
-    pub fn names() -> Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>> {
+    pub fn names() -> IdentifierFn {
         Box::new(|_, doc| {
+            // TODO: don't bail on missing metadata
             let name = string_of(doc.get("metadata")?.get("name"));
             let namespace = string_of(doc.get("metadata")?.get("namespace"));
             Some(DocKey::from(BTreeMap::from([
