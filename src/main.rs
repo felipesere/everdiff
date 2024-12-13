@@ -7,22 +7,7 @@ mod identifier;
 mod multidoc;
 
 #[derive(Subcommand, Debug)]
-enum Commands {
-    Between {
-        left: camino::Utf8PathBuf,
-        right: camino::Utf8PathBuf,
-    },
-
-    MultiDoc {
-        /// Use Kubernetes comparison
-        #[arg(short = 'k', long, default_value = "false")]
-        kubernetes: bool,
-        #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
-        left: Vec<camino::Utf8PathBuf>,
-        #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
-        right: Vec<camino::Utf8PathBuf>,
-    },
-}
+enum Commands {}
 
 #[derive(Default, ValueEnum, Clone, Debug)]
 enum Comparison {
@@ -35,50 +20,36 @@ enum Comparison {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[command(subcommand)]
-    commands: Commands,
+    /// Use Kubernetes comparison
+    #[arg(short = 'k', long, default_value = "false")]
+    kubernetes: bool,
+    #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
+    left: Vec<camino::Utf8PathBuf>,
+    #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
+    right: Vec<camino::Utf8PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    match args.commands {
-        Commands::Between { left, right } => {
-            let left = std::fs::File::open(left).unwrap();
-            let left_doc: serde_yaml::Value = serde_yaml::from_reader(left).unwrap();
+    let left = read_all_docs(&args.left)?;
+    let right = read_all_docs(&args.right)?;
+    let comparator = if args.kubernetes {
+        Comparison::Kubernetes
+    } else {
+        Comparison::Index
+    };
 
-            let right = std::fs::File::open(right).unwrap();
-            let right_doc: serde_yaml::Value = serde_yaml::from_reader(right).unwrap();
+    let id = match comparator {
+        Comparison::Index => identifier::by_index(),
+        Comparison::Kubernetes => identifier::kubernetes::apiversion_resource_name(),
+    };
 
-            let diffs = diff::diff(diff::Context::new(), &left_doc, &right_doc);
+    let ctx = multidoc::Context::new_with_doc_identifier(id);
 
-            render(diffs);
-        }
-        Commands::MultiDoc {
-            left,
-            right,
-            kubernetes,
-        } => {
-            let left = read_all_docs(&left)?;
-            let right = read_all_docs(&right)?;
-            let comparator = if kubernetes {
-                Comparison::Kubernetes
-            } else {
-                Comparison::Index
-            };
+    let diffs = multidoc::diff(ctx, &left, &right);
 
-            let id = match comparator {
-                Comparison::Index => identifier::by_index(),
-                Comparison::Kubernetes => identifier::kubernetes::apiversion_resource_name(),
-            };
-
-            let ctx = multidoc::Context::new_with_doc_identifier(id);
-
-            let diffs = multidoc::diff(ctx, &left, &right);
-
-            render_multidoc_diff(diffs)
-        }
-    }
+    render_multidoc_diff(diffs);
 
     Ok(())
 }
