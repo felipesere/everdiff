@@ -70,19 +70,19 @@ pub fn render_multidoc_diff(differences: Vec<DocDifference>) {
     for d in differences {
         match d {
             DocDifference::Addition(AdditionalDoc { key, .. }) => {
-                let key = indent::indent_by(4, key.to_string());
+                let key = indent::indent_all_by(4, key.to_string());
                 println!("Additional document:");
                 println!("{key}");
             }
             DocDifference::Missing(MissingDoc { key, .. }) => {
-                let key = indent::indent_by(4, key.to_string());
+                let key = indent::indent_all_by(4, key.to_string());
                 println!("Additional document:");
                 println!("{key}");
             }
             DocDifference::Changed {
                 key, differences, ..
             } => {
-                let key = indent::indent_by(4, key.to_string());
+                let key = indent::indent_all_by(4, key.to_string());
                 println!("Changed document:");
                 println!("{key}");
                 render(differences);
