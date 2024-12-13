@@ -112,9 +112,19 @@ pub struct DocKey(BTreeMap<String, String>);
 impl Display for DocKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (k, v) in &self.0 {
-            f.write_fmt(format_args!("{k} → {v}")).unwrap();
+            f.write_fmt(format_args!("{k} → {v}\n")).unwrap();
         }
         Ok(())
+    }
+}
+
+impl<const N: usize> From<[(&'static str, &'static str); N]> for DocKey {
+    fn from(value: [(&'static str, &'static str); N]) -> Self {
+        let vals = value
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect::<BTreeMap<_, _>>();
+        DocKey(vals)
     }
 }
 
@@ -172,7 +182,7 @@ pub fn diff(
 
 #[cfg(test)]
 mod tests {
-    use pretty_assertions::assert_eq;
+    use pretty_assertions::{assert_eq, assert_str_eq};
     use std::collections::BTreeMap;
 
     use crate::{
@@ -244,10 +254,7 @@ mod tests {
             differences,
             vec![
                 DocDifference::Changed {
-                    key: DocKey(BTreeMap::from([(
-                        "metadata.name".to_string(),
-                        "bravo".to_string()
-                    )])),
+                    key: DocKey::from([("metadata.name", "bravo")]),
                     left_doc: 0,
                     right_doc: 1,
                     differences: vec![Difference::Changed {
@@ -257,10 +264,7 @@ mod tests {
                     }]
                 },
                 DocDifference::Changed {
-                    key: DocKey(BTreeMap::from([(
-                        "metadata.name".to_string(),
-                        "alpha".to_string()
-                    )])),
+                    key: DocKey::from([("metadata.name", "alpha")]),
                     left_doc: 1,
                     right_doc: 0,
                     differences: vec![Difference::Changed {
@@ -270,20 +274,26 @@ mod tests {
                     }]
                 },
                 DocDifference::Missing(MissingDoc {
-                    key: DocKey(BTreeMap::from([(
-                        "metadata.name".to_string(),
-                        "charlie".to_string()
-                    )])),
+                    key: DocKey::from([("metadata.name", "charlie")]),
                     left: 2,
                 }),
                 DocDifference::Addition(AdditionalDoc {
-                    key: DocKey(BTreeMap::from([(
-                        "metadata.name".to_string(),
-                        "delta".to_string()
-                    )])),
+                    key: DocKey::from([("metadata.name", "delta")]),
                     right: 2,
                 }),
             ]
         )
+    }
+
+    #[test]
+    fn display_dockey() {
+        let key = DocKey::from([("api_version", "bar"), ("metadata.name", "foo")]);
+        assert_eq!(
+            key.to_string(),
+            indoc! {r#"
+            api_version → bar
+            metadata.name → foo
+        "#}
+        );
     }
 }
