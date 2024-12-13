@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, fmt::Display};
 
 use crate::diff::Difference as Diff;
+use crate::identifier::IdentifierFn;
 
 #[derive(Debug)]
 pub struct MatchingDocs {
@@ -22,7 +23,7 @@ pub struct AdditionalDoc {
 }
 
 pub struct Context {
-    doc_identifier: Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>>,
+    identifier: IdentifierFn,
 }
 
 impl std::fmt::Debug for Context {
@@ -34,12 +35,8 @@ impl std::fmt::Debug for Context {
 }
 
 impl Context {
-    pub fn new_with_doc_identifier(
-        identifier: Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>>,
-    ) -> Self {
-        Context {
-            doc_identifier: identifier,
-        }
+    pub fn new_with_doc_identifier(identifier: IdentifierFn) -> Self {
+        Context { identifier }
     }
 }
 
@@ -166,7 +163,7 @@ pub fn diff(
     lefts: &[serde_yaml::Value],
     rights: &[serde_yaml::Value],
 ) -> Vec<DocDifference> {
-    let (matches, missing, added) = matching_docs(lefts, rights, ctx.doc_identifier);
+    let (matches, missing, added) = matching_docs(lefts, rights, ctx.identifier);
 
     let mut differences = Vec::new();
     for MatchingDocs { key, left, right } in matches {
@@ -224,6 +221,7 @@ mod tests {
         ---
         metadata:
           name: alpha
+          namespace: ns
         spec:
           thing: 12
         ...
@@ -239,6 +237,7 @@ mod tests {
         ---
         metadata:
           name: alpha
+          namespace: ns
         spec:
           thing: 24
         ...
@@ -278,7 +277,7 @@ mod tests {
                 DocDifference::Changed {
                     key: DocKey::from([
                         ("metadata.name", Some("alpha")),
-                        ("metadata.namespace", None)
+                        ("metadata.namespace", Some("ns"))
                     ]),
                     left_doc: 1,
                     right_doc: 0,
