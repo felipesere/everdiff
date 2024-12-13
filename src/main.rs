@@ -1,4 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use diff::Difference;
+use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 
 mod diff;
 mod identifier;
@@ -49,7 +51,7 @@ fn main() -> anyhow::Result<()> {
 
             let diffs = diff::diff(diff::Context::new(), &left_doc, &right_doc);
 
-            dbg!(diffs);
+            render(diffs);
         }
 
         Commands::MultiDoc {
@@ -69,7 +71,7 @@ fn main() -> anyhow::Result<()> {
 
             let diffs = multidoc::diff(ctx, &left, &right);
 
-            dbg!(diffs);
+            render_multidoc_diff(diffs)
         }
     }
 
@@ -89,4 +91,57 @@ fn read_all_docs(paths: &[camino::Utf8PathBuf]) -> anyhow::Result<Vec<serde_yaml
     }
 
     Ok(docs)
+}
+
+pub fn render_multidoc_diff(differences: Vec<DocDifference>) {
+    for d in differences {
+        match d {
+            DocDifference::Addition(AdditionalDoc { key, .. }) => {
+                let key = indent::indent_by(4, key.to_string());
+                println!("Additional document:");
+                println!("{key}");
+            }
+            DocDifference::Missing(MissingDoc { key, .. }) => {
+                let key = indent::indent_by(4, key.to_string());
+                println!("Additional document:");
+                println!("{key}");
+            }
+            DocDifference::Changed {
+                key, differences, ..
+            } => {
+                let key = indent::indent_by(4, key.to_string());
+                println!("Changed document:");
+                println!("{key}");
+                render(differences);
+            }
+        }
+    }
+}
+
+pub fn render(differences: Vec<Difference>) {
+    use owo_colors::OwoColorize;
+    for d in differences {
+        match d {
+            Difference::Added { path, value } => {
+                println!("Added: {p}:", p = path.jq_like());
+                let added_yaml = indent::indent_all_by(4, serde_yaml::to_string(&value).unwrap());
+
+                println!("{a}", a = added_yaml.green());
+            }
+            Difference::Removed { path, value } => {
+                println!("Removed: {p}:", p = path.jq_like());
+                let removed_yaml = indent::indent_all_by(4, serde_yaml::to_string(&value).unwrap());
+                println!("{r}", r = removed_yaml.red());
+            }
+            Difference::Changed { path, left, right } => {
+                println!("Changed: {p}:", p = path.jq_like());
+                let left = indent::indent_all_by(4, serde_yaml::to_string(&left).unwrap());
+                let right = indent::indent_all_by(4, serde_yaml::to_string(&right).unwrap());
+
+                print!("{r}", r = left.green());
+                print!("{r}", r = right.red());
+            }
+        }
+        println!()
+    }
 }

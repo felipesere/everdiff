@@ -45,6 +45,22 @@ impl From<usize> for Segment {
 pub struct Path(Vec<Segment>);
 
 impl Path {
+    pub fn jq_like(&self) -> String {
+        let mut buf = String::new();
+        for s in &self.0 {
+            match s {
+                Segment::Field(serde_yaml::Value::String(s)) => {
+                    buf += &format!(".{s}");
+                }
+                Segment::Field(other) => panic!("{other:?} not supported for jq_like"),
+                Segment::Index(n) => {
+                    buf += &format!("[{n}]");
+                }
+            };
+        }
+        buf
+    }
+
     pub fn push(&self, value: impl Into<Segment>) -> Self {
         let mut copy = self.clone();
         copy.0.push(value.into());
@@ -64,9 +80,7 @@ pub struct Context {
 
 impl Default for Context {
     fn default() -> Self {
-        Self {
-            path: Path(vec![".".into()]),
-        }
+        Self { path: Path(vec![]) }
     }
 }
 
@@ -174,7 +188,7 @@ mod tests {
             vec![Difference::Changed {
                 left: serde_yaml::Value::Number(1.into()),
                 right: serde_yaml::Value::Number(2.into()),
-                path: Path::from_unchecked(vec![".".into(), "foo".into(), "bar".into(),])
+                path: Path::from_unchecked(vec!["foo".into(), "bar".into(),])
             }]
         )
     }
@@ -206,10 +220,10 @@ mod tests {
                 Difference::Changed {
                     left: serde_yaml::Value::String("a".into()),
                     right: serde_yaml::Value::String("x".into()),
-                    path: Path::from_unchecked(vec![".".into(), "foo".into(), 0.into(),])
+                    path: Path::from_unchecked(vec!["foo".into(), 0.into(),])
                 },
                 Difference::Added {
-                    path: Path::from_unchecked(vec![".".into(), "foo".into(), 3.into()]),
+                    path: Path::from_unchecked(vec!["foo".into(), 3.into()]),
                     value: serde_yaml::Value::String("d".to_string())
                 }
             ]
@@ -238,7 +252,7 @@ mod tests {
         assert_eq!(
             differences,
             vec![Difference::Removed {
-                path: Path::from_unchecked(vec![".".into(), "foo".into(), 2.into()]),
+                path: Path::from_unchecked(vec!["foo".into(), 2.into()]),
                 value: serde_yaml::Value::String("c".to_string())
             }]
         )
@@ -265,7 +279,7 @@ mod tests {
             vec![Difference::Changed {
                 left: serde_yaml::Value::String("12".into()),
                 right: serde_yaml::Value::Bool(false),
-                path: Path::from_unchecked(vec![".".into(), "foo".into(), "bar".into(),])
+                path: Path::from_unchecked(vec!["foo".into(), "bar".into(),])
             },]
         )
     }
@@ -299,7 +313,6 @@ mod tests {
             differences,
             vec![Difference::Removed {
                 path: Path::from_unchecked(vec![
-                    ".".into(),
                     "egress".into(),
                     0.into(),
                     "ports".into(),

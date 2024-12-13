@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
-use crate::{diff::Difference as Diff, identifier};
+use crate::diff::Difference as Diff;
 
 #[derive(Debug)]
 pub struct MatchingDocs {
@@ -11,14 +11,14 @@ pub struct MatchingDocs {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct MissingDoc {
-    key: DocKey,
-    left: usize,
+    pub key: DocKey,
+    pub left: usize,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct AdditionalDoc {
-    key: DocKey,
-    right: usize,
+    pub key: DocKey,
+    pub right: usize,
 }
 
 pub struct Context {
@@ -34,12 +34,6 @@ impl std::fmt::Debug for Context {
 }
 
 impl Context {
-    pub fn new() -> Self {
-        Context {
-            doc_identifier: Box::new(identifier::by_index()),
-        }
-    }
-
     pub fn new_with_doc_identifier(
         identifier: Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>>,
     ) -> Self {
@@ -114,6 +108,15 @@ fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey>>(
 /// from a Kubernetes resource to diff
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct DocKey(BTreeMap<String, String>);
+
+impl Display for DocKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (k, v) in &self.0 {
+            f.write_fmt(format_args!("{k} → {v}")).unwrap();
+        }
+        Ok(())
+    }
+}
 
 impl From<BTreeMap<String, String>> for DocKey {
     fn from(value: BTreeMap<String, String>) -> Self {
@@ -248,7 +251,7 @@ mod tests {
                     left_doc: 0,
                     right_doc: 1,
                     differences: vec![Difference::Changed {
-                        path: Path::from_unchecked(vec![".".into(), "spec".into(), "color".into()]),
+                        path: Path::from_unchecked(vec!["spec".into(), "color".into()]),
                         left: serde_yaml::Value::String("yellow".into()),
                         right: serde_yaml::Value::String("blue".into()),
                     }]
@@ -261,7 +264,7 @@ mod tests {
                     left_doc: 1,
                     right_doc: 0,
                     differences: vec![Difference::Changed {
-                        path: Path::from_unchecked(vec![".".into(), "spec".into(), "thing".into()]),
+                        path: Path::from_unchecked(vec!["spec".into(), "thing".into()]),
                         left: serde_yaml::Value::Number(12.into()),
                         right: serde_yaml::Value::Number(24.into()),
                     }]
