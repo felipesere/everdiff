@@ -73,14 +73,24 @@ impl Path {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrayOrdering {
+    Fixed,
+    Dynamic,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Context {
     path: Path,
+    array_ordering: ArrayOrdering,
 }
 
 impl Default for Context {
     fn default() -> Self {
-        Self { path: Path(vec![]) }
+        Self {
+            path: Path(vec![]),
+            array_ordering: ArrayOrdering::Fixed,
+        }
     }
 }
 
@@ -127,27 +137,53 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
             diffs
         }
         (Value::Sequence(left_elements), Value::Sequence(right_elements)) => {
-            // we start by comparing the in order
-            let max_element_idx = std::cmp::max(left_elements.len(), right_elements.len());
-
-            let mut diffs = Vec::new();
-            for idx in 0..max_element_idx {
-                match (left_elements.get(idx), right_elements.get(idx)) {
-                    (None, None) => unreachable!("the index must be from either left or right!"),
-                    (None, Some(addition)) => diffs.push(Difference::Added {
-                        path: ctx.path.push(idx),
-                        value: addition.clone(),
-                    }),
-                    (Some(removal), None) => diffs.push(Difference::Removed {
-                        path: ctx.path.push(idx),
-                        value: removal.clone(),
-                    }),
-                    (Some(left), Some(right)) => {
-                        diffs.append(&mut diff(ctx.for_key(idx), left, right));
+            if ctx.array_ordering == ArrayOrdering::Fixed {
+                // we start by comparing the in order
+                let max_element_idx = std::cmp::max(left_elements.len(), right_elements.len());
+                let mut diffs = Vec::new();
+                for idx in 0..max_element_idx {
+                    match (left_elements.get(idx), right_elements.get(idx)) {
+                        (None, None) => {
+                            unreachable!("the index must be from either left or right!")
+                        }
+                        (None, Some(addition)) => diffs.push(Difference::Added {
+                            path: ctx.path.push(idx),
+                            value: addition.clone(),
+                        }),
+                        (Some(removal), None) => diffs.push(Difference::Removed {
+                            path: ctx.path.push(idx),
+                            value: removal.clone(),
+                        }),
+                        (Some(left), Some(right)) => {
+                            diffs.append(&mut diff(ctx.for_key(idx), left, right));
+                        }
                     }
                 }
+                diffs
+            } else {
+                let mut total_difference = Vec::new();
+                for (idx, left_value) in left_elements.iter().enumerate() {
+                    let mut best_fit: Option<(usize, usize, Vec<Difference>)> = None;
+                    for (rdx, right_value) in right_elements.iter().enumerate() {
+                        let difference = diff(ctx.for_key(idx), left_value, right_value);
+                        match best_fit {
+                            None => {
+                                best_fit = Some((idx, rdx, difference));
+                            }
+                            Some((_, _, ref before)) if before.len() > difference.len() => {
+                                best_fit = Some((idx, rdx, difference));
+                            }
+                            _ => {}
+                        }
+                    }
+                    if let Some((_, _, mut difference)) = best_fit {
+                        total_difference.append(&mut difference);
+                    }
+                }
+
+                // dynamic ordering... so find best matches!
+                total_difference
             }
-            diffs
         }
         // if the values are the same, no need to further diff
         (left, right) if left == right => Vec::new(),
@@ -164,6 +200,9 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
 #[cfg(test)]
 mod tests {
     use indoc::indoc;
+    use pretty_assertions::assert_eq;
+
+    use crate::diff::ArrayOrdering;
 
     use super::{diff, Context, Difference, Path};
 
@@ -322,5 +361,57 @@ mod tests {
                 value: serde_yaml::Value::String("TCP".into()),
             }]
         )
+    }
+
+    /*
+     *       A   B   C   D
+     *    1  o   x   x   x
+     *    2  x   x   o   x
+     *    3  x   x   x   o
+     *
+     *
+     */
+
+    #[test]
+    fn reordered_array_should_still_be_equal() {
+        let left = serde_yaml::from_str(indoc! {r#"
+        some_list:
+          - name: alpha
+            value:
+              wheels: 5
+              doors: 3
+          - name: bravo
+            value:
+              wheels: 5
+              doors: 3
+          - name: charlie
+            value:
+              wheels: 5
+              doors: 3
+        "#})
+        .unwrap();
+
+        let right = serde_yaml::from_str(indoc! {r#"
+        some_list:
+          - value:
+              wheels: 5
+              doors: 3
+            name: bravo
+          - name: charlie
+            value:
+              doors: 3
+              wheels: 5
+          - name: alpha
+            value:
+              wheels: 5
+              doors: 3
+        "#})
+        .unwrap();
+
+        let mut ctx = Context::new();
+        ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let differences = diff(ctx, &left, &right);
+        assert_eq!(differences, Vec::new());
     }
 }
