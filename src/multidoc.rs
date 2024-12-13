@@ -107,12 +107,14 @@ fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey>>(
 ///
 /// from a Kubernetes resource to diff
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
-pub struct DocKey(BTreeMap<String, String>);
+pub struct DocKey(BTreeMap<String, Option<String>>);
 
 impl Display for DocKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (k, v) in &self.0 {
-            f.write_fmt(format_args!("{k} → {v}\n")).unwrap();
+        for (k, optval) in &self.0 {
+            if let Some(v) = &optval {
+                f.write_fmt(format_args!("{k} → {v}\n")).unwrap();
+            }
         }
         Ok(())
     }
@@ -122,15 +124,24 @@ impl<const N: usize> From<[(&'static str, &'static str); N]> for DocKey {
     fn from(value: [(&'static str, &'static str); N]) -> Self {
         let vals = value
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), Some(v.to_string())))
+            .collect::<BTreeMap<_, _>>();
+        DocKey(vals)
+    }
+}
+impl<const N: usize> From<[(&'static str, Option<&'static str>); N]> for DocKey {
+    fn from(value: [(&'static str, Option<&'static str>); N]) -> Self {
+        let vals = value
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.map(String::from)))
             .collect::<BTreeMap<_, _>>();
         DocKey(vals)
     }
 }
 
-impl From<BTreeMap<String, String>> for DocKey {
-    fn from(value: BTreeMap<String, String>) -> Self {
-        Self(value)
+impl From<BTreeMap<String, Option<String>>> for DocKey {
+    fn from(map: BTreeMap<String, Option<String>>) -> Self {
+        DocKey(map)
     }
 }
 
@@ -183,7 +194,6 @@ pub fn diff(
 #[cfg(test)]
 mod tests {
     use pretty_assertions::{assert_eq, assert_str_eq};
-    use std::collections::BTreeMap;
 
     use crate::{
         diff::{Difference, Path},
@@ -191,11 +201,12 @@ mod tests {
     };
     use indoc::indoc;
     use serde::Deserialize;
+    use serde_yaml::{Deserializer, Value};
 
     pub fn docs(raw: &str) -> Vec<serde_yaml::Value> {
         let mut docs = Vec::new();
-        for document in serde_yaml::Deserializer::from_str(raw) {
-            let v = serde_yaml::Value::deserialize(document).unwrap();
+        for document in Deserializer::from_str(raw) {
+            let v = Value::deserialize(document).unwrap();
             docs.push(v);
         }
         docs
@@ -245,40 +256,50 @@ mod tests {
         ...
         "#});
 
-        let ctx = Context::new_with_doc_identifier(Box::new(
-            crate::identifier::kubernetes::metadata_name(),
-        ));
+        let ctx = Context::new_with_doc_identifier(crate::identifier::kubernetes::names());
         let differences = diff(ctx, &left, &right);
 
         assert_eq!(
             differences,
             vec![
                 DocDifference::Changed {
-                    key: DocKey::from([("metadata.name", "bravo")]),
+                    key: DocKey::from([
+                        ("metadata.name", Some("bravo")),
+                        ("metadata.namespace", None)
+                    ]),
                     left_doc: 0,
                     right_doc: 1,
                     differences: vec![Difference::Changed {
                         path: Path::from_unchecked(vec!["spec".into(), "color".into()]),
-                        left: serde_yaml::Value::String("yellow".into()),
-                        right: serde_yaml::Value::String("blue".into()),
+                        left: Value::String("yellow".into()),
+                        right: Value::String("blue".into()),
                     }]
                 },
                 DocDifference::Changed {
-                    key: DocKey::from([("metadata.name", "alpha")]),
+                    key: DocKey::from([
+                        ("metadata.name", Some("alpha")),
+                        ("metadata.namespace", None)
+                    ]),
                     left_doc: 1,
                     right_doc: 0,
                     differences: vec![Difference::Changed {
                         path: Path::from_unchecked(vec!["spec".into(), "thing".into()]),
-                        left: serde_yaml::Value::Number(12.into()),
-                        right: serde_yaml::Value::Number(24.into()),
+                        left: Value::Number(12.into()),
+                        right: Value::Number(24.into()),
                     }]
                 },
                 DocDifference::Missing(MissingDoc {
-                    key: DocKey::from([("metadata.name", "charlie")]),
+                    key: DocKey::from([
+                        ("metadata.name", Some("charlie")),
+                        ("metadata.namespace", None)
+                    ]),
                     left: 2,
                 }),
                 DocDifference::Addition(AdditionalDoc {
-                    key: DocKey::from([("metadata.name", "delta")]),
+                    key: DocKey::from([
+                        ("metadata.name", Some("delta")),
+                        ("metadata.namespace", None)
+                    ]),
                     right: 2,
                 }),
             ]

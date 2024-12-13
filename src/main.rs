@@ -1,13 +1,10 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, ValueEnum};
 use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 
 mod diff;
 mod identifier;
 mod multidoc;
-
-#[derive(Subcommand, Debug)]
-enum Commands {}
 
 #[derive(Default, ValueEnum, Clone, Debug)]
 enum Comparison {
@@ -42,7 +39,7 @@ fn main() -> anyhow::Result<()> {
 
     let id = match comparator {
         Comparison::Index => identifier::by_index(),
-        Comparison::Kubernetes => identifier::kubernetes::apiversion_resource_name(),
+        Comparison::Kubernetes => identifier::kubernetes::gvk(),
     };
 
     let ctx = multidoc::Context::new_with_doc_identifier(id);
