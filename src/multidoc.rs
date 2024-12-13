@@ -190,7 +190,7 @@ pub fn diff(
 
 #[cfg(test)]
 mod tests {
-    use pretty_assertions::{assert_eq, assert_str_eq};
+    use pretty_assertions::assert_eq;
 
     use crate::{
         diff::{Difference, Path},
