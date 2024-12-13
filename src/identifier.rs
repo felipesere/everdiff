@@ -17,6 +17,24 @@ pub mod kubernetes {
     use super::*;
     use std::collections::BTreeMap;
 
+    fn string_of(node: &serde_yaml::Value) -> String {
+        node.as_str().map(String::from).unwrap()
+    }
+
+    pub fn apiversion_resource_name() -> Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>> {
+        Box::new(|_, doc| {
+            let api_version = string_of(doc.get("apiVersion")?);
+            let kind = string_of(doc.get("kind")?);
+            let name = string_of(doc.get("metadata")?.get("name")?);
+
+            Some(DocKey::from(BTreeMap::from([
+                ("api_version".to_string(), api_version),
+                ("kind".to_string(), kind),
+                ("metadata.name".to_string(), name),
+            ])))
+        })
+    }
+
     pub fn metadata_name() -> Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>> {
         Box::new(|_, doc| {
             doc.get("metadata")
