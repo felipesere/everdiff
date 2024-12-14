@@ -1,6 +1,9 @@
-use std::collections::HashSet;
+use std::{
+    collections::{BTreeMap, HashSet},
+    usize,
+};
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Difference {
     Added {
         path: Path,
@@ -161,28 +164,27 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
                 }
                 diffs
             } else {
-                let mut total_difference = Vec::new();
+                let mut difference_matrix =
+                    vec![vec![Vec::<Difference>::new(); right_elements.len()]; left_elements.len()];
+
+                // These are perfectly equal!
+                let mut good_candidates: Vec<(usize, usize)> = Vec::new();
+
                 for (idx, left_value) in left_elements.iter().enumerate() {
-                    let mut best_fit: Option<(usize, usize, Vec<Difference>)> = None;
                     for (rdx, right_value) in right_elements.iter().enumerate() {
                         let difference = diff(ctx.for_key(idx), left_value, right_value);
-                        match best_fit {
-                            None => {
-                                best_fit = Some((idx, rdx, difference));
-                            }
-                            Some((_, _, ref before)) if before.len() > difference.len() => {
-                                best_fit = Some((idx, rdx, difference));
-                            }
-                            _ => {}
+
+                        if difference.is_empty() {
+                            good_candidates.push((idx, rdx));
                         }
-                    }
-                    if let Some((_, _, mut difference)) = best_fit {
-                        total_difference.append(&mut difference);
+
+                        difference_matrix[idx][rdx] = difference;
                     }
                 }
 
-                // dynamic ordering... so find best matches!
-                total_difference
+                dbg!(&difference_matrix);
+
+                todo!()
             }
         }
         // if the values are the same, no need to further diff
@@ -363,15 +365,6 @@ mod tests {
         )
     }
 
-    /*
-     *       A   B   C   D
-     *    1  o   x   x   x
-     *    2  x   x   o   x
-     *    3  x   x   x   o
-     *
-     *
-     */
-
     #[test]
     fn reordered_array_should_still_be_equal() {
         let left = serde_yaml::from_str(indoc! {r#"
@@ -380,6 +373,10 @@ mod tests {
             value:
               wheels: 5
               doors: 3
+          - name: november
+            value:
+              wheels: 1
+              doors: 1
           - name: bravo
             value:
               wheels: 5
@@ -412,6 +409,19 @@ mod tests {
         ctx.array_ordering = ArrayOrdering::Dynamic;
 
         let differences = diff(ctx, &left, &right);
-        assert_eq!(differences, Vec::new());
+        // assert_eq!(differences, Vec::new());
+        assert_eq!(
+            differences,
+            vec![Difference::Added {
+                path: Path::from_unchecked(vec!["some_list".into(), 1.into()]),
+                value: serde_yaml::from_str(indoc::indoc! {r#"
+            name: november
+            value:
+                wheels: 1
+                doors: 1
+            "#})
+                .unwrap()
+            }]
+        )
     }
 }
