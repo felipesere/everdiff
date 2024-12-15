@@ -8,6 +8,7 @@ anyhow = "1.0.94"
 camino = "1.1.9"
 clap = { version = "4.5.23", features = ["derive"] }
 indent = "0.1.1"
+notify = "7.0.0"
 owo-colors = "4.1.0"
 serde = "1.0.215"
 serde_yaml = "0.9.34"
