@@ -1,6 +1,7 @@
 use clap::{Parser, ValueEnum};
 use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
+use notify::{RecursiveMode, Watcher};
 
 mod diff;
 mod identifier;
@@ -20,6 +21,11 @@ struct Args {
     /// Use Kubernetes comparison
     #[arg(short = 'k', long, default_value = "false")]
     kubernetes: bool,
+
+    /// Watch the `left` and `right` files for changes and re-run
+    #[arg(short = 'w', long, default_value = "false")]
+    watch: bool,
+
     #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
     left: Vec<camino::Utf8PathBuf>,
     #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
@@ -44,9 +50,29 @@ fn main() -> anyhow::Result<()> {
 
     let ctx = multidoc::Context::new_with_doc_identifier(id);
 
-    let diffs = multidoc::diff(ctx, &left, &right);
+    let diffs = multidoc::diff(&ctx, &left, &right);
 
     render_multidoc_diff(diffs);
+
+    if args.watch {
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let mut watcher = notify::recommended_watcher(tx)?;
+        for p in args.left.clone().into_iter().chain(args.right.clone()) {
+            watcher.watch(p.as_std_path(), RecursiveMode::NonRecursive)?;
+        }
+
+        for event in rx {
+            let _event = event?;
+            print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
+            let left = read_all_docs(&args.left)?;
+            let right = read_all_docs(&args.right)?;
+
+            let diffs = multidoc::diff(&ctx, &left, &right);
+
+            render_multidoc_diff(diffs);
+        }
+    }
 
     Ok(())
 }
@@ -67,6 +93,9 @@ fn read_all_docs(paths: &[camino::Utf8PathBuf]) -> anyhow::Result<Vec<serde_yaml
 }
 
 pub fn render_multidoc_diff(differences: Vec<DocDifference>) {
+    if differences.is_empty() {
+        println!("No differences found")
+    }
     for d in differences {
         match d {
             DocDifference::Addition(AdditionalDoc { key, .. }) => {

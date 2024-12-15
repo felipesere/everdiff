@@ -40,10 +40,10 @@ impl Context {
     }
 }
 
-fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey>>(
+fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey> + ?Sized>(
     lefts: &[serde_yaml::Value],
     rights: &[serde_yaml::Value],
-    extract: F,
+    extract: &F,
 ) -> (Vec<MatchingDocs>, Vec<MissingDoc>, Vec<AdditionalDoc>) {
     let mut seen_left_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
     let mut seen_right_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
@@ -159,11 +159,11 @@ pub enum DocDifference {
 }
 
 pub fn diff(
-    ctx: Context,
+    ctx: &Context,
     lefts: &[serde_yaml::Value],
     rights: &[serde_yaml::Value],
 ) -> Vec<DocDifference> {
-    let (matches, missing, added) = matching_docs(lefts, rights, ctx.identifier);
+    let (matches, missing, added) = matching_docs(lefts, rights, &ctx.identifier);
 
     let mut differences = Vec::new();
     for MatchingDocs { key, left, right } in matches {
@@ -190,7 +190,7 @@ pub fn diff(
 
 #[cfg(test)]
 mod tests {
-    use pretty_assertions::{assert_eq, assert_str_eq};
+    use pretty_assertions::assert_eq;
 
     use crate::{
         diff::{Difference, Path},
@@ -256,7 +256,7 @@ mod tests {
         "#});
 
         let ctx = Context::new_with_doc_identifier(crate::identifier::kubernetes::names());
-        let differences = diff(ctx, &left, &right);
+        let differences = diff(&ctx, &left, &right);
 
         assert_eq!(
             differences,
