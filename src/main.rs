@@ -106,19 +106,22 @@ fn read_and_patch(
 }
 
 pub fn render_multidoc_diff(differences: Vec<DocDifference>) {
+    use owo_colors::OwoColorize;
+
     if differences.is_empty() {
         println!("No differences found")
     }
+
     for d in differences {
         match d {
             DocDifference::Addition(AdditionalDoc { key, .. }) => {
                 let key = indent::indent_all_by(4, key.to_string());
-                println!("Additional document:");
+                println!("{m}", m = "Additional document:".green());
                 println!("{key}");
             }
             DocDifference::Missing(MissingDoc { key, .. }) => {
                 let key = indent::indent_all_by(4, key.to_string());
-                println!("Additional document:");
+                println!("{m}", m = "Missing document:".red());
                 println!("{key}");
             }
             DocDifference::Changed {
@@ -138,18 +141,18 @@ pub fn render(differences: Vec<Difference>) {
     for d in differences {
         match d {
             Difference::Added { path, value } => {
-                println!("Added: {p}:", p = path.jq_like());
+                println!("Added: {p}:", p = path.jq_like().bold());
                 let added_yaml = indent::indent_all_by(4, serde_yaml::to_string(&value).unwrap());
 
                 println!("{a}", a = added_yaml.green());
             }
             Difference::Removed { path, value } => {
-                println!("Removed: {p}:", p = path.jq_like());
+                println!("Removed: {p}:", p = path.jq_like().bold());
                 let removed_yaml = indent::indent_all_by(4, serde_yaml::to_string(&value).unwrap());
                 println!("{r}", r = removed_yaml.red());
             }
             Difference::Changed { path, left, right } => {
-                println!("Changed: {p}:", p = path.jq_like());
+                println!("Changed: {p}:", p = path.jq_like().bold());
                 let left = indent::indent_all_by(4, serde_yaml::to_string(&left).unwrap());
                 let right = indent::indent_all_by(4, serde_yaml::to_string(&right).unwrap());
 
