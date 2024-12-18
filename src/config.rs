@@ -9,5 +9,10 @@ pub struct Configuration {
 
 pub fn config_from_env() -> Option<Configuration> {
     let raw = std::fs::read_to_string("everdiff.config.yaml").ok()?;
-    serde_yaml::from_str(&raw).ok()
+    println!("Loaded configuration...");
+    serde_yaml::from_str(&raw)
+        .inspect_err(|err| {
+            println!("Failed to deserizlie config: {err:?}");
+        })
+        .ok()
 }
