@@ -39,6 +39,99 @@ prepatches:
 `documentLike` shows a snippet of the document that should match. In this case it will only match `NetworkPolicy` resources that are named `flux-engine-steam`
 The `patches` are JSONPatches with the limitation that we only support `op: replace` and `op: add` at the moment.
 
+<details>
+  <summary>Example use case</summary>
+
+Assume the following documents exists:
+```yaml
+# before.netpol.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flux-netpol
+  namespace: some
+spec:
+  podSelector:
+    matchLabels:
+      app: flux-engine-steam
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: opentelemetry-operator-system
+      ports:
+        - port: 13133
+```
+and
+```yaml
+# after.netpol.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flux
+  namespace: some
+spec:
+  podSelector:
+    matchLabels:
+      app: flux-engine-steam
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: opentelemetry-operator-system
+      ports:
+        - port: 13133
+        - port: 8080
+```
+Just running `everdiff --kubernetes --left before.netpol.yaml --right after.netpol.yaml` will say that there is a document added and one removed:
+
+```sh
+Missing document:
+    api_version → networking.k8s.io/v1
+    kind → NetworkPolicy
+    metadata.name → flux-engine-steam
+
+Additional document:
+    api_version → networking.k8s.io/v1
+    kind → NetworkPolicy
+    metadata.name → flux
+```
+
+We can see the `metadata.name` changes. But we know that they are semantically the same so we'd like to see if there
+are any meaningful differences.
+
+So we run the command again but with the following config in `everdiff.config.yaml`:
+
+```yaml
+prepatches:
+  - name: rename network policy to match chart convention
+    documentLike:
+      kind: NetworkPolicy
+      metadata:
+        name: flux-engine-steam
+    patches:
+      - op: replace
+        path: /metadata/name
+        value: flux
+```
+And now the output is different and more interesting:
+```sh
+Loaded configuration...
+Changed document:
+    api_version → networking.k8s.io/v1
+    kind → NetworkPolicy
+    metadata.name → flux
+
+Added: .spec.egress[0].ports[1]:
+    port: 8080
+```
+
+After lining up the names of the netwpol, we see that the real change is the addition of port `8080` to the first egress rule.
+</details>
 
 ## TODO
 
