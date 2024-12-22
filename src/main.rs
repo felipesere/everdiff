@@ -9,6 +9,7 @@ use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::prelude::StatefulWidget;
+use ratatui::style::Color;
 use ratatui::symbols;
 use ratatui::widgets::{BorderType, Borders};
 use ratatui::{
@@ -130,7 +131,19 @@ impl Widget for DifferenceState {
             .title("Left")
             .title_alignment(Alignment::Center);
 
-        Paragraph::new("Some...left..value")
+        let left_value = match &self.difference {
+            Difference::Added { .. } => Text::raw(""),
+            Difference::Removed { value, .. } => {
+                let raw_yaml = serde_yaml::to_string(value).unwrap();
+                Text::styled(raw_yaml, Style::new().bg(Color::Red))
+            }
+            Difference::Changed { left, .. } => {
+                let raw_yaml = serde_yaml::to_string(left).unwrap();
+                Text::styled(raw_yaml, Style::new().bg(Color::Yellow).fg(Color::Black))
+            }
+        };
+
+        Paragraph::new(left_value)
             .alignment(Alignment::Left)
             .block(left_aread_block)
             .render(value_areas[0], buf);
@@ -153,7 +166,19 @@ impl Widget for DifferenceState {
             .title("Right")
             .title_alignment(Alignment::Center);
 
-        Paragraph::new("Right...values...like")
+        let right_value = match &self.difference {
+            Difference::Added { value, .. } => {
+                let raw_yaml = serde_yaml::to_string(value).unwrap();
+                Text::styled(raw_yaml, Style::new().bg(Color::Green))
+            }
+            Difference::Removed { value, .. } => Text::raw(""),
+            Difference::Changed { right, .. } => {
+                let raw_yaml = serde_yaml::to_string(right).unwrap();
+                Text::styled(raw_yaml, Style::new().bg(Color::Yellow).fg(Color::Black))
+            }
+        };
+
+        Paragraph::new(right_value)
             .alignment(Alignment::Left)
             .block(right_aread_block)
             .render(value_areas[1], buf);
@@ -186,9 +211,30 @@ fn fake_removed_diff() -> Difference {
     Difference::Removed { path, value }
 }
 
+fn fake_changed_diff() -> Difference {
+    let path = Path::default().push("bla").push("blue");
+
+    let left = serde_yaml::from_str(indoc::indoc! {r#"
+            bla:
+              other: thing
+              wheels: 6
+        "#})
+    .unwrap();
+
+    let right = serde_yaml::from_str(indoc::indoc! {r#"
+            bla:
+              numbers: 7
+              doors: open
+        "#})
+    .unwrap();
+
+    Difference::Changed { path, left, right }
+}
+
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let differences = vec![fake_added_diff(), fake_removed_diff()];
+        let differences = vec![fake_added_diff(), fake_removed_diff(), fake_changed_diff()];
+        let item_count = differences.len();
 
         let builder = ListBuilder::new(move |context| {
             let idx = context.index;
@@ -200,7 +246,6 @@ impl Widget for &mut App {
             (s, main_axis_size)
         });
 
-        let item_count = 2;
         let list = ListView::new(builder, item_count);
         let state = &mut self.state;
 
