@@ -119,7 +119,9 @@ impl Widget for DifferenceState {
             .constraints(vec![Constraint::Length(2), Constraint::Length(18)])
             .split(area);
 
-        let no_bottom_border = Block::new().borders(Borders::LEFT | Borders::TOP | Borders::RIGHT);
+        let no_bottom_border = Block::new()
+            .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+            .border_type(BorderType::Thick);
 
         Paragraph::new(self.difference.path().jq_like())
             .block(no_bottom_border)
@@ -133,8 +135,8 @@ impl Widget for DifferenceState {
 
         // left area has a left-leaning T on the top-left and no right border
         let left_area_border_set = symbols::border::Set {
-            top_left: symbols::line::NORMAL.vertical_right,
-            ..symbols::border::PLAIN
+            top_left: symbols::line::THICK.vertical_right,
+            ..symbols::border::THICK
         };
         let left_aread_block = Block::new()
             .border_set(left_area_border_set)
@@ -166,10 +168,10 @@ impl Widget for DifferenceState {
         // * top-right is a right-leaning T
         //
         let right_area_border_set = symbols::border::Set {
-            top_left: symbols::line::NORMAL.horizontal_down,
-            bottom_left: symbols::line::NORMAL.horizontal_up,
-            top_right: symbols::line::NORMAL.vertical_left,
-            ..symbols::border::PLAIN
+            top_left: symbols::line::THICK.horizontal_down,
+            bottom_left: symbols::line::THICK.horizontal_up,
+            top_right: symbols::line::THICK.vertical_left,
+            ..symbols::border::THICK
         };
         let right_aread_block = Block::new()
             .border_set(right_area_border_set)
