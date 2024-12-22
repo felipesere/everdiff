@@ -7,17 +7,20 @@ edition = "2021"
 anyhow = "1.0.94"
 camino = "1.1.9"
 clap = { version = "4.5.23", features = ["derive"] }
+crossterm = "0.28.1"
 indent = "0.1.1"
 json-patch = { version = "3.0.1", default-features = false }
 jsonptr = { version = "0.6.3", default-features = false }
 notify = "7.0.0"
 owo-colors = "4.1.0"
+ratatui = "0.29.0"
 serde = "1.0.215"
 serde_json = "1.0.133"
 serde_yaml = "0.9.34"
 thiserror = "2.0.8"
+tui-widget-list = "0.13.0"
+indoc = "2.0.5"
 
 [dev-dependencies]
-indoc = "2.0.5"
 pretty_assertions = "1.4.1"
 expect-test = "1.5.0"

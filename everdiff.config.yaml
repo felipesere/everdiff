@@ -1,0 +1,11 @@
+# These "patches" are applied to documents on the `right` if they apply
+prepatches:
+  - name: rename network policy to match chart convention
+    documentLike:
+      kind: NetworkPolicy
+      metadata:
+        name: flux-engine-steam
+    patches:
+      - op: replace
+        path: /metadata/name
+        value: flux

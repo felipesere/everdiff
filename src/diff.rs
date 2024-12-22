@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Difference {
     Added {
         path: Path,
@@ -15,6 +15,16 @@ pub enum Difference {
         left: serde_yaml::Value,
         right: serde_yaml::Value,
     },
+}
+
+impl Difference {
+    pub fn path(&self) -> Path {
+        match self {
+            Difference::Added { path, .. } => path.clone(),
+            Difference::Removed { path, .. } => path.clone(),
+            Difference::Changed { path, .. } => path.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41,7 +51,7 @@ impl From<usize> for Segment {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Default, Clone, Debug, Eq, PartialEq)]
 pub struct Path(Vec<Segment>);
 
 impl Path {

@@ -1,8 +1,25 @@
+#![allow(unused)]
+use std::io;
+
 use clap::{Parser, ValueEnum};
 use config::config_from_env;
-use diff::Difference;
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use diff::{Difference, Path};
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout};
+use ratatui::prelude::StatefulWidget;
+use ratatui::widgets::{BorderType, Borders};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Style, Stylize},
+    symbols::border,
+    text::{Line, Text},
+    widgets::{Block, List, ListDirection, Paragraph, Widget},
+    DefaultTerminal, Frame,
+};
+use tui_widget_list::{ListBuilder, ListState, ListView};
 
 mod config;
 mod diff;
@@ -35,51 +52,188 @@ struct Args {
     right: Vec<camino::Utf8PathBuf>,
 }
 
+#[derive(Default)]
+pub struct App {
+    exit: bool,
+    state: ListState,
+}
+
+impl App {
+    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+        //terminal.draw(|frame| self.draw(frame))?;
+        while !self.exit {
+            terminal.draw(|frame| self.draw(frame))?;
+            self.handle_events()?;
+        }
+        Ok(())
+    }
+    fn draw(&mut self, frame: &mut Frame) {
+        frame.render_widget(self, frame.area())
+    }
+
+    fn handle_events(&mut self) -> io::Result<()> {
+        match event::read()? {
+            // it's important to check that the event is a key press event as
+            // crossterm also emits key release and repeat events on Windows.
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                self.handle_key_event(key_event)
+            }
+            _ => {}
+        };
+
+        Ok(())
+    }
+
+    fn handle_key_event(&mut self, key_event: event::KeyEvent) {
+        if key_event.code == KeyCode::Esc || key_event.code == KeyCode::Char('q') {
+            self.exit = true;
+        }
+    }
+}
+
+struct DifferenceState {
+    difference: Difference,
+}
+
+impl Widget for DifferenceState {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized,
+    {
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Length(3), Constraint::Length(18)])
+            .split(area);
+
+        let b = Block::new().borders(Borders::LEFT | Borders::TOP | Borders::RIGHT);
+
+        Paragraph::new(self.difference.path().jq_like())
+            .block(b)
+            .render(layout[0], buf);
+
+        let half_and_half = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)]);
+
+        let value_areas = half_and_half.split(layout[1]);
+
+        Paragraph::new("Some...left..value")
+            .alignment(Alignment::Left)
+            .block(
+                Block::bordered()
+                    .title("Left")
+                    .title_alignment(Alignment::Center),
+            )
+            .render(value_areas[0], buf);
+        Paragraph::new("Right...values...like")
+            .alignment(Alignment::Left)
+            .block(
+                Block::bordered()
+                    .title("Right")
+                    .title_alignment(Alignment::Center),
+            )
+            .render(value_areas[1], buf);
+    }
+}
+
+fn fake_added_diff() -> Difference {
+    let path = Path::default().push("foo").push("bar").push(1).push("baz");
+
+    let value = serde_yaml::from_str(indoc::indoc! {r#"
+            ports:
+              - port: 8080
+              - port: 9090
+        "#})
+    .unwrap();
+
+    Difference::Added { path, value }
+}
+
+fn fake_removed_diff() -> Difference {
+    let path = Path::default().push("foo").push("bar");
+
+    let value = serde_yaml::from_str(indoc::indoc! {r#"
+            bla:
+              other: thing
+              wheels: 6
+        "#})
+    .unwrap();
+
+    Difference::Removed { path, value }
+}
+
+impl Widget for &mut App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let differences = vec![fake_added_diff(), fake_removed_diff()];
+
+        let builder = ListBuilder::new(move |context| {
+            let idx = context.index;
+            let main_axis_size = 10;
+
+            let item = differences[idx].clone();
+            let s = DifferenceState { difference: item };
+
+            (s, main_axis_size)
+        });
+
+        let item_count = 2;
+        let list = ListView::new(builder, item_count);
+        let state = &mut self.state;
+
+        list.render(area, buf, state);
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let maybe_config = config_from_env();
-    let patches = maybe_config.map(|c| c.prepatches).unwrap_or_default();
+    let mut terminal = ratatui::init();
+    let app_result = App::default().run(&mut terminal);
+    ratatui::restore();
+    dbg!(app_result);
 
-    let left = read_and_patch(&args.left, &patches)?;
-    let right = read_and_patch(&args.right, &patches)?;
+    // let maybe_config = config_from_env();
+    // let patches = maybe_config.map(|c| c.prepatches).unwrap_or_default();
 
-    let comparator = if args.kubernetes {
-        Comparison::Kubernetes
-    } else {
-        Comparison::Index
-    };
+    // let left = read_and_patch(&args.left, &patches)?;
+    // let right = read_and_patch(&args.right, &patches)?;
 
-    let id = match comparator {
-        Comparison::Index => identifier::by_index(),
-        Comparison::Kubernetes => identifier::kubernetes::gvk(),
-    };
+    // let comparator = if args.kubernetes {
+    //     Comparison::Kubernetes
+    // } else {
+    //     Comparison::Index
+    // };
 
-    let ctx = multidoc::Context::new_with_doc_identifier(id);
+    // let id = match comparator {
+    //     Comparison::Index => identifier::by_index(),
+    //     Comparison::Kubernetes => identifier::kubernetes::gvk(),
+    // };
 
-    let diffs = multidoc::diff(&ctx, &left, &right);
+    // let ctx = multidoc::Context::new_with_doc_identifier(id);
 
-    render_multidoc_diff(diffs);
+    // let diffs = multidoc::diff(&ctx, &left, &right);
 
-    if args.watch {
-        let (tx, rx) = std::sync::mpsc::channel();
+    // render_multidoc_diff(diffs);
 
-        let mut watcher = notify::recommended_watcher(tx)?;
-        for p in args.left.clone().into_iter().chain(args.right.clone()) {
-            watcher.watch(p.as_std_path(), RecursiveMode::NonRecursive)?;
-        }
+    // if args.watch {
+    //     let (tx, rx) = std::sync::mpsc::channel();
 
-        for event in rx {
-            let _event = event?;
-            print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
-            let left = read_and_patch(&args.left, &patches)?;
-            let right = read_and_patch(&args.right, &patches)?;
+    //     let mut watcher = notify::recommended_watcher(tx)?;
+    //     for p in args.left.clone().into_iter().chain(args.right.clone()) {
+    //         watcher.watch(p.as_std_path(), RecursiveMode::NonRecursive)?;
+    //     }
 
-            let diffs = multidoc::diff(&ctx, &left, &right);
+    //     for event in rx {
+    //         let _event = event?;
+    //         print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
+    //         let left = read_and_patch(&args.left, &patches)?;
+    //         let right = read_and_patch(&args.right, &patches)?;
 
-            render_multidoc_diff(diffs);
-        }
-    }
+    //         let diffs = multidoc::diff(&ctx, &left, &right);
+
+    //         render_multidoc_diff(diffs);
+    //     }
+    // }
 
     Ok(())
 }
