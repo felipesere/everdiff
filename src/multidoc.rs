@@ -10,13 +10,13 @@ pub struct MatchingDocs {
     right: usize,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MissingDoc {
     pub key: DocKey,
     pub left: usize,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdditionalDoc {
     pub key: DocKey,
     pub right: usize,
@@ -146,7 +146,7 @@ impl From<BTreeMap<String, Option<String>>> for DocKey {
 // #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 //struct DocIdx(usize);
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DocDifference {
     Addition(AdditionalDoc),
     Missing(MissingDoc),
@@ -156,6 +156,15 @@ pub enum DocDifference {
         right_doc: usize,
         differences: Vec<Diff>,
     },
+}
+impl DocDifference {
+    pub(crate) fn key(&self) -> DocKey {
+        match &self {
+            DocDifference::Addition(a) => a.key.clone(),
+            DocDifference::Missing(m) => m.key.clone(),
+            DocDifference::Changed { key, .. } => key.clone(),
+        }
+    }
 }
 
 pub fn diff(
