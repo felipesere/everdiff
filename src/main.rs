@@ -97,6 +97,18 @@ struct DifferenceState {
     difference: Difference,
 }
 
+pub fn estimate_height(diff: &Difference) -> usize {
+    match diff {
+        Difference::Added { value, .. } => serde_yaml::to_string(value).unwrap().lines().count(),
+        Difference::Removed { value, .. } => serde_yaml::to_string(value).unwrap().lines().count(),
+        Difference::Changed { left, right, .. } => {
+            let left = serde_yaml::to_string(left).unwrap().lines().count();
+            let right = serde_yaml::to_string(right).unwrap().lines().count();
+            std::cmp::max(left, right)
+        }
+    }
+}
+
 impl Widget for DifferenceState {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
@@ -217,14 +229,12 @@ fn fake_changed_diff() -> Difference {
     let left = serde_yaml::from_str(indoc::indoc! {r#"
             bla:
               other: thing
-              wheels: 6
         "#})
     .unwrap();
 
     let right = serde_yaml::from_str(indoc::indoc! {r#"
             bla:
               numbers: 7
-              doors: open
         "#})
     .unwrap();
 
@@ -238,7 +248,7 @@ impl Widget for &mut App {
 
         let builder = ListBuilder::new(move |context| {
             let idx = context.index;
-            let main_axis_size = 10;
+            let main_axis_size = 4 + estimate_height(&differences[idx]) as u16;
 
             let item = differences[idx].clone();
             let s = DifferenceState { difference: item };
