@@ -31,7 +31,6 @@ impl TuiApp {
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        //terminal.draw(|frame| self.draw(frame))?;
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
@@ -69,15 +68,6 @@ impl Widget for &mut TuiApp {
             diff: diff[0].clone(),
         };
         n.render(area, buf);
-
-        //let differences = vec![fake_added_diff(), fake_removed_diff(), fake_changed_diff()];
-
-        //let multidoc = MultipleDifferencesState {
-        //    differences,
-        //    state: ListState::default(),
-        //};
-
-        //multidoc.render(area, buf);
     }
 }
 
@@ -256,48 +246,4 @@ impl Widget for DocDifferenceState {
             }
         }
     }
-}
-
-fn fake_added_diff() -> Difference {
-    let path = Path::default().push("foo").push("bar").push(1).push("baz");
-
-    let value = serde_yaml::from_str(indoc::indoc! {r#"
-            ports:
-              - port: 8080
-              - port: 9090
-        "#})
-    .unwrap();
-
-    Difference::Added { path, value }
-}
-
-fn fake_removed_diff() -> Difference {
-    let path = Path::default().push("foo").push("bar");
-
-    let value = serde_yaml::from_str(indoc::indoc! {r#"
-            bla:
-              other: thing
-              wheels: 6
-        "#})
-    .unwrap();
-
-    Difference::Removed { path, value }
-}
-
-fn fake_changed_diff() -> Difference {
-    let path = Path::default().push("bla").push("blue");
-
-    let left = serde_yaml::from_str(indoc::indoc! {r#"
-            bla:
-              other: thing
-        "#})
-    .unwrap();
-
-    let right = serde_yaml::from_str(indoc::indoc! {r#"
-            bla:
-              numbers: 7
-        "#})
-    .unwrap();
-
-    Difference::Changed { path, left, right }
 }
