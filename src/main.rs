@@ -9,6 +9,7 @@ use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::prelude::StatefulWidget;
+use ratatui::symbols;
 use ratatui::widgets::{BorderType, Borders};
 use ratatui::{
     buffer::Buffer,
@@ -102,13 +103,13 @@ impl Widget for DifferenceState {
     {
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Length(3), Constraint::Length(18)])
+            .constraints(vec![Constraint::Length(2), Constraint::Length(18)])
             .split(area);
 
-        let b = Block::new().borders(Borders::LEFT | Borders::TOP | Borders::RIGHT);
+        let no_bottom_border = Block::new().borders(Borders::LEFT | Borders::TOP | Borders::RIGHT);
 
         Paragraph::new(self.difference.path().jq_like())
-            .block(b)
+            .block(no_bottom_border)
             .render(layout[0], buf);
 
         let half_and_half = Layout::default()
@@ -117,21 +118,44 @@ impl Widget for DifferenceState {
 
         let value_areas = half_and_half.split(layout[1]);
 
+        // left area has a left-leaning T on the top-left and no right border
+        let left_area_border_set = symbols::border::Set {
+            top_left: symbols::line::NORMAL.vertical_right,
+            ..symbols::border::PLAIN
+        };
+        let left_aread_block = Block::new()
+            .border_set(left_area_border_set)
+            // don't render the bottom border because it will be rendered by the bottom block
+            .borders(Borders::TOP | Borders::LEFT | Borders::BOTTOM)
+            .title("Left")
+            .title_alignment(Alignment::Center);
+
         Paragraph::new("Some...left..value")
             .alignment(Alignment::Left)
-            .block(
-                Block::bordered()
-                    .title("Left")
-                    .title_alignment(Alignment::Center),
-            )
+            .block(left_aread_block)
             .render(value_areas[0], buf);
+
+        // the right area is super special:
+        // * top-left is a T
+        // * bottom-left is a flipped T
+        // * top-right is a right-leaning T
+        //
+        let right_area_border_set = symbols::border::Set {
+            top_left: symbols::line::NORMAL.horizontal_down,
+            bottom_left: symbols::line::NORMAL.horizontal_up,
+            top_right: symbols::line::NORMAL.vertical_left,
+            ..symbols::border::PLAIN
+        };
+        let right_aread_block = Block::new()
+            .border_set(right_area_border_set)
+            // don't render the bottom border because it will be rendered by the bottom block
+            .borders(Borders::ALL)
+            .title("Right")
+            .title_alignment(Alignment::Center);
+
         Paragraph::new("Right...values...like")
             .alignment(Alignment::Left)
-            .block(
-                Block::bordered()
-                    .title("Right")
-                    .title_alignment(Alignment::Center),
-            )
+            .block(right_aread_block)
             .render(value_areas[1], buf);
     }
 }
