@@ -57,7 +57,6 @@ struct Args {
 #[derive(Default)]
 pub struct App {
     exit: bool,
-    state: ListState,
 }
 
 impl App {
@@ -199,6 +198,33 @@ impl Widget for DifferenceState {
     }
 }
 
+struct MultipleDifferencesState {
+    differences: Vec<Difference>,
+    state: ListState,
+}
+
+impl Widget for MultipleDifferencesState {
+    fn render(mut self, area: Rect, buf: &mut Buffer) {
+        let differences = self.differences.clone();
+        let item_count = differences.len();
+
+        let builder = ListBuilder::new(move |context| {
+            let idx = context.index;
+            let main_axis_size = 4 + estimate_height(&differences[idx]) as u16;
+
+            let item = differences[idx].clone();
+            let s = DifferenceState { difference: item };
+
+            (s, main_axis_size)
+        });
+
+        let list = ListView::new(builder, item_count);
+        let state = &mut self.state;
+
+        list.render(area, buf, state);
+    }
+}
+
 fn fake_added_diff() -> Difference {
     let path = Path::default().push("foo").push("bar").push(1).push("baz");
 
@@ -246,22 +272,13 @@ fn fake_changed_diff() -> Difference {
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let differences = vec![fake_added_diff(), fake_removed_diff(), fake_changed_diff()];
-        let item_count = differences.len();
 
-        let builder = ListBuilder::new(move |context| {
-            let idx = context.index;
-            let main_axis_size = 4 + estimate_height(&differences[idx]) as u16;
+        let multidoc = MultipleDifferencesState {
+            differences,
+            state: ListState::default(),
+        };
 
-            let item = differences[idx].clone();
-            let s = DifferenceState { difference: item };
-
-            (s, main_axis_size)
-        });
-
-        let list = ListView::new(builder, item_count);
-        let state = &mut self.state;
-
-        list.render(area, buf, state);
+        multidoc.render(area, buf);
     }
 }
 
