@@ -63,9 +63,10 @@ impl TuiApp {
 
 impl Widget for &mut TuiApp {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let diff = self.diffs.clone();
-        let n = DocDifferenceState {
-            diff: diff[0].clone(),
+        let differences = self.diffs.clone();
+        let n = MultipleDocDifferencesState {
+            differences,
+            state: ListState::default(),
         };
         n.render(area, buf);
     }
@@ -222,14 +223,22 @@ impl Widget for DocDifferenceState {
             .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
             .border_type(BorderType::Thick);
 
-        Paragraph::new(raw_key)
-            .block(no_bottom_border)
-            .render(layout[0], buf);
-
         match self.diff {
-            DocDifference::Addition(_) => todo!(),
-            DocDifference::Missing(_) => todo!(),
+            DocDifference::Addition(_) => {
+                Paragraph::new(raw_key)
+                    .block(no_bottom_border)
+                    .render(layout[0], buf);
+            }
+            DocDifference::Missing(_) => {
+                Paragraph::new(raw_key)
+                    .block(no_bottom_border)
+                    .render(layout[0], buf);
+            }
             DocDifference::Changed { differences, .. } => {
+                Paragraph::new(raw_key)
+                    .block(no_bottom_border)
+                    .render(layout[0], buf);
+
                 let b = Block::new()
                     .borders(Borders::LEFT | Borders::BOTTOM | Borders::RIGHT)
                     .border_type(BorderType::Thick);
@@ -245,5 +254,32 @@ impl Widget for DocDifferenceState {
                 w.render(inner, buf)
             }
         }
+    }
+}
+
+struct MultipleDocDifferencesState {
+    differences: Vec<DocDifference>,
+    state: ListState,
+}
+
+impl Widget for MultipleDocDifferencesState {
+    fn render(mut self, area: Rect, buf: &mut Buffer) {
+        let differences = self.differences.clone();
+        let item_count = differences.len();
+
+        let builder = ListBuilder::new(move |context| {
+            let idx = context.index;
+            let main_axis_size = differences[idx].estimate_height();
+
+            let diff = differences[idx].clone();
+            let s = DocDifferenceState { diff };
+
+            (s, main_axis_size)
+        });
+
+        let list = ListView::new(builder, item_count);
+        let state = &mut self.state;
+
+        list.render(area, buf, state);
     }
 }

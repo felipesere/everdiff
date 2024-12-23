@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, fmt::Display};
 
 use crate::diff::Difference as Diff;
 use crate::identifier::IdentifierFn;
+use crate::tui::estimate_height;
 
 #[derive(Debug)]
 pub struct MatchingDocs {
@@ -164,6 +165,18 @@ impl DocDifference {
             DocDifference::Missing(m) => m.key.clone(),
             DocDifference::Changed { key, .. } => key.clone(),
         }
+    }
+
+    pub(crate) fn estimate_height(&self) -> u16 {
+        let key_height = self.key().to_string().lines().count() as u16;
+        key_height
+            + 2
+            + match self {
+                DocDifference::Changed { differences, .. } => {
+                    differences.iter().map(estimate_height).sum::<usize>() as u16
+                }
+                _ => 0,
+            }
     }
 }
 
