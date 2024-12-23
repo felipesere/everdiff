@@ -23,11 +23,16 @@ use crate::multidoc::DocDifference;
 pub struct TuiApp {
     exit: bool,
     diffs: Vec<DocDifference>,
+    diffs_list_state: ListState,
 }
 
 impl TuiApp {
     pub fn new(diffs: Vec<DocDifference>) -> Self {
-        Self { exit: false, diffs }
+        Self {
+            exit: false,
+            diffs,
+            diffs_list_state: ListState::default(),
+        }
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
@@ -58,17 +63,37 @@ impl TuiApp {
         if key_event.code == KeyCode::Esc || key_event.code == KeyCode::Char('q') {
             self.exit = true;
         }
+        if key_event.code == KeyCode::Down || key_event.code == KeyCode::Char('j') {
+            self.diffs_list_state.next();
+        }
+        if key_event.code == KeyCode::Up || key_event.code == KeyCode::Char('k') {
+            self.diffs_list_state.previous();
+        }
     }
 }
 
 impl Widget for &mut TuiApp {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let differences = self.diffs.clone();
-        let n = MultipleDocDifferencesState {
-            differences,
-            state: ListState::default(),
-        };
-        n.render(area, buf);
+        let item_count = differences.len();
+
+        let builder = ListBuilder::new(move |context| {
+            let idx = context.index;
+            let main_axis_size = differences[idx].estimate_height();
+
+            let diff = differences[idx].clone();
+            let s = DocDifferenceState {
+                diff,
+                selected: context.is_selected,
+            };
+
+            (s, main_axis_size)
+        });
+
+        let list = ListView::new(builder, item_count).infinite_scrolling(true);
+        let state = &mut self.diffs_list_state;
+
+        list.render(area, buf, state);
     }
 }
 
@@ -207,6 +232,7 @@ impl Widget for MultipleDifferencesState {
 
 struct DocDifferenceState {
     diff: DocDifference,
+    selected: bool,
 }
 
 impl Widget for DocDifferenceState {
@@ -219,8 +245,15 @@ impl Widget for DocDifferenceState {
             .constraints(vec![Constraint::Length(nr_of_lines), Constraint::Fill(50)])
             .split(area);
 
+        let color = if self.selected {
+            Color::Blue
+        } else {
+            Color::White
+        };
+
         let no_bottom_border = Block::new()
             .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+            .border_style(Style::new().fg(color))
             .border_type(BorderType::Thick);
 
         match self.diff {
@@ -272,12 +305,15 @@ impl Widget for MultipleDocDifferencesState {
             let main_axis_size = differences[idx].estimate_height();
 
             let diff = differences[idx].clone();
-            let s = DocDifferenceState { diff };
+            let s = DocDifferenceState {
+                diff,
+                selected: context.is_selected,
+            };
 
             (s, main_axis_size)
         });
 
-        let list = ListView::new(builder, item_count);
+        let list = ListView::new(builder, item_count).infinite_scrolling(true);
         let state = &mut self.state;
 
         list.render(area, buf, state);
