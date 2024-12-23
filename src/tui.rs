@@ -26,6 +26,103 @@ pub struct TuiApp {
     diffs_list_state: ListState,
 }
 
+struct State {
+    list: ListState,
+    elements: usize,
+}
+
+struct MultilistState {
+    document_state: State,
+    within_doc_state: Vec<State>,
+}
+
+impl MultilistState {
+    pub fn derive_from(diffs: &[DocDifference]) -> Self {
+        MultilistState {
+            document_state: State {
+                list: ListState::default(),
+                elements: diffs.len(),
+            },
+            within_doc_state: diffs
+                .iter()
+                .map(|diff| State {
+                    list: ListState::default(),
+                    elements: match diff {
+                        DocDifference::Addition(_) => 1,
+                        DocDifference::Missing(_) => 1,
+                        DocDifference::Changed { differences, .. } => differences.len(),
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    pub fn selected_document(&self) -> Option<usize> {
+        self.document_state.list.selected
+    }
+
+    pub fn selected_change_in_doc(&self) -> Option<usize> {
+        self.selected_document()
+            .and_then(|idx| self.within_doc_state[idx].list.selected)
+    }
+
+    pub fn next(&mut self) {
+        let doc_idx = match self.document_state.list.selected {
+            Some(n) => n,
+            None => {
+                self.document_state.list.select(Some(0));
+                0
+            }
+        };
+        let inner_doc_state = &mut self.within_doc_state[doc_idx];
+        match inner_doc_state.list.selected {
+            Some(n) if n == inner_doc_state.elements => {
+                // We are done with the current document. Advance the doc and select the first item
+                self.document_state.list.next();
+                let idx = self.document_state.list.selected.unwrap(); // WARN: Pretty sure this is safe?
+                self.within_doc_state[idx].list.select(Some(0));
+            }
+            Some(_n) => {
+                // We can still advance in the current document
+                inner_doc_state.list.next();
+            }
+            None => {
+                self.document_state.list.select(Some(0));
+                self.within_doc_state[0].list.select(Some(0));
+            }
+        }
+    }
+
+    pub fn previous(&mut self) {
+        let doc_idx = match self.document_state.list.selected {
+            Some(n) => n,
+            None => {
+                self.document_state.list.select(Some(0));
+                0
+            }
+        };
+        let inner_doc_state = &mut self.within_doc_state[doc_idx];
+        match inner_doc_state.list.selected {
+            Some(0) => {
+                // We are done with the current document. Go to the previous one
+                self.document_state.list.previous();
+                let idx = self.document_state.list.selected.unwrap(); // WARN: Pretty sure this is safe?
+                let within_doc = &mut self.within_doc_state[idx];
+                let last = within_doc.elements - 1;
+                within_doc.list.select(Some(last));
+            }
+            Some(_n) => {
+                // We can still advance in the current document
+                inner_doc_state.list.previous();
+            }
+            None => {
+                self.document_state.list.select(Some(0));
+                self.within_doc_state[0].list.select(Some(0));
+            }
+        }
+    }
+}
+
 impl TuiApp {
     pub fn new(diffs: Vec<DocDifference>) -> Self {
         Self {
