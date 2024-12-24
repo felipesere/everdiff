@@ -18,7 +18,7 @@ serde = "1.0.215"
 serde_json = "1.0.133"
 serde_yaml = "0.9.34"
 thiserror = "2.0.8"
-tui-widget-list = "0.13.0"
+tui-widget-list = "0.13.1"
 indoc = "2.0.5"
 
 [dev-dependencies]
