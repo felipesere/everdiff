@@ -25,14 +25,6 @@ impl Difference {
             Difference::Changed { path, .. } => path.clone(),
         }
     }
-
-    // pub fn left_value(&self) -> Option<serde_yaml::Value> {
-    //     match self {
-    //         Difference::Added { value, .. } => None,
-    //         Difference::Removed { value, .. } => Some(value.clone()),
-    //         Difference::Changed { left, .. } => Some(left.clone()),
-    //     }
-    // }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -26,6 +26,7 @@ pub struct TuiApp {
     state: MultilistState,
 }
 
+#[derive(Debug)]
 struct State {
     list: ListState,
     elements: usize,
@@ -76,7 +77,7 @@ impl MultilistState {
         };
         let inner_doc_state = &mut self.within_doc_state[doc_idx];
         match inner_doc_state.list.selected {
-            Some(n) if n == inner_doc_state.elements => {
+            Some(n) if n == (inner_doc_state.elements - 1) => {
                 // We are done with the current document. Advance the doc and select the first item
                 self.document_state.list.next();
                 let idx = self.document_state.list.selected.unwrap(); // WARN: Pretty sure this is safe?
@@ -198,6 +199,7 @@ impl Widget for &mut TuiApp {
 
 struct DifferenceWidget {
     difference: Difference,
+    selected: bool,
 }
 
 pub fn estimate_height(diff: &Difference) -> usize {
@@ -217,16 +219,28 @@ impl Widget for DifferenceWidget {
     where
         Self: Sized,
     {
+        let height = estimate_height(&self.difference) + 2;
+
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Length(2), Constraint::Length(18)])
+            .constraints(vec![
+                Constraint::Length(2),
+                Constraint::Length(height as u16),
+            ])
             .split(area);
 
         let no_bottom_border = Block::new()
             .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
             .border_type(BorderType::Thick);
 
+        let color = if self.selected {
+            Color::Blue
+        } else {
+            Color::White
+        };
+
         Paragraph::new(self.difference.path().jq_like())
+            .style(Style::new().fg(color))
             .block(no_bottom_border)
             .render(layout[0], buf);
 
@@ -305,6 +319,7 @@ impl Widget for DifferenceWidget {
 struct MultipleDifferencesState {
     differences: Vec<Difference>,
     state: ListState,
+    parent_selected: bool,
 }
 
 impl Widget for MultipleDifferencesState {
@@ -316,8 +331,12 @@ impl Widget for MultipleDifferencesState {
             let idx = context.index;
             let main_axis_size = 4 + estimate_height(&differences[idx]) as u16;
 
+            let selected = self.parent_selected && context.is_selected;
             let item = differences[idx].clone();
-            let s = DifferenceWidget { difference: item };
+            let s = DifferenceWidget {
+                difference: item,
+                selected,
+            };
 
             (s, main_axis_size)
         });
@@ -340,11 +359,13 @@ impl Widget for AllDifferencesInDocument {
         let raw_key = self.diff.key().to_string();
         let nr_of_lines = raw_key.lines().count() as u16;
 
+        let height = self.diff.estimate_height();
+
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
                 Constraint::Length(nr_of_lines),
-                Constraint::Length(20),
+                Constraint::Length(height),
             ])
             .split(area);
 
@@ -392,6 +413,7 @@ impl Widget for AllDifferencesInDocument {
 
                 let w = MultipleDifferencesState {
                     differences,
+                    parent_selected: self.selected,
                     state: ListState::default(),
                 };
                 w.render(inner, buf)
