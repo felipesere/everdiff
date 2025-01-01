@@ -6,6 +6,7 @@ use config::config_from_env;
 use diff::{Difference, Path};
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tui::TuiApp;
 
 mod config;
@@ -42,6 +43,15 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    tracing_subscriber::registry()
+        .with(tui_logger::tracing_subscriber_layer())
+        .init();
+
+    tui_logger::init_logger(tui_logger::LevelFilter::Trace).expect("Setting up tui_logger");
+    tui_logger::set_default_level(tui_logger::LevelFilter::Trace);
+
+    tracing::info!("App ready");
 
     let mut terminal = ratatui::init();
 
