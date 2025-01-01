@@ -27,6 +27,9 @@ enum Comparison {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    #[arg(long, default_value = "false")]
+    interactive: bool,
+
     /// Use Kubernetes comparison
     #[arg(short = 'k', long, default_value = "false")]
     kubernetes: bool,
@@ -51,10 +54,6 @@ fn main() -> anyhow::Result<()> {
     tui_logger::init_logger(tui_logger::LevelFilter::Trace).expect("Setting up tui_logger");
     tui_logger::set_default_level(tui_logger::LevelFilter::Trace);
 
-    tracing::info!("App ready");
-
-    let mut terminal = ratatui::init();
-
     let maybe_config = config_from_env();
     let patches = maybe_config.map(|c| c.prepatches).unwrap_or_default();
 
@@ -75,30 +74,34 @@ fn main() -> anyhow::Result<()> {
     let ctx = multidoc::Context::new_with_doc_identifier(id);
 
     let diffs = multidoc::diff(&ctx, &left, &right);
-    let app_result = TuiApp::new(diffs).run(&mut terminal);
-    ratatui::restore();
 
-    // render_multidoc_diff(diffs);
+    if args.interactive {
+        let mut terminal = ratatui::init();
+        let app_result = TuiApp::new(diffs).run(&mut terminal);
+        ratatui::restore();
+    } else {
+        render_multidoc_diff(diffs);
 
-    // if args.watch {
-    //     let (tx, rx) = std::sync::mpsc::channel();
+        if args.watch {
+            let (tx, rx) = std::sync::mpsc::channel();
 
-    //     let mut watcher = notify::recommended_watcher(tx)?;
-    //     for p in args.left.clone().into_iter().chain(args.right.clone()) {
-    //         watcher.watch(p.as_std_path(), RecursiveMode::NonRecursive)?;
-    //     }
+            let mut watcher = notify::recommended_watcher(tx)?;
+            for p in args.left.clone().into_iter().chain(args.right.clone()) {
+                watcher.watch(p.as_std_path(), RecursiveMode::NonRecursive)?;
+            }
 
-    //     for event in rx {
-    //         let _event = event?;
-    //         print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
-    //         let left = read_and_patch(&args.left, &patches)?;
-    //         let right = read_and_patch(&args.right, &patches)?;
+            for event in rx {
+                let _event = event?;
+                print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
+                let left = read_and_patch(&args.left, &patches)?;
+                let right = read_and_patch(&args.right, &patches)?;
 
-    //         let diffs = multidoc::diff(&ctx, &left, &right);
+                let diffs = multidoc::diff(&ctx, &left, &right);
 
-    //         render_multidoc_diff(diffs);
-    //     }
-    // }
+                render_multidoc_diff(diffs);
+            }
+        }
+    }
 
     Ok(())
 }
