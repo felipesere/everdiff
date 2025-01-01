@@ -323,7 +323,6 @@ dependencies = [
  "anyhow",
  "camino",
  "clap",
- "crossterm",
  "expect-test",
  "indent",
  "indoc",
