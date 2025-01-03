@@ -1,8 +1,11 @@
+use std::fmt;
+
 use clap::{Parser, ValueEnum};
 use config::config_from_env;
 use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
+use owo_colors::Style;
 
 mod config;
 mod diff;
@@ -153,11 +156,53 @@ pub fn render(differences: Vec<Difference>) {
             }
             Difference::Changed { path, left, right } => {
                 println!("Changed: {p}:", p = path.jq_like().bold());
-                let left = indent::indent_all_by(4, serde_yaml::to_string(&left).unwrap());
-                let right = indent::indent_all_by(4, serde_yaml::to_string(&right).unwrap());
 
-                print!("{r}", r = left.green());
-                print!("{r}", r = right.red());
+                match (left, right) {
+                    (serde_yaml::Value::String(left), serde_yaml::Value::String(right)) => {
+                        let diff = similar::TextDiff::from_lines(&left, &right);
+
+                        for (idx, group) in diff.grouped_ops(3).iter().enumerate() {
+                            if idx > 0 {
+                                println!("{:-^1$}", "-", 80);
+                            }
+                            for op in group {
+                                for change in diff.iter_inline_changes(op) {
+                                    let (sign, s) = match change.tag() {
+                                        similar::ChangeTag::Delete => ("-", Style::new().red()),
+                                        similar::ChangeTag::Insert => ("+", Style::new().green()),
+                                        similar::ChangeTag::Equal => (" ", Style::new().dimmed()),
+                                    };
+                                    print!(
+                                        "{}{} |{}",
+                                        Line(change.old_index()).to_string().dimmed(),
+                                        Line(change.new_index()).to_string().dimmed(),
+                                        sign.style(s).bold(),
+                                    );
+                                    for (emphasized, value) in change.iter_strings_lossy() {
+                                        if emphasized {
+                                            print!("{}", value.style(s.underline().on_black()));
+                                        } else {
+                                            print!("{}", value.style(s));
+                                        }
+                                    }
+                                    if change.missing_newline() {
+                                        println!();
+                                    }
+                                }
+                            }
+                        }
+
+                        // do extra clever diffing here...!
+                    }
+                    (left, right) => {
+                        let left = indent::indent_all_by(4, serde_yaml::to_string(&left).unwrap());
+                        let right =
+                            indent::indent_all_by(4, serde_yaml::to_string(&right).unwrap());
+
+                        print!("{r}", r = left.green());
+                        print!("{r}", r = right.red());
+                    }
+                }
             }
             Difference::Moved {
                 original_path,
@@ -171,5 +216,16 @@ pub fn render(differences: Vec<Difference>) {
             }
         }
         println!()
+    }
+}
+
+struct Line(Option<usize>);
+
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            None => write!(f, "    "),
+            Some(idx) => write!(f, "{:<4}", idx + 1),
+        }
     }
 }

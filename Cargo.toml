@@ -15,6 +15,7 @@ owo-colors = "4.1.0"
 serde = "1.0.215"
 serde_json = "1.0.133"
 serde_yaml = "0.9.34"
+similar = { version = "2.6.0", features = ["inline"] }
 thiserror = "2.0.8"
 
 [dev-dependencies]
