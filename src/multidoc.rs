@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt::Display};
 
-use crate::diff::Difference as Diff;
+use crate::diff::{ArrayOrdering, Difference as Diff};
 use crate::identifier::IdentifierFn;
 
 #[derive(Debug)]
@@ -169,7 +169,10 @@ pub fn diff(
     for MatchingDocs { key, left, right } in matches {
         let left_doc = &lefts[left];
         let right_doc = &rights[right];
-        let diffs = crate::diff::diff(crate::diff::Context::new(), left_doc, right_doc);
+        let mut diff_context = crate::diff::Context::new();
+        diff_context.array_ordering = ArrayOrdering::Dynamic;
+
+        let diffs = crate::diff::diff(diff_context, left_doc, right_doc);
         if !diffs.is_empty() {
             differences.push(DocDifference::Changed {
                 key,

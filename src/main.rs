@@ -159,6 +159,16 @@ pub fn render(differences: Vec<Difference>) {
                 print!("{r}", r = left.green());
                 print!("{r}", r = right.red());
             }
+            Difference::Moved {
+                original_path,
+                new_path,
+            } => {
+                println!(
+                    "Moved: from {p} to {q}:",
+                    p = original_path.jq_like().yellow(),
+                    q = new_path.jq_like().yellow()
+                );
+            }
         }
         println!()
     }

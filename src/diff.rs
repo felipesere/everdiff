@@ -1,4 +1,4 @@
-use std::{collections::HashSet, usize};
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Difference {
@@ -14,6 +14,10 @@ pub enum Difference {
         path: Path,
         left: serde_yaml::Value,
         right: serde_yaml::Value,
+    },
+    Moved {
+        original_path: Path,
+        new_path: Path,
     },
 }
 
@@ -175,6 +179,7 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
                     added,
                     removed,
                     changed,
+                    moved,
                 } = minimize_differences(&difference_matrix);
 
                 let mut diffs = Vec::new();
@@ -189,6 +194,13 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
                     diffs.push(Difference::Added {
                         path: ctx.path.push(idx),
                         value: right_elements[idx].clone(),
+                    });
+                }
+
+                for (ldx, rdx) in moved {
+                    diffs.push(Difference::Moved {
+                        original_path: ctx.path.push(ldx),
+                        new_path: ctx.path.push(rdx),
                     });
                 }
 
@@ -213,12 +225,16 @@ type DiffMatrix = Vec<Vec<Vec<Difference>>>;
 struct MatchingOutcome {
     added: Vec<usize>,
     removed: Vec<usize>,
+    moved: Vec<(usize, usize)>,
     changed: Vec<(usize, usize, Vec<Difference>)>,
 }
 
 /// Take in a matrix of differneces and produce a set of indizes that minimize it
-pub(crate) fn minimize_differences(matrix: &DiffMatrix) -> MatchingOutcome {
-    let mut changed = Vec::new();
+fn minimize_differences(matrix: &DiffMatrix) -> MatchingOutcome {
+    let mut changed: Vec<(usize, usize, Vec<Difference>)> = Vec::new();
+    let mut moved: Vec<(usize, usize)> = Vec::new();
+    // this is getting stupid... I need to track these better...
+    let mut unmoved: Vec<usize> = Vec::new();
 
     'outer: for (ldx, right_values) in matrix.iter().enumerate() {
         let mut n: Vec<_> = right_values.iter().enumerate().collect();
@@ -227,32 +243,50 @@ pub(crate) fn minimize_differences(matrix: &DiffMatrix) -> MatchingOutcome {
 
         for (rdx, diffs) in n {
             // Pick the least different index that has not been used yet
-            if changed
-                .iter()
-                .all(|existing: &(_, usize, _)| existing.1 != rdx)
+            if changed.iter().all(|existing| existing.1 != rdx)
+                && moved.iter().all(|existing| existing.1 != rdx)
             {
-                changed.push((ldx, rdx, diffs.clone()));
+                if diffs.is_empty() {
+                    if ldx != rdx {
+                        moved.push((ldx, rdx));
+                    } else {
+                        unmoved.push(ldx);
+                    }
+                } else {
+                    changed.push((ldx, rdx, diffs.clone()));
+                }
                 continue 'outer;
             }
         }
     }
+    // removed and added indexes are the ones that are neither changed nor morved
     let removed_indexes: Vec<_> = (0..matrix.len())
-        .filter(|ldx| !changed.iter().any(|(left, _, _)| ldx == left))
+        .filter(|ldx| {
+            !changed.iter().any(|(left, _, _)| ldx == left)
+                && !moved.iter().any(|(left, _)| ldx == left)
+                && !unmoved.iter().any(|left| ldx == left)
+        })
         .collect();
 
     let added_indexes: Vec<_> = (0..matrix[0].len())
-        .filter(|rdx| !changed.iter().any(|(_, right, _)| rdx == right))
+        .filter(|rdx| {
+            !changed.iter().any(|(_, right, _)| rdx == right)
+                && !moved.iter().any(|(_, right)| rdx == right)
+                && !unmoved.iter().any(|right| rdx == right)
+        })
         .collect();
 
     MatchingOutcome {
         added: added_indexes,
         removed: removed_indexes,
+        moved,
         changed,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use expect_test::expect;
     use indoc::indoc;
     use pretty_assertions::assert_eq;
 
@@ -461,30 +495,71 @@ mod tests {
         ctx.array_ordering = ArrayOrdering::Dynamic;
 
         let differences = diff(ctx, &left, &right);
-        assert_eq!(
-            differences,
-            vec![
-                Difference::Added {
-                    path: Path::from_unchecked(vec!["some_list".into(), 1.into()]),
-                    value: serde_yaml::from_str(indoc::indoc! {r#"
-                        name: lambda
-                        value:
-                            wheels: 9
-                            doors: 9
-                        "#})
-                    .unwrap()
+        expect![[r#"
+            [
+                Added {
+                    path: Path(
+                        [
+                            Field(
+                                String("some_list"),
+                            ),
+                            Index(
+                                1,
+                            ),
+                        ],
+                    ),
+                    value: Mapping {
+                        "name": String("lambda"),
+                        "value": Mapping {
+                            "wheels": Number(9),
+                            "doors": Number(9),
+                        },
+                    },
                 },
-                Difference::Changed {
-                    path: Path::from_unchecked(vec![
-                        "some_list".into(),
-                        0.into(),
-                        "value".into(),
-                        "doors".into()
-                    ]),
-                    left: 1.into(),
-                    right: 2.into(),
+                Moved {
+                    original_path: Path(
+                        [
+                            Field(
+                                String("some_list"),
+                            ),
+                            Index(
+                                1,
+                            ),
+                        ],
+                    ),
+                    new_path: Path(
+                        [
+                            Field(
+                                String("some_list"),
+                            ),
+                            Index(
+                                0,
+                            ),
+                        ],
+                    ),
+                },
+                Changed {
+                    path: Path(
+                        [
+                            Field(
+                                String("some_list"),
+                            ),
+                            Index(
+                                0,
+                            ),
+                            Field(
+                                String("value"),
+                            ),
+                            Field(
+                                String("doors"),
+                            ),
+                        ],
+                    ),
+                    left: Number(1),
+                    right: Number(2),
                 },
             ]
-        )
+        "#]]
+        .assert_debug_eq(&differences);
     }
 }
