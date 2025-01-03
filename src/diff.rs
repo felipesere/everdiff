@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashSet},
-    usize,
-};
+use std::{collections::HashSet, usize};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Difference {
@@ -85,7 +82,7 @@ pub enum ArrayOrdering {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Context {
     path: Path,
-    array_ordering: ArrayOrdering,
+    pub array_ordering: ArrayOrdering,
 }
 
 impl Default for Context {
@@ -167,24 +164,36 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
                 let mut difference_matrix =
                     vec![vec![Vec::<Difference>::new(); right_elements.len()]; left_elements.len()];
 
-                // These are perfectly equal!
-                let mut good_candidates: Vec<(usize, usize)> = Vec::new();
-
-                for (idx, left_value) in left_elements.iter().enumerate() {
+                for (ldx, left_value) in left_elements.iter().enumerate() {
                     for (rdx, right_value) in right_elements.iter().enumerate() {
-                        let difference = diff(ctx.for_key(idx), left_value, right_value);
-
-                        if difference.is_empty() {
-                            good_candidates.push((idx, rdx));
-                        }
-
-                        difference_matrix[idx][rdx] = difference;
+                        difference_matrix[ldx][rdx] =
+                            diff(ctx.for_key(ldx), left_value, right_value);
                     }
                 }
 
-                dbg!(&difference_matrix);
+                let MatchingOutcome {
+                    added,
+                    removed,
+                    changed,
+                } = minimize_differences(&difference_matrix);
 
-                todo!()
+                let mut diffs = Vec::new();
+                for idx in removed {
+                    diffs.push(Difference::Removed {
+                        path: ctx.path.push(idx),
+                        value: left_elements[idx].clone(),
+                    });
+                }
+
+                for idx in added {
+                    diffs.push(Difference::Added {
+                        path: ctx.path.push(idx),
+                        value: right_elements[idx].clone(),
+                    });
+                }
+
+                diffs.append(&mut changed.into_iter().flat_map(|(_, _, diff)| diff).collect());
+                diffs
             }
         }
         // if the values are the same, no need to further diff
@@ -196,6 +205,49 @@ pub fn diff(ctx: Context, left: &serde_yaml::Value, right: &serde_yaml::Value) -
                 right: right.clone(),
             }]
         }
+    }
+}
+
+type DiffMatrix = Vec<Vec<Vec<Difference>>>;
+
+struct MatchingOutcome {
+    added: Vec<usize>,
+    removed: Vec<usize>,
+    changed: Vec<(usize, usize, Vec<Difference>)>,
+}
+
+/// Take in a matrix of differneces and produce a set of indizes that minimize it
+pub(crate) fn minimize_differences(matrix: &DiffMatrix) -> MatchingOutcome {
+    let mut changed = Vec::new();
+
+    'outer: for (ldx, right_values) in matrix.iter().enumerate() {
+        let mut n: Vec<_> = right_values.iter().enumerate().collect();
+        // Sort by amount of differences, most similar (0 difference) to the most different
+        n.sort_by_key(|n| n.1.len());
+
+        for (rdx, diffs) in n {
+            // Pick the least different index that has not been used yet
+            if changed
+                .iter()
+                .all(|existing: &(_, usize, _)| existing.1 != rdx)
+            {
+                changed.push((ldx, rdx, diffs.clone()));
+                continue 'outer;
+            }
+        }
+    }
+    let removed_indexes: Vec<_> = (0..matrix.len())
+        .filter(|ldx| !changed.iter().any(|(left, _, _)| ldx == left))
+        .collect();
+
+    let added_indexes: Vec<_> = (0..matrix[0].len())
+        .filter(|rdx| !changed.iter().any(|(_, right, _)| rdx == right))
+        .collect();
+
+    MatchingOutcome {
+        added: added_indexes,
+        removed: removed_indexes,
+        changed,
     }
 }
 
@@ -371,37 +423,37 @@ mod tests {
         some_list:
           - name: alpha
             value:
-              wheels: 5
-              doors: 3
-          - name: november
-            value:
               wheels: 1
               doors: 1
           - name: bravo
             value:
-              wheels: 5
-              doors: 3
+              wheels: 2
+              doors: 2
           - name: charlie
             value:
-              wheels: 5
+              wheels: 3
               doors: 3
         "#})
         .unwrap();
 
         let right = serde_yaml::from_str(indoc! {r#"
         some_list:
-          - value:
-              wheels: 5
-              doors: 3
-            name: bravo
+          - name: bravo
+            value:
+              wheels: 2
+              doors: 2
+          - name: lambda
+            value:
+              wheels: 9
+              doors: 9
           - name: charlie
             value:
+              wheels: 3
               doors: 3
-              wheels: 5
           - name: alpha
             value:
-              wheels: 5
-              doors: 3
+              wheels: 1
+              doors: 2 # <--- slightly changed!
         "#})
         .unwrap();
 
@@ -409,19 +461,30 @@ mod tests {
         ctx.array_ordering = ArrayOrdering::Dynamic;
 
         let differences = diff(ctx, &left, &right);
-        // assert_eq!(differences, Vec::new());
         assert_eq!(
             differences,
-            vec![Difference::Added {
-                path: Path::from_unchecked(vec!["some_list".into(), 1.into()]),
-                value: serde_yaml::from_str(indoc::indoc! {r#"
-            name: november
-            value:
-                wheels: 1
-                doors: 1
-            "#})
-                .unwrap()
-            }]
+            vec![
+                Difference::Added {
+                    path: Path::from_unchecked(vec!["some_list".into(), 1.into()]),
+                    value: serde_yaml::from_str(indoc::indoc! {r#"
+                        name: lambda
+                        value:
+                            wheels: 9
+                            doors: 9
+                        "#})
+                    .unwrap()
+                },
+                Difference::Changed {
+                    path: Path::from_unchecked(vec![
+                        "some_list".into(),
+                        0.into(),
+                        "value".into(),
+                        "doors".into()
+                    ]),
+                    left: 1.into(),
+                    right: 2.into(),
+                },
+            ]
         )
     }
 }
