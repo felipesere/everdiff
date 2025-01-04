@@ -8,11 +8,11 @@ pub type IdentifierFn = Box<dyn Fn(usize, &YamlSource) -> Option<DocKey>>;
 /// This effectively means that documents are diffed pair-wise in the
 /// order they show up in the YAML
 pub fn by_index() -> IdentifierFn {
-    Box::new(|idx, _| {
-        Some(DocKey::from(BTreeMap::from([(
-            "idx".to_string(),
-            Some(idx.to_string()),
-        )])))
+    Box::new(|idx, source| {
+        Some(DocKey::new(
+            source.file.clone(),
+            BTreeMap::from([("idx".to_string(), Some(idx.to_string()))]),
+        ))
     })
 }
 
@@ -33,11 +33,14 @@ pub mod kubernetes {
             // TODO: don't bail on missing metadata
             let name = string_of(doc.get("metadata")?.get("name"));
 
-            Some(DocKey::from(BTreeMap::from([
-                ("api_version".to_string(), api_version),
-                ("kind".to_string(), kind),
-                ("metadata.name".to_string(), name),
-            ])))
+            Some(DocKey::new(
+                source.file.clone(),
+                BTreeMap::from([
+                    ("api_version".to_string(), api_version),
+                    ("kind".to_string(), kind),
+                    ("metadata.name".to_string(), name),
+                ]),
+            ))
         })
     }
 
@@ -48,10 +51,13 @@ pub mod kubernetes {
             // TODO: don't bail on missing metadata
             let name = string_of(doc.get("metadata")?.get("name"));
             let namespace = string_of(doc.get("metadata")?.get("namespace"));
-            Some(DocKey::from(BTreeMap::from([
-                ("metadata.name".to_string(), name),
-                ("metadata.namespace".to_string(), namespace),
-            ])))
+            Some(DocKey::new(
+                source.file.clone(),
+                BTreeMap::from([
+                    ("metadata.name".to_string(), name),
+                    ("metadata.namespace".to_string(), namespace),
+                ]),
+            ))
         })
     }
 }

@@ -268,13 +268,17 @@ fn minimize_differences(matrix: &DiffMatrix) -> MatchingOutcome {
         })
         .collect();
 
-    let added_indexes: Vec<_> = (0..matrix[0].len())
-        .filter(|rdx| {
-            !changed.iter().any(|(_, right, _)| rdx == right)
-                && !moved.iter().any(|(_, right)| rdx == right)
-                && !unmoved.iter().any(|right| rdx == right)
-        })
-        .collect();
+    let added_indexes: Vec<_> = if !matrix.is_empty() {
+        (0..matrix[0].len())
+            .filter(|rdx| {
+                !changed.iter().any(|(_, right, _)| rdx == right)
+                    && !moved.iter().any(|(_, right)| rdx == right)
+                    && !unmoved.iter().any(|right| rdx == right)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     MatchingOutcome {
         added: added_indexes,

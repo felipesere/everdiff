@@ -52,7 +52,7 @@ fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
     let mut missing_docs = Vec::new();
     let mut added_docs: Vec<AdditionalDoc> = Vec::new();
 
-    let mut last_idx_used_on_right = 0usize;
+    let mut last_idx_used_on_right = 0_usize;
     'comparing_left_docs: for (idx, doc) in lefts.iter().enumerate() {
         if let Some(key) = extract(idx, doc) {
             seen_left_docs.insert(key.clone(), idx);
@@ -98,75 +98,60 @@ fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
 /// Newtype used to identify a document.
 /// Two Documents that produce the same `DocKey` will be diffed
 /// against each other.
+/// While the original file path is stored, it won't be used when doing Eq, Ord, or Hash
 /// A common use case is to for example grab
 /// * apiVersion
 /// * kind
 /// * metadata.name
 ///
 /// from a Kubernetes resource to diff
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Eq)]
 pub struct DocKey {
-    src_file: Option<camino::Utf8PathBuf>,
+    src_file: camino::Utf8PathBuf,
     fields: BTreeMap<String, Option<String>>,
+}
+
+impl PartialOrd for DocKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::hash::Hash for DocKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.fields.hash(state);
+    }
+}
+
+impl Ord for DocKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.fields.cmp(&other.fields)
+    }
+}
+
+impl PartialEq for DocKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.fields == other.fields
+    }
 }
 
 impl DocKey {
     pub fn new(src_file: camino::Utf8PathBuf, fields: BTreeMap<String, Option<String>>) -> Self {
-        DocKey {
-            src_file: Some(src_file),
-            fields,
-        }
+        DocKey { src_file, fields }
     }
 }
 
 impl Display for DocKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("file: {}\n", &self.src_file))?;
         for (k, optval) in &self.fields {
             if let Some(v) = &optval {
-                f.write_fmt(format_args!("{k} → {v}\n")).unwrap();
+                f.write_fmt(format_args!("{k} → {v}\n"))?;
             }
         }
         Ok(())
     }
 }
-
-impl<const N: usize> From<[(&'static str, &'static str); N]> for DocKey {
-    fn from(value: [(&'static str, &'static str); N]) -> Self {
-        let fields = value
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), Some(v.to_string())))
-            .collect::<BTreeMap<_, _>>();
-        DocKey {
-            fields,
-            src_file: None,
-        }
-    }
-}
-impl<const N: usize> From<[(&'static str, Option<&'static str>); N]> for DocKey {
-    fn from(value: [(&'static str, Option<&'static str>); N]) -> Self {
-        let fields = value
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.map(String::from)))
-            .collect::<BTreeMap<_, _>>();
-        DocKey {
-            fields,
-            src_file: None,
-        }
-    }
-}
-
-impl From<BTreeMap<String, Option<String>>> for DocKey {
-    fn from(fields: BTreeMap<String, Option<String>>) -> Self {
-        DocKey {
-            fields,
-            src_file: None,
-        }
-    }
-}
-
-/// Newtype around a usize to index into the collection of Documents
-// #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-//struct DocIdx(usize);
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum DocDifference {
@@ -211,11 +196,13 @@ pub fn diff(ctx: &Context, lefts: &[YamlSource], rights: &[YamlSource]) -> Vec<D
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeMap, str::FromStr};
+
+    use expect_test::expect;
     use pretty_assertions::assert_eq;
 
     use crate::{
-        diff::{Difference, Path},
-        multidoc::{diff, AdditionalDoc, Context, DocDifference, DocKey, MissingDoc},
+        multidoc::{diff, Context, DocKey},
         YamlSource,
     };
     use indoc::indoc;
@@ -227,7 +214,7 @@ mod tests {
         for document in Deserializer::from_str(raw) {
             let yaml = Value::deserialize(document).unwrap();
             docs.push(YamlSource {
-                file: camino::Utf8PathBuf::new(),
+                file: camino::Utf8PathBuf::from_str("/foo/bar/baz.yaml").unwrap(),
                 yaml,
             });
         }
@@ -283,59 +270,114 @@ mod tests {
         let ctx = Context::new_with_doc_identifier(crate::identifier::kubernetes::names());
         let differences = diff(&ctx, &left, &right);
 
-        assert_eq!(
-            differences,
-            vec![
-                DocDifference::Changed {
-                    key: DocKey::from([
-                        ("metadata.name", Some("bravo")),
-                        ("metadata.namespace", None)
-                    ]),
+        expect![[r#"
+            [
+                Changed {
+                    key: DocKey {
+                        src_file: "/foo/bar/baz.yaml",
+                        fields: {
+                            "metadata.name": Some(
+                                "bravo",
+                            ),
+                            "metadata.namespace": None,
+                        },
+                    },
                     left_doc: 0,
                     right_doc: 1,
-                    differences: vec![Difference::Changed {
-                        path: Path::from_unchecked(vec!["spec".into(), "color".into()]),
-                        left: Value::String("yellow".into()),
-                        right: Value::String("blue".into()),
-                    }]
+                    differences: [
+                        Changed {
+                            path: Path(
+                                [
+                                    Field(
+                                        String("spec"),
+                                    ),
+                                    Field(
+                                        String("color"),
+                                    ),
+                                ],
+                            ),
+                            left: String("yellow"),
+                            right: String("blue"),
+                        },
+                    ],
                 },
-                DocDifference::Changed {
-                    key: DocKey::from([
-                        ("metadata.name", Some("alpha")),
-                        ("metadata.namespace", Some("ns"))
-                    ]),
+                Changed {
+                    key: DocKey {
+                        src_file: "/foo/bar/baz.yaml",
+                        fields: {
+                            "metadata.name": Some(
+                                "alpha",
+                            ),
+                            "metadata.namespace": Some(
+                                "ns",
+                            ),
+                        },
+                    },
                     left_doc: 1,
                     right_doc: 0,
-                    differences: vec![Difference::Changed {
-                        path: Path::from_unchecked(vec!["spec".into(), "thing".into()]),
-                        left: Value::Number(12.into()),
-                        right: Value::Number(24.into()),
-                    }]
+                    differences: [
+                        Changed {
+                            path: Path(
+                                [
+                                    Field(
+                                        String("spec"),
+                                    ),
+                                    Field(
+                                        String("thing"),
+                                    ),
+                                ],
+                            ),
+                            left: Number(12),
+                            right: Number(24),
+                        },
+                    ],
                 },
-                DocDifference::Missing(MissingDoc {
-                    key: DocKey::from([
-                        ("metadata.name", Some("charlie")),
-                        ("metadata.namespace", None)
-                    ]),
-                    left: 2,
-                }),
-                DocDifference::Addition(AdditionalDoc {
-                    key: DocKey::from([
-                        ("metadata.name", Some("delta")),
-                        ("metadata.namespace", None)
-                    ]),
-                    right: 2,
-                }),
+                Missing(
+                    MissingDoc {
+                        key: DocKey {
+                            src_file: "/foo/bar/baz.yaml",
+                            fields: {
+                                "metadata.name": Some(
+                                    "charlie",
+                                ),
+                                "metadata.namespace": None,
+                            },
+                        },
+                        left: 2,
+                    },
+                ),
+                Addition(
+                    AdditionalDoc {
+                        key: DocKey {
+                            src_file: "/foo/bar/baz.yaml",
+                            fields: {
+                                "metadata.name": Some(
+                                    "delta",
+                                ),
+                                "metadata.namespace": None,
+                            },
+                        },
+                        right: 2,
+                    },
+                ),
             ]
-        )
+        "#]]
+        .assert_debug_eq(&differences);
     }
 
     #[test]
     fn display_dockey() {
-        let key = DocKey::from([("api_version", "bar"), ("metadata.name", "foo")]);
+        let key = DocKey::new(
+            camino::Utf8PathBuf::from_str(r#"/foo/bar/baz.yaml"#).unwrap(),
+            BTreeMap::from([
+                ("api_version".to_string(), Some("bar".to_string())),
+                ("metadata.name".to_string(), Some("foo".to_string())),
+            ]),
+        );
         assert_eq!(
             key.to_string(),
             indoc! {r#"
+            file: /foo/bar/baz.yaml
             api_version → bar
             metadata.name → foo
         "#}
