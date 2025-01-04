@@ -167,22 +167,25 @@ pub fn render(differences: Vec<Difference>) {
                             }
                             for op in group {
                                 for change in diff.iter_inline_changes(op) {
-                                    let (sign, s) = match change.tag() {
+                                    let (sign, emphasis_style) = match change.tag() {
                                         similar::ChangeTag::Delete => ("-", Style::new().red()),
                                         similar::ChangeTag::Insert => ("+", Style::new().green()),
                                         similar::ChangeTag::Equal => (" ", Style::new().dimmed()),
                                     };
                                     print!(
-                                        "{}{} |{}",
+                                        "{}{} {}│  ",
                                         Line(change.old_index()).to_string().dimmed(),
                                         Line(change.new_index()).to_string().dimmed(),
-                                        sign.style(s).bold(),
+                                        sign.style(emphasis_style).bold(),
                                     );
                                     for (emphasized, value) in change.iter_strings_lossy() {
                                         if emphasized {
-                                            print!("{}", value.style(s.underline().on_black()));
+                                            print!(
+                                                "{}",
+                                                value.style(emphasis_style.underline().on_black())
+                                            );
                                         } else {
-                                            print!("{}", value.style(s));
+                                            print!("{}", value);
                                         }
                                     }
                                     if change.missing_newline() {
@@ -224,8 +227,8 @@ struct Line(Option<usize>);
 impl fmt::Display for Line {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
-            None => write!(f, "    "),
-            Some(idx) => write!(f, "{:<4}", idx + 1),
+            None => write!(f, "   "),
+            Some(idx) => write!(f, "{:<3}", idx + 1),
         }
     }
 }
