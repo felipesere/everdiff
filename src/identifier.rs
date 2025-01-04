@@ -1,8 +1,8 @@
-use crate::multidoc::DocKey;
+use crate::{multidoc::DocKey, YamlSource};
 use std::collections::BTreeMap;
 
 /// Fn that identifies a document by inspecting keys
-pub type IdentifierFn = Box<dyn Fn(usize, &serde_yaml::Value) -> Option<DocKey>>;
+pub type IdentifierFn = Box<dyn Fn(usize, &YamlSource) -> Option<DocKey>>;
 
 /// Naively assume that a document is identified by its index in the document.
 /// This effectively means that documents are diffed pair-wise in the
@@ -26,7 +26,8 @@ pub mod kubernetes {
 
     /// Keys to identify immutable kinds
     pub fn gvk() -> IdentifierFn {
-        Box::new(|_, doc| {
+        Box::new(|_, source| {
+            let doc = &source.yaml;
             let api_version = string_of(doc.get("apiVersion"));
             let kind = string_of(doc.get("kind"));
             // TODO: don't bail on missing metadata
@@ -42,7 +43,8 @@ pub mod kubernetes {
 
     /// Keys used to find renamed kinds
     pub fn names() -> IdentifierFn {
-        Box::new(|_, doc| {
+        Box::new(|_, source| {
+            let doc = &source.yaml;
             // TODO: don't bail on missing metadata
             let name = string_of(doc.get("metadata")?.get("name"));
             let namespace = string_of(doc.get("metadata")?.get("namespace"));

@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, fmt::Display};
 
 use crate::diff::{ArrayOrdering, Difference as Diff};
 use crate::identifier::IdentifierFn;
+use crate::YamlSource;
 
 #[derive(Debug)]
 pub struct MatchingDocs {
@@ -40,9 +41,9 @@ impl Context {
     }
 }
 
-fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey> + ?Sized>(
-    lefts: &[serde_yaml::Value],
-    rights: &[serde_yaml::Value],
+fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
+    lefts: &[YamlSource],
+    rights: &[YamlSource],
     extract: &F,
 ) -> (Vec<MatchingDocs>, Vec<MissingDoc>, Vec<AdditionalDoc>) {
     let mut seen_left_docs: BTreeMap<DocKey, usize> = BTreeMap::new();
@@ -104,11 +105,23 @@ fn matching_docs<F: Fn(usize, &serde_yaml::Value) -> Option<DocKey> + ?Sized>(
 ///
 /// from a Kubernetes resource to diff
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
-pub struct DocKey(BTreeMap<String, Option<String>>);
+pub struct DocKey {
+    src_file: Option<camino::Utf8PathBuf>,
+    fields: BTreeMap<String, Option<String>>,
+}
+
+impl DocKey {
+    pub fn new(src_file: camino::Utf8PathBuf, fields: BTreeMap<String, Option<String>>) -> Self {
+        DocKey {
+            src_file: Some(src_file),
+            fields,
+        }
+    }
+}
 
 impl Display for DocKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (k, optval) in &self.0 {
+        for (k, optval) in &self.fields {
             if let Some(v) = &optval {
                 f.write_fmt(format_args!("{k} → {v}\n")).unwrap();
             }
@@ -119,26 +132,35 @@ impl Display for DocKey {
 
 impl<const N: usize> From<[(&'static str, &'static str); N]> for DocKey {
     fn from(value: [(&'static str, &'static str); N]) -> Self {
-        let vals = value
+        let fields = value
             .into_iter()
             .map(|(k, v)| (k.to_string(), Some(v.to_string())))
             .collect::<BTreeMap<_, _>>();
-        DocKey(vals)
+        DocKey {
+            fields,
+            src_file: None,
+        }
     }
 }
 impl<const N: usize> From<[(&'static str, Option<&'static str>); N]> for DocKey {
     fn from(value: [(&'static str, Option<&'static str>); N]) -> Self {
-        let vals = value
+        let fields = value
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.map(String::from)))
             .collect::<BTreeMap<_, _>>();
-        DocKey(vals)
+        DocKey {
+            fields,
+            src_file: None,
+        }
     }
 }
 
 impl From<BTreeMap<String, Option<String>>> for DocKey {
-    fn from(map: BTreeMap<String, Option<String>>) -> Self {
-        DocKey(map)
+    fn from(fields: BTreeMap<String, Option<String>>) -> Self {
+        DocKey {
+            fields,
+            src_file: None,
+        }
     }
 }
 
@@ -158,17 +180,13 @@ pub enum DocDifference {
     },
 }
 
-pub fn diff(
-    ctx: &Context,
-    lefts: &[serde_yaml::Value],
-    rights: &[serde_yaml::Value],
-) -> Vec<DocDifference> {
+pub fn diff(ctx: &Context, lefts: &[YamlSource], rights: &[YamlSource]) -> Vec<DocDifference> {
     let (matches, missing, added) = matching_docs(lefts, rights, &ctx.identifier);
 
     let mut differences = Vec::new();
     for MatchingDocs { key, left, right } in matches {
-        let left_doc = &lefts[left];
-        let right_doc = &rights[right];
+        let left_doc = &lefts[left].yaml;
+        let right_doc = &rights[right].yaml;
         let mut diff_context = crate::diff::Context::new();
         diff_context.array_ordering = ArrayOrdering::Dynamic;
 
@@ -198,16 +216,20 @@ mod tests {
     use crate::{
         diff::{Difference, Path},
         multidoc::{diff, AdditionalDoc, Context, DocDifference, DocKey, MissingDoc},
+        YamlSource,
     };
     use indoc::indoc;
     use serde::Deserialize;
     use serde_yaml::{Deserializer, Value};
 
-    pub fn docs(raw: &str) -> Vec<serde_yaml::Value> {
+    pub fn docs(raw: &str) -> Vec<YamlSource> {
         let mut docs = Vec::new();
         for document in Deserializer::from_str(raw) {
-            let v = Value::deserialize(document).unwrap();
-            docs.push(v);
+            let yaml = Value::deserialize(document).unwrap();
+            docs.push(YamlSource {
+                file: camino::Utf8PathBuf::new(),
+                yaml,
+            });
         }
         docs
     }

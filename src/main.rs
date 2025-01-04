@@ -38,6 +38,11 @@ struct Args {
     right: Vec<camino::Utf8PathBuf>,
 }
 
+struct YamlSource {
+    file: camino::Utf8PathBuf,
+    yaml: serde_yaml::Value,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -90,7 +95,7 @@ fn main() -> anyhow::Result<()> {
 fn read_and_patch(
     paths: &[camino::Utf8PathBuf],
     patches: &[prepatch::PrePatch],
-) -> anyhow::Result<Vec<serde_yaml::Value>> {
+) -> anyhow::Result<Vec<YamlSource>> {
     use serde::Deserialize;
 
     let mut docs = Vec::new();
@@ -98,7 +103,10 @@ fn read_and_patch(
         let f = std::fs::File::open(p)?;
         for document in serde_yaml::Deserializer::from_reader(f) {
             let v = serde_yaml::Value::deserialize(document)?;
-            docs.push(v);
+            docs.push(YamlSource {
+                file: p.clone(),
+                yaml: v,
+            });
         }
     }
     for patch in patches {
