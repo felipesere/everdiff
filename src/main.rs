@@ -161,9 +161,9 @@ pub fn render(differences: Vec<Difference>) {
                     (serde_yaml::Value::String(left), serde_yaml::Value::String(right)) => {
                         let diff = similar::TextDiff::from_lines(&left, &right);
 
-                        for (idx, group) in diff.grouped_ops(3).iter().enumerate() {
+                        for (idx, group) in diff.grouped_ops(2).iter().enumerate() {
                             if idx > 0 {
-                                println!("{:-^1$}", "-", 80);
+                                println!("{:┈^1$}", "┈", 80);
                             }
                             for op in group {
                                 for change in diff.iter_inline_changes(op) {
@@ -180,10 +180,7 @@ pub fn render(differences: Vec<Difference>) {
                                     );
                                     for (emphasized, value) in change.iter_strings_lossy() {
                                         if emphasized {
-                                            print!(
-                                                "{}",
-                                                value.style(emphasis_style.underline().on_black())
-                                            );
+                                            print!("{}", value.style(emphasis_style.underline()));
                                         } else {
                                             print!("{}", value);
                                         }
