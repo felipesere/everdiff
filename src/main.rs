@@ -28,6 +28,10 @@ struct Args {
     #[arg(short = 'k', long, default_value = "false")]
     kubernetes: bool,
 
+    /// Don't show changes for moved elements
+    #[arg(short = 'm', long, default_value = "false")]
+    ignore_moved: bool,
+
     /// Watch the `left` and `right` files for changes and re-run
     #[arg(short = 'w', long, default_value = "false")]
     watch: bool,
@@ -67,7 +71,7 @@ fn main() -> anyhow::Result<()> {
 
     let diffs = multidoc::diff(&ctx, &left, &right);
 
-    render_multidoc_diff(diffs);
+    render_multidoc_diff(diffs, args.ignore_moved);
 
     if args.watch {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -85,7 +89,7 @@ fn main() -> anyhow::Result<()> {
 
             let diffs = multidoc::diff(&ctx, &left, &right);
 
-            render_multidoc_diff(diffs);
+            render_multidoc_diff(diffs, args.ignore_moved);
         }
     }
 
@@ -116,7 +120,7 @@ fn read_and_patch(
     Ok(docs)
 }
 
-pub fn render_multidoc_diff(differences: Vec<DocDifference>) {
+pub fn render_multidoc_diff(differences: Vec<DocDifference>, ignore_moved: bool) {
     use owo_colors::OwoColorize;
 
     if differences.is_empty() {
@@ -138,6 +142,15 @@ pub fn render_multidoc_diff(differences: Vec<DocDifference>) {
             DocDifference::Changed {
                 key, differences, ..
             } => {
+                let differences = if !ignore_moved {
+                    differences
+                } else {
+                    differences
+                        .into_iter()
+                        .filter(|diff| !matches!(diff, Difference::Moved { .. }))
+                        .collect()
+                };
+
                 let key = indent::indent_all_by(4, key.to_string());
                 println!("Changed document:");
                 println!("{key}");
