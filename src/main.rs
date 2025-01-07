@@ -6,7 +6,7 @@ use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
-use path::{Path, PathMatch};
+use path::{IgnorePath, Path};
 
 mod config;
 mod diff;
@@ -35,8 +35,8 @@ struct Args {
     ignore_moved: bool,
 
     /// Don't show changes for moved elements
-    #[arg(short, long, value_parser = clap::value_parser!(PathMatch), value_delimiter = ' ', num_args = 0..)]
-    ignore_changes: Vec<PathMatch>,
+    #[arg(short, long, value_parser = clap::value_parser!(IgnorePath), value_delimiter = ' ', num_args = 0..)]
+    ignore_changes: Vec<IgnorePath>,
 
     /// Watch the `left` and `right` files for changes and re-run
     #[arg(short = 'w', long, default_value = "false")]
@@ -129,7 +129,7 @@ fn read_and_patch(
 pub fn render_multidoc_diff(
     differences: Vec<DocDifference>,
     ignore_moved: bool,
-    ignore: &[PathMatch],
+    ignore: &[IgnorePath],
 ) {
     use owo_colors::OwoColorize;
 

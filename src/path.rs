@@ -82,9 +82,9 @@ impl MatchElement {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct PathMatch(Vec<MatchElement>);
+pub struct IgnorePath(Vec<MatchElement>);
 
-impl PathMatch {
+impl IgnorePath {
     fn absolute(&self) -> bool {
         matches!(self.0[0], MatchElement::Root)
     }
@@ -120,11 +120,11 @@ impl PathMatch {
     }
 }
 
-impl FromStr for PathMatch {
+impl FromStr for IgnorePath {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok((_, value)) = path_match(s) {
+        if let Ok((_, value)) = ignore_path(s) {
             return Ok(value);
         }
         bail!("Failed to aprse PathMatch")
@@ -140,7 +140,7 @@ use nom::multi::many0;
 use nom::sequence::{delimited, preceded};
 use nom::IResult;
 
-fn path_match(input: &str) -> IResult<&str, PathMatch> {
+fn ignore_path(input: &str) -> IResult<&str, IgnorePath> {
     let mut segments = Vec::new();
     let (rest, root) = opt(char('.'))(input)?;
     if root.is_some() {
@@ -156,7 +156,7 @@ fn path_match(input: &str) -> IResult<&str, PathMatch> {
     // remaining fields...
     let (rest, mut elements) = many0(field)(rest)?;
     segments.append(&mut elements);
-    Ok((rest, PathMatch(segments)))
+    Ok((rest, IgnorePath(segments)))
 }
 
 fn text_field(input: &str) -> IResult<&str, MatchElement> {
@@ -193,33 +193,33 @@ mod path_match_parsing {
 
     use crate::path::MatchElement;
 
-    use super::PathMatch;
+    use super::IgnorePath;
     use std::str::FromStr;
 
     #[test]
     pub fn can_be_read_from_string() {
         struct Case {
             input: &'static str,
-            expected: PathMatch,
+            expected: IgnorePath,
         }
         let cases = vec![
             Case {
                 input: r#".spec"#,
-                expected: PathMatch(vec![
+                expected: IgnorePath(vec![
                     MatchElement::Root,
                     MatchElement::Field("spec".to_string()),
                 ]),
             },
             Case {
                 input: r#"spec.annotations"#,
-                expected: PathMatch(vec![
+                expected: IgnorePath(vec![
                     MatchElement::Field("spec".to_string()),
                     MatchElement::Field("annotations".to_string()),
                 ]),
             },
             Case {
                 input: r#"spec.annotations["app.kubernetes.io/name"]"#,
-                expected: PathMatch(vec![
+                expected: IgnorePath(vec![
                     MatchElement::Field("spec".to_string()),
                     MatchElement::Field("annotations".to_string()),
                     MatchElement::Field("app.kubernetes.io/name".to_string()),
@@ -227,7 +227,7 @@ mod path_match_parsing {
             },
             Case {
                 input: r#"spec.env[1]"#,
-                expected: PathMatch(vec![
+                expected: IgnorePath(vec![
                     MatchElement::Field("spec".to_string()),
                     MatchElement::Field("env".to_string()),
                     MatchElement::Index(1),
@@ -235,7 +235,7 @@ mod path_match_parsing {
             },
             Case {
                 input: r#"spec.env[*].name"#,
-                expected: PathMatch(vec![
+                expected: IgnorePath(vec![
                     MatchElement::Field("spec".to_string()),
                     MatchElement::Field("env".to_string()),
                     MatchElement::AnyArrayElement,
@@ -245,22 +245,22 @@ mod path_match_parsing {
         ];
 
         for case in &cases {
-            let matcher = PathMatch::from_str(case.input).unwrap();
+            let matcher = IgnorePath::from_str(case.input).unwrap();
             assert_eq!(matcher, case.expected,)
         }
     }
 }
 
 #[cfg(test)]
-mod path_matching_tests {
+mod path_ignoring {
     use std::str::FromStr;
 
-    use crate::path::PathMatch;
+    use crate::path::IgnorePath;
 
     use super::Path;
 
     #[test]
-    pub fn matching_paths_with_pathmatch_structs() {
+    pub fn matching_paths_with_ignore_paths_structs() {
         struct Case {
             path_match: &'static str,
             path: Path,
@@ -315,7 +315,7 @@ mod path_matching_tests {
         ];
 
         for case in cases.iter().skip(4) {
-            let path_match = PathMatch::from_str(case.path_match).unwrap();
+            let path_match = IgnorePath::from_str(case.path_match).unwrap();
 
             assert_eq!(case.matches, path_match.matches(&case.path));
         }
