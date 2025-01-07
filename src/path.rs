@@ -54,6 +54,10 @@ impl Path {
     pub fn from_unchecked(path: Vec<Segment>) -> Self {
         Path(path)
     }
+
+    fn segments(&self) -> &[Segment] {
+        &self.0
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -64,8 +68,57 @@ enum MatchElement {
     AnyArrayElement,
 }
 
+impl MatchElement {
+    fn matches(&self, segment: &Segment) -> bool {
+        match (self, segment) {
+            (MatchElement::Field(a), Segment::Field(serde_yaml::Value::String(b))) if a == b => {
+                true
+            }
+            (MatchElement::Index(a), Segment::Index(b)) if a == b => true,
+            (MatchElement::AnyArrayElement, Segment::Index(_)) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct PathMatch(Vec<MatchElement>);
+
+impl PathMatch {
+    fn absolute(&self) -> bool {
+        matches!(self.0[0], MatchElement::Root)
+    }
+
+    pub fn matches(&self, path: &Path) -> bool {
+        if self.absolute() {
+            for (idx, element) in self.0.iter().skip(1).enumerate() {
+                let Some(segment) = path.0.get(idx) else {
+                    return false;
+                };
+                if !element.matches(segment) {
+                    return false;
+                }
+            }
+        } else {
+            // let's find a start of a match... maybe!
+            let start_element = self.0.first().unwrap();
+            let Some(match_start) = path
+                .segments()
+                .iter()
+                .position(|s| start_element.matches(s))
+            else {
+                return false;
+            };
+            // now that we have a start, the remaining of `self` needs to match too!
+            for (p, q) in path.segments().iter().skip(match_start).zip(self.0.iter()) {
+                if !q.matches(p) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
 
 impl FromStr for PathMatch {
     type Err = anyhow::Error;
@@ -94,11 +147,11 @@ fn path_match(input: &str) -> IResult<&str, PathMatch> {
         segments.push(MatchElement::Root);
     }
     // the `.` is not required here as we've already consumed it for the Root.
-    let (rest, first) = alt((parse_field, escaped_field))(rest)?;
+    let (rest, first) = alt((text_field, escaped_field))(rest)?;
     segments.push(first);
 
-    let normal_field = preceded(char('.'), parse_field);
-    let field = alt((normal_field, escaped_field));
+    let dot_field = preceded(char('.'), text_field);
+    let field = alt((dot_field, escaped_field));
 
     // remaining fields...
     let (rest, mut elements) = many0(field)(rest)?;
@@ -106,7 +159,7 @@ fn path_match(input: &str) -> IResult<&str, PathMatch> {
     Ok((rest, PathMatch(segments)))
 }
 
-fn parse_field(input: &str) -> IResult<&str, MatchElement> {
+fn text_field(input: &str) -> IResult<&str, MatchElement> {
     let (rest, p) = take_while1(|c: char| c.is_ascii_alphabetic())(input)?;
     Ok((rest, MatchElement::Field(p.to_string())))
 }
@@ -194,6 +247,77 @@ mod path_match_parsing {
         for case in &cases {
             let matcher = PathMatch::from_str(case.input).unwrap();
             assert_eq!(matcher, case.expected,)
+        }
+    }
+}
+
+#[cfg(test)]
+mod path_matching_tests {
+    use std::str::FromStr;
+
+    use crate::path::PathMatch;
+
+    use super::Path;
+
+    #[test]
+    pub fn matching_paths_with_pathmatch_structs() {
+        struct Case {
+            path_match: &'static str,
+            path: Path,
+            matches: bool,
+        }
+
+        let cases = vec![
+            Case {
+                path_match: ".spec.annotations",
+                path: Path::default()
+                    .push("spec")
+                    .push("annotations")
+                    .push("foo.bar.com"),
+                matches: true,
+            },
+            Case {
+                path_match: "annotations",
+                path: Path::default()
+                    .push("spec")
+                    .push("annotations")
+                    .push("foo.bar.com"),
+                matches: true,
+            },
+            Case {
+                path_match: "spec.env[3].name",
+                path: Path::default()
+                    .push("spec")
+                    .push("env")
+                    .push(3)
+                    .push("name"),
+                matches: true,
+            },
+            Case {
+                path_match: "spec.env[*].name",
+                path: Path::default()
+                    .push("spec")
+                    .push("env")
+                    .push(3)
+                    .push("name"),
+                matches: true,
+            },
+            Case {
+                path_match: r#"annotations["app.kubernetes.io/name"]"#,
+                path: Path::default()
+                    .push("spec")
+                    .push("template")
+                    .push("metadata")
+                    .push("annotations")
+                    .push("app.kubernetes.io/name"),
+                matches: true,
+            },
+        ];
+
+        for case in cases.iter().skip(4) {
+            let path_match = PathMatch::from_str(case.path_match).unwrap();
+
+            assert_eq!(case.matches, path_match.matches(&case.path));
         }
     }
 }
