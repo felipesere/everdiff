@@ -23,6 +23,17 @@ pub enum Difference {
     },
 }
 
+impl Difference {
+    pub fn path(&self) -> &Path {
+        match self {
+            Difference::Added { path, .. } => path,
+            Difference::Removed { path, .. } => path,
+            Difference::Changed { path, .. } => path,
+            Difference::Moved { original_path, .. } => original_path,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArrayOrdering {
     Fixed,

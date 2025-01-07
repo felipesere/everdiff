@@ -56,8 +56,6 @@ struct YamlSource {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    dbg!(args.ignore_changes);
-
     let maybe_config = config_from_env();
     let patches = maybe_config.map(|c| c.prepatches).unwrap_or_default();
 
@@ -79,7 +77,7 @@ fn main() -> anyhow::Result<()> {
 
     let diffs = multidoc::diff(&ctx, &left, &right);
 
-    render_multidoc_diff(diffs, args.ignore_moved);
+    render_multidoc_diff(diffs, args.ignore_moved, &args.ignore_changes);
 
     if args.watch {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -97,7 +95,7 @@ fn main() -> anyhow::Result<()> {
 
             let diffs = multidoc::diff(&ctx, &left, &right);
 
-            render_multidoc_diff(diffs, args.ignore_moved);
+            render_multidoc_diff(diffs, args.ignore_moved, &args.ignore_changes);
         }
     }
 
@@ -128,7 +126,11 @@ fn read_and_patch(
     Ok(docs)
 }
 
-pub fn render_multidoc_diff(differences: Vec<DocDifference>, ignore_moved: bool) {
+pub fn render_multidoc_diff(
+    differences: Vec<DocDifference>,
+    ignore_moved: bool,
+    ignore: &[PathMatch],
+) {
     use owo_colors::OwoColorize;
 
     if differences.is_empty() {
@@ -150,6 +152,15 @@ pub fn render_multidoc_diff(differences: Vec<DocDifference>, ignore_moved: bool)
             DocDifference::Changed {
                 key, differences, ..
             } => {
+                let differences: Vec<_> = differences
+                    .into_iter()
+                    .filter(|diff| {
+                        !ignore
+                            .iter()
+                            .any(|path_match| path_match.matches(diff.path()))
+                    })
+                    .collect();
+
                 let differences = if !ignore_moved {
                     differences
                 } else {
