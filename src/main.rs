@@ -6,11 +6,13 @@ use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
+use path::{Path, PathMatch};
 
 mod config;
 mod diff;
 mod identifier;
 mod multidoc;
+mod path;
 mod prepatch;
 
 #[derive(Default, ValueEnum, Clone, Debug)]
@@ -32,6 +34,10 @@ struct Args {
     #[arg(short = 'm', long, default_value = "false")]
     ignore_moved: bool,
 
+    /// Don't show changes for moved elements
+    #[arg(short, long, value_parser = clap::value_parser!(PathMatch), value_delimiter = ' ', num_args = 0..)]
+    ignore_changes: Vec<PathMatch>,
+
     /// Watch the `left` and `right` files for changes and re-run
     #[arg(short = 'w', long, default_value = "false")]
     watch: bool,
@@ -49,6 +55,8 @@ struct YamlSource {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    dbg!(args.ignore_changes);
 
     let maybe_config = config_from_env();
     let patches = maybe_config.map(|c| c.prepatches).unwrap_or_default();

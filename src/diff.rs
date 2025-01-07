@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use crate::path::{Path, Segment};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Difference {
     Added {
@@ -21,62 +23,6 @@ pub enum Difference {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Segment {
-    Field(serde_yaml::Value),
-    Index(usize),
-}
-
-impl From<&str> for Segment {
-    fn from(value: &str) -> Self {
-        Segment::Field(value.into())
-    }
-}
-
-impl From<serde_yaml::Value> for Segment {
-    fn from(val: serde_yaml::Value) -> Self {
-        Segment::Field(val)
-    }
-}
-
-impl From<usize> for Segment {
-    fn from(val: usize) -> Self {
-        Segment::Index(val)
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Path(Vec<Segment>);
-
-impl Path {
-    pub fn jq_like(&self) -> String {
-        let mut buf = String::new();
-        for s in &self.0 {
-            match s {
-                Segment::Field(serde_yaml::Value::String(s)) => {
-                    buf += &format!(".{s}");
-                }
-                Segment::Field(other) => panic!("{other:?} not supported for jq_like"),
-                Segment::Index(n) => {
-                    buf += &format!("[{n}]");
-                }
-            };
-        }
-        buf
-    }
-
-    pub fn push(&self, value: impl Into<Segment>) -> Self {
-        let mut copy = self.clone();
-        copy.0.push(value.into());
-        copy
-    }
-
-    #[cfg(test)]
-    pub fn from_unchecked(path: Vec<Segment>) -> Self {
-        Path(path)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArrayOrdering {
     Fixed,
@@ -92,7 +38,7 @@ pub struct Context {
 impl Default for Context {
     fn default() -> Self {
         Self {
-            path: Path(vec![]),
+            path: Path::default(),
             array_ordering: ArrayOrdering::Fixed,
         }
     }
