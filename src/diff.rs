@@ -193,49 +193,44 @@ fn minimize_differences(matrix: &DiffMatrix) -> MatchingOutcome {
     // this is getting stupid... I need to track these better...
     let mut unmoved: Vec<usize> = Vec::new();
 
-    'outer: for (ldx, right_values) in matrix.iter().enumerate() {
-        let mut n: Vec<_> = right_values.iter().enumerate().collect();
-        // Sort by amount of differences, most similar (0 difference) to the most different
-        n.sort_by_key(|n| n.1.len());
+    let mut used_right_indexes = Vec::new();
+    let mut used_left_indexes = Vec::new();
 
-        for (rdx, diffs) in n {
+    'outer: for (ldx, right_values) in matrix.iter().enumerate() {
+        let mut right_idx_and_diff: Vec<_> = right_values.iter().enumerate().collect();
+        // Sort by amount of differences, most similar (0 difference) to the most different
+        right_idx_and_diff.sort_by_key(|(_, diff)| diff.len());
+
+        for (rdx, diffs) in right_idx_and_diff {
             // Pick the least different index that has not been used yet
-            if changed.iter().all(|existing| existing.1 != rdx)
-                && moved.iter().all(|existing| existing.1 != rdx)
-            {
+            if !used_right_indexes.contains(&rdx) {
                 if diffs.is_empty() {
-                    if ldx != rdx {
-                        moved.push((ldx, rdx));
-                    } else {
+                    if ldx == rdx {
                         unmoved.push(ldx);
+                    } else {
+                        moved.push((ldx, rdx));
                     }
+                    used_left_indexes.push(ldx);
+                    used_right_indexes.push(rdx);
                 } else {
                     changed.push((ldx, rdx, diffs.clone()));
+                    used_right_indexes.push(rdx);
+                    used_left_indexes.push(ldx);
                 }
+                // found a match, so we can move on!
                 continue 'outer;
             }
         }
     }
     // removed and added indexes are the ones that are neither changed nor morved
     let removed_indexes: Vec<_> = (0..matrix.len())
-        .filter(|ldx| {
-            !changed.iter().any(|(left, _, _)| ldx == left)
-                && !moved.iter().any(|(left, _)| ldx == left)
-                && !unmoved.iter().any(|left| ldx == left)
-        })
+        .filter(|ldx| !used_left_indexes.contains(ldx))
         .collect();
 
-    let added_indexes: Vec<_> = if !matrix.is_empty() {
-        (0..matrix[0].len())
-            .filter(|rdx| {
-                !changed.iter().any(|(_, right, _)| rdx == right)
-                    && !moved.iter().any(|(_, right)| rdx == right)
-                    && !unmoved.iter().any(|right| rdx == right)
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let len = matrix.first().map_or(0, |m| m.len());
+    let added_indexes: Vec<_> = (0..len)
+        .filter(|rdx| !used_right_indexes.contains(rdx))
+        .collect();
 
     MatchingOutcome {
         added: added_indexes,
