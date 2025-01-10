@@ -1,6 +1,8 @@
 #![allow(unused)]
 use std::io;
 
+use std::fmt;
+
 use clap::{Parser, ValueEnum};
 use config::config_from_env;
 use diff::{Difference, Path};
@@ -8,11 +10,14 @@ use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tui::TuiApp;
+use owo_colors::{OwoColorize, Style};
+use path::{IgnorePath, Path};
 
 mod config;
 mod diff;
 mod identifier;
 mod multidoc;
+mod path;
 mod prepatch;
 mod tui;
 
@@ -34,6 +39,14 @@ struct Args {
     #[arg(short = 'k', long, default_value = "false")]
     kubernetes: bool,
 
+    /// Don't show changes for moved elements
+    #[arg(short = 'm', long, default_value = "false")]
+    ignore_moved: bool,
+
+    /// Don't show changes for moved elements
+    #[arg(short, long, value_parser = clap::value_parser!(IgnorePath), value_delimiter = ' ', num_args = 0..)]
+    ignore_changes: Vec<IgnorePath>,
+
     /// Watch the `left` and `right` files for changes and re-run
     #[arg(short = 'w', long, default_value = "false")]
     watch: bool,
@@ -42,6 +55,11 @@ struct Args {
     left: Vec<camino::Utf8PathBuf>,
     #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
     right: Vec<camino::Utf8PathBuf>,
+}
+
+struct YamlSource {
+    file: camino::Utf8PathBuf,
+    yaml: serde_yaml::Value,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -80,7 +98,7 @@ fn main() -> anyhow::Result<()> {
         let app_result = TuiApp::new(diffs).run(&mut terminal);
         ratatui::restore();
     } else {
-        render_multidoc_diff(diffs);
+        render_multidoc_diff(diffs, args.ignore_moved, &args.ignore_changes);
 
         if args.watch {
             let (tx, rx) = std::sync::mpsc::channel();
@@ -98,7 +116,7 @@ fn main() -> anyhow::Result<()> {
 
                 let diffs = multidoc::diff(&ctx, &left, &right);
 
-                render_multidoc_diff(diffs);
+                render_multidoc_diff(diffs, args.ignore_moved, &args.ignore_changes);
             }
         }
     }
@@ -109,7 +127,7 @@ fn main() -> anyhow::Result<()> {
 fn read_and_patch(
     paths: &[camino::Utf8PathBuf],
     patches: &[prepatch::PrePatch],
-) -> anyhow::Result<Vec<serde_yaml::Value>> {
+) -> anyhow::Result<Vec<YamlSource>> {
     use serde::Deserialize;
 
     let mut docs = Vec::new();
@@ -117,7 +135,10 @@ fn read_and_patch(
         let f = std::fs::File::open(p)?;
         for document in serde_yaml::Deserializer::from_reader(f) {
             let v = serde_yaml::Value::deserialize(document)?;
-            docs.push(v);
+            docs.push(YamlSource {
+                file: p.clone(),
+                yaml: v,
+            });
         }
     }
     for patch in patches {
@@ -127,7 +148,11 @@ fn read_and_patch(
     Ok(docs)
 }
 
-pub fn render_multidoc_diff(differences: Vec<DocDifference>) {
+pub fn render_multidoc_diff(
+    differences: Vec<DocDifference>,
+    ignore_moved: bool,
+    ignore: &[IgnorePath],
+) {
     use owo_colors::OwoColorize;
 
     if differences.is_empty() {
@@ -149,6 +174,24 @@ pub fn render_multidoc_diff(differences: Vec<DocDifference>) {
             DocDifference::Changed {
                 key, differences, ..
             } => {
+                let differences: Vec<_> = differences
+                    .into_iter()
+                    .filter(|diff| {
+                        !ignore
+                            .iter()
+                            .any(|path_match| path_match.matches(diff.path()))
+                    })
+                    .collect();
+
+                let differences = if !ignore_moved {
+                    differences
+                } else {
+                    differences
+                        .into_iter()
+                        .filter(|diff| !matches!(diff, Difference::Moved { .. }))
+                        .collect()
+                };
+
                 let key = indent::indent_all_by(4, key.to_string());
                 println!("Changed document:");
                 println!("{key}");
@@ -175,13 +218,78 @@ pub fn render(differences: Vec<Difference>) {
             }
             Difference::Changed { path, left, right } => {
                 println!("Changed: {p}:", p = path.jq_like().bold());
-                let left = indent::indent_all_by(4, serde_yaml::to_string(&left).unwrap());
-                let right = indent::indent_all_by(4, serde_yaml::to_string(&right).unwrap());
 
-                print!("{r}", r = left.green());
-                print!("{r}", r = right.red());
+                match (left, right) {
+                    (serde_yaml::Value::String(left), serde_yaml::Value::String(right)) => {
+                        render_string_diff(&left, &right)
+                    }
+                    (left, right) => {
+                        let left = indent::indent_all_by(4, serde_yaml::to_string(&left).unwrap());
+                        let right =
+                            indent::indent_all_by(4, serde_yaml::to_string(&right).unwrap());
+
+                        print!("{r}", r = left.green());
+                        print!("{r}", r = right.red());
+                    }
+                }
+            }
+            Difference::Moved {
+                original_path,
+                new_path,
+            } => {
+                println!(
+                    "Moved: from {p} to {q}:",
+                    p = original_path.jq_like().yellow(),
+                    q = new_path.jq_like().yellow()
+                );
             }
         }
         println!()
+    }
+}
+
+fn render_string_diff(left: &str, right: &str) {
+    let diff = similar::TextDiff::from_lines(left, right);
+
+    for (idx, group) in diff.grouped_ops(2).iter().enumerate() {
+        if idx > 0 {
+            println!("{:┈^1$}", "┈", 80);
+        }
+        for op in group {
+            for change in diff.iter_inline_changes(op) {
+                let (sign, emphasis_style) = match change.tag() {
+                    similar::ChangeTag::Delete => ("-", Style::new().red()),
+                    similar::ChangeTag::Insert => ("+", Style::new().green()),
+                    similar::ChangeTag::Equal => (" ", Style::new().dimmed()),
+                };
+                print!(
+                    "{}{} {}│  ",
+                    Line(change.old_index()).to_string().dimmed(),
+                    Line(change.new_index()).to_string().dimmed(),
+                    sign.style(emphasis_style).bold(),
+                );
+                for (emphasized, value) in change.iter_strings_lossy() {
+                    if emphasized {
+                        print!("{}", value.style(emphasis_style.underline()));
+                    } else {
+                        print!("{}", value);
+                    }
+                }
+                if change.missing_newline() {
+                    println!();
+                }
+            }
+        }
+    }
+}
+
+struct Line(Option<usize>);
+
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            None => write!(f, "   "),
+            Some(idx) => write!(f, "{:<3}", idx + 1),
+        }
     }
 }

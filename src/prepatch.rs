@@ -3,6 +3,8 @@ use jsonptr::resolve::ResolveError;
 use serde::Deserialize;
 use serde_yaml::Value;
 
+use crate::YamlSource;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Value to patch not found")]
@@ -18,14 +20,14 @@ pub struct PrePatch {
 }
 
 impl PrePatch {
-    pub fn apply_to(&self, documents: &mut Vec<Value>) -> Result<(), Error> {
+    pub fn apply_to(&self, documents: &mut Vec<YamlSource>) -> Result<(), Error> {
         for doc in documents {
             if let Some(doc_matcher) = &self.document_like {
-                if !document_matches(doc_matcher, doc) {
+                if !document_matches(doc_matcher, &doc.yaml) {
                     continue;
                 }
             }
-            apply_patch(&self.patches, doc)?;
+            apply_patch(&self.patches, &mut doc.yaml)?;
         }
 
         Ok(())
@@ -132,6 +134,8 @@ mod tests {
     use expect_test::expect;
     use indoc::indoc;
 
+    use crate::YamlSource;
+
     use super::PrePatch;
 
     #[test]
@@ -182,14 +186,15 @@ mod tests {
 
         pp.apply_to(&mut documents);
 
-        let outcome = serde_yaml::to_string(&documents).unwrap();
+        let outcome = serialize(&documents);
         expect![[r#"
-            - kind: NetworkPolicy
-              metadata:
-                name: flux
-            - kind: NetworkPolicy
-              metadata:
-                name: the-other-one
+            kind: NetworkPolicy
+            metadata:
+              name: flux
+            ---
+            kind: NetworkPolicy
+            metadata:
+              name: the-other-one
         "#]]
         .assert_eq(&outcome);
     }
@@ -219,29 +224,43 @@ mod tests {
 
         pp.apply_to(&mut documents);
 
-        let outcome = serde_yaml::to_string(&documents).unwrap();
+        let outcome = serialize(&documents);
         expect![[r#"
-            - kind: NetworkPolicy
-              metadata:
-                name: flux-engine-steam
-                namespace: core
-            - kind: Deployment
-              metadata:
-                name: the-other-one
-                namespace: core
+            kind: NetworkPolicy
+            metadata:
+              name: flux-engine-steam
+              namespace: core
+            ---
+            kind: Deployment
+            metadata:
+              name: the-other-one
+              namespace: core
         "#]]
         .assert_eq(&outcome);
     }
 
-    pub fn docs(raw: &str) -> Vec<serde_yaml::Value> {
+    pub fn docs(raw: &str) -> Vec<YamlSource> {
         use serde::Deserialize;
         use serde_yaml::{Deserializer, Value};
 
         let mut docs = Vec::new();
         for document in Deserializer::from_str(raw) {
-            let v = Value::deserialize(document).unwrap();
-            docs.push(v);
+            let yaml = Value::deserialize(document).unwrap();
+            docs.push(YamlSource {
+                file: camino::Utf8PathBuf::new(),
+                yaml,
+            });
         }
         docs
+    }
+
+    pub fn serialize(docs: &[YamlSource]) -> String {
+        use serde::Serialize;
+
+        let mut serializer = serde_yaml::Serializer::new(Vec::new());
+        for doc in docs {
+            doc.yaml.serialize(&mut serializer).unwrap();
+        }
+        String::from_utf8(serializer.into_inner().unwrap()).unwrap()
     }
 }
