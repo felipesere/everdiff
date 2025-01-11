@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, fmt::Display};
 
 use crate::diff::{ArrayOrdering, Difference as Diff};
 use crate::identifier::IdentifierFn;
-use crate::YamlSource;
 use crate::tui::estimate_height;
+use crate::YamlSource;
 
 #[derive(Debug)]
 pub struct MatchingDocs {
@@ -154,7 +154,7 @@ impl Display for DocKey {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DocDifference {
     Addition(AdditionalDoc),
     Missing(MissingDoc),

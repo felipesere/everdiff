@@ -20,7 +20,7 @@ use std::{default, io};
 
 use tui_widget_list::{ListBuilder, ListState, ListView};
 
-use crate::diff::{Difference, Path};
+use crate::diff::Difference;
 use crate::multidoc::DocDifference;
 
 pub struct TuiApp {
@@ -311,6 +311,7 @@ pub fn estimate_height(diff: &Difference) -> usize {
             let right = serde_yaml::to_string(right).unwrap().lines().count();
             std::cmp::max(left, right)
         }
+        Difference::Moved { .. } => 0, // TODO
     }
 }
 
@@ -373,6 +374,7 @@ impl Widget for DifferenceWidget {
                 let raw_yaml = serde_yaml::to_string(left).unwrap();
                 Text::styled(raw_yaml, Style::new().bg(Color::Yellow).fg(Color::Black))
             }
+            Difference::Moved { .. } => Text::raw("TODO"),
         };
 
         Paragraph::new(left_value)
@@ -409,6 +411,7 @@ impl Widget for DifferenceWidget {
                 let raw_yaml = serde_yaml::to_string(right).unwrap();
                 Text::styled(raw_yaml, Style::new().bg(Color::Yellow).fg(Color::Black))
             }
+            Difference::Moved { .. } => Text::raw(""),
         };
 
         Paragraph::new(right_value)

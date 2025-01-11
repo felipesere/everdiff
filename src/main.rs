@@ -5,13 +5,13 @@ use std::fmt;
 
 use clap::{Parser, ValueEnum};
 use config::config_from_env;
-use diff::{Difference, Path};
+use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use tui::TuiApp;
 use owo_colors::{OwoColorize, Style};
 use path::{IgnorePath, Path};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tui::TuiApp;
 
 mod config;
 mod diff;

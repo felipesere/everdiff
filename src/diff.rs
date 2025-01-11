@@ -1,7 +1,5 @@
-use std::collections::HashSet;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 use crate::path::{Path, Segment};
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Difference {
@@ -22,73 +20,6 @@ pub enum Difference {
         original_path: Path,
         new_path: Path,
     },
-}
-
-impl Difference {
-    pub fn path(&self) -> Path {
-        match self {
-            Difference::Added { path, .. } => path.clone(),
-            Difference::Removed { path, .. } => path.clone(),
-            Difference::Changed { path, .. } => path.clone(),
-            Difference::Moved { original_path, .. } => original_path,
-        }
-    }
-}
-
-#[derive(Default, Clone, Debug, Eq, PartialEq)]
-pub struct Path(Vec<Segment>);
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Segment {
-    Field(serde_yaml::Value),
-    Index(usize),
-}
-
-impl From<&str> for Segment {
-    fn from(value: &str) -> Self {
-        Segment::Field(value.into())
-    }
-}
-
-impl From<serde_yaml::Value> for Segment {
-    fn from(val: serde_yaml::Value) -> Self {
-        Segment::Field(val)
-    }
-}
-
-impl From<usize> for Segment {
-    fn from(val: usize) -> Self {
-        Segment::Index(val)
-    }
-}
-
-impl Path {
-    pub fn jq_like(&self) -> String {
-        let mut buf = String::new();
-        for s in &self.0 {
-            match s {
-                Segment::Field(serde_yaml::Value::String(s)) => {
-                    buf += &format!(".{s}");
-                }
-                Segment::Field(other) => panic!("{other:?} not supported for jq_like"),
-                Segment::Index(n) => {
-                    buf += &format!("[{n}]");
-                }
-            };
-        }
-        buf
-    }
-
-    pub fn push(&self, value: impl Into<Segment>) -> Self {
-        let mut copy = self.clone();
-        copy.0.push(value.into());
-        copy
-    }
-
-    #[cfg(test)]
-    pub fn from_unchecked(path: Vec<Segment>) -> Self {
-        Path(path)
-    }
 }
 
 impl Difference {
