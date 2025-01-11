@@ -14,7 +14,9 @@ use ratatui::{
     widgets::{Block, List, ListDirection, Paragraph, Widget},
     DefaultTerminal, Frame,
 };
+use std::cell::RefCell;
 use std::ops::DerefMut;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::{default, io};
 
@@ -48,7 +50,7 @@ struct State {
 
 struct MultilistState {
     document_state: State,
-    within_doc_state: Vec<Arc<Mutex<State>>>,
+    within_doc_state: Vec<Rc<RefCell<State>>>,
 }
 
 impl MultilistState {
@@ -62,7 +64,7 @@ impl MultilistState {
                 .iter()
                 .enumerate()
                 .map(|(idx, diff)| {
-                    Arc::new(Mutex::new(State {
+                    Rc::new(RefCell::new(State {
                         list: ListState::default(),
                         elements: match diff {
                             DocDifference::Addition(_) => 1,
@@ -87,14 +89,14 @@ impl MultilistState {
 
     pub fn selected_change_in_doc(&self) -> Option<usize> {
         self.selected_document().and_then(|idx| {
-            let state = self.within_doc_state[idx].lock().unwrap();
+            let state = self.within_doc_state[idx].borrow();
             state.list.selected
         })
     }
 
     pub fn total_changes_in_doc(&self) -> Option<usize> {
         self.selected_document().map(|idx| {
-            let state = self.within_doc_state[idx].lock().unwrap();
+            let state = self.within_doc_state[idx].borrow();
             state.elements
         })
     }
@@ -115,7 +117,7 @@ impl MultilistState {
 
         let inner_doc_state = &mut self.within_doc_state[doc_idx];
         tracing::trace!("The state is: {inner_doc_state:?}");
-        let mut locked_state = inner_doc_state.lock().unwrap(); // WARN
+        let mut locked_state = inner_doc_state.borrow_mut();
         match locked_state.list.selected {
             Some(n) if n == (locked_state.elements - 1) => {
                 // We are done with the current document. Advance the doc and select the first item
@@ -125,7 +127,7 @@ impl MultilistState {
                 self.document_state.list.next();
                 let idx = self.document_state.list.selected.unwrap(); // WARN: Pretty sure this is safe?
                 let inner_doc_state = &mut self.within_doc_state[idx];
-                let mut locked_state = inner_doc_state.lock().unwrap();
+                let mut locked_state = inner_doc_state.borrow_mut();
                 // self.within_doc_state[idx].list.select(Some(0));
                 locked_state.list.next(); // <--?
             }
@@ -152,14 +154,14 @@ impl MultilistState {
         };
         let inner_doc_state = &mut self.within_doc_state[doc_idx];
         tracing::trace!("The state is: {inner_doc_state:?}");
-        let mut locked_state = inner_doc_state.lock().unwrap(); // WARN
+        let mut locked_state = inner_doc_state.borrow_mut();
         match locked_state.list.selected {
             Some(0) => {
                 drop(locked_state);
                 self.document_state.list.previous();
                 let idx = self.document_state.list.selected.unwrap(); // WARN: Pretty sure this is safe?
                 let inner_doc_state = &mut self.within_doc_state[idx];
-                let mut locked_state = inner_doc_state.lock().unwrap();
+                let mut locked_state = inner_doc_state.borrow_mut();
                 // self.within_doc_state[idx].list.select(Some(0));
                 locked_state.list.previous(); // <--?
             }
@@ -278,7 +280,7 @@ impl Widget for &mut DifferenceTab {
         let builder = ListBuilder::new(|context| {
             let idx = context.index;
             let main_axis_size = differences[idx].estimate_height();
-            let state = Arc::clone(&self.state.within_doc_state[idx]);
+            let state = Rc::clone(&self.state.within_doc_state[idx]);
 
             let diff = differences[idx].clone();
             let s = AllDifferencesInDocument {
@@ -423,7 +425,7 @@ impl Widget for DifferenceWidget {
 
 struct MultipleDifferencesState {
     differences: Vec<Difference>,
-    state: Arc<Mutex<State>>,
+    state: Rc<RefCell<State>>,
     parent_selected: bool,
 }
 
@@ -447,7 +449,7 @@ impl Widget for &mut MultipleDifferencesState {
         });
 
         let list = ListView::new(builder, item_count);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.borrow_mut();
 
         list.render(area, buf, &mut state.list);
     }
@@ -456,7 +458,7 @@ impl Widget for &mut MultipleDifferencesState {
 struct AllDifferencesInDocument {
     diff: DocDifference,
     selected: bool,
-    state: Arc<Mutex<State>>,
+    state: Rc<RefCell<State>>,
 }
 
 impl Widget for AllDifferencesInDocument {
@@ -530,7 +532,7 @@ impl Widget for AllDifferencesInDocument {
 
 struct MultipleDocDifferencesState {
     differences: Vec<DocDifference>,
-    states_within_doc: Vec<Arc<Mutex<State>>>,
+    states_within_doc: Vec<Rc<RefCell<State>>>,
     state: ListState,
 }
 
@@ -543,7 +545,7 @@ impl Widget for MultipleDocDifferencesState {
             // Each item here is a single Document with possibly many differences inside
             let idx = context.index;
             let main_axis_size = differences[idx].estimate_height();
-            let state = Arc::clone(&self.states_within_doc[idx]);
+            let state = Rc::clone(&self.states_within_doc[idx]);
 
             let diff = differences[idx].clone();
             let s = AllDifferencesInDocument {
