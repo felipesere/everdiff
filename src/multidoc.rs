@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt::format;
 use std::{collections::BTreeMap, fmt::Display};
 
 use crate::diff::{ArrayOrdering, Difference as Diff};
@@ -110,6 +111,21 @@ fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
 pub struct DocKey {
     src_file: camino::Utf8PathBuf,
     fields: BTreeMap<String, Option<String>>,
+}
+
+impl DocKey {
+    pub fn pretty_print(&self) -> String {
+        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
+        use comfy_table::presets::UTF8_FULL;
+
+        let mut t = comfy_table::Table::new();
+        t.load_preset(UTF8_FULL).apply_modifier(UTF8_ROUND_CORNERS);
+        for (k, v) in self.fields.clone() {
+            t.add_row(vec![k, v.unwrap_or_else(|| "∅".to_string())]);
+        }
+
+        format!("{t}")
+    }
 }
 
 impl PartialOrd for DocKey {

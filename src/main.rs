@@ -142,12 +142,12 @@ pub fn render_multidoc_diff(
     for d in differences {
         match d {
             DocDifference::Addition(AdditionalDoc { key, .. }) => {
-                let key = indent::indent_all_by(4, key.to_string());
+                let key = indent::indent_all_by(4, key.pretty_print());
                 println!("{m}", m = "Additional document:".green());
                 println!("{key}");
             }
             DocDifference::Missing(MissingDoc { key, .. }) => {
-                let key = indent::indent_all_by(4, key.to_string());
+                let key = indent::indent_all_by(4, key.pretty_print());
                 println!("{m}", m = "Missing document:".red());
                 println!("{key}");
             }
@@ -172,7 +172,7 @@ pub fn render_multidoc_diff(
                         .collect()
                 };
 
-                let key = indent::indent_all_by(4, key.to_string());
+                let key = indent::indent_all_by(4, key.pretty_print());
                 println!("Changed document:");
                 println!("{key}");
                 render(differences);
