@@ -127,7 +127,7 @@ fn read_and_patch(
 }
 
 pub fn render_multidoc_diff(
-    differences: Vec<DocDifference>,
+    mut differences: Vec<DocDifference>,
     ignore_moved: bool,
     ignore: &[IgnorePath],
 ) {
@@ -136,6 +136,8 @@ pub fn render_multidoc_diff(
     if differences.is_empty() {
         println!("No differences found")
     }
+
+    differences.sort();
 
     for d in differences {
         match d {

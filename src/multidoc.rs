@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::{collections::BTreeMap, fmt::Display};
 
 use crate::diff::{ArrayOrdering, Difference as Diff};
@@ -163,6 +164,34 @@ pub enum DocDifference {
         right_doc: usize,
         differences: Vec<Diff>,
     },
+}
+
+impl PartialOrd for DocDifference {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DocDifference {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (
+                DocDifference::Addition(AdditionalDoc { key, .. }),
+                DocDifference::Addition(AdditionalDoc { key: other_key, .. }),
+            ) => key.cmp(other_key),
+            (
+                DocDifference::Missing(MissingDoc { key, .. }),
+                DocDifference::Missing(MissingDoc { key: other_key, .. }),
+            ) => key.cmp(other_key),
+            (DocDifference::Changed { key, .. }, DocDifference::Changed { key: other_key, .. }) => {
+                key.cmp(other_key)
+            }
+            (DocDifference::Addition(_), _) => Ordering::Less,
+            (DocDifference::Changed { .. }, _) => Ordering::Greater,
+            (DocDifference::Missing(_), DocDifference::Addition(_)) => Ordering::Greater,
+            (DocDifference::Missing(_), DocDifference::Changed { .. }) => Ordering::Less,
+        }
+    }
 }
 
 pub fn diff(ctx: &Context, lefts: &[YamlSource], rights: &[YamlSource]) -> Vec<DocDifference> {
