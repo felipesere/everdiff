@@ -1,7 +1,8 @@
+use anyhow::bail;
 use json_patch::PatchOperation;
 use jsonptr::resolve::ResolveError;
+use saphyr::{LoadableYamlNode, MarkedYaml, Yaml, YamlData};
 use serde::Deserialize;
-use serde_yaml::Value;
 
 use crate::YamlSource;
 
@@ -15,6 +16,7 @@ pub enum Error {
 #[serde(rename_all = "camelCase")]
 pub struct PrePatch {
     name: Option<String>,
+    // TODO: this should be `MarkedYaml` in the future
     document_like: Option<serde_yaml::Value>,
     patches: json_patch::Patch,
 }
@@ -38,42 +40,80 @@ impl PrePatch {
 // It comes from a `Resolve` trait which is implemented for `serde_json::Value` and TOML
 // but sadly not for `serde_yaml::Value`.
 /// Get mutable access to the Value that `ptr` points at within `value`.
-fn resolve_mut<'a>(
-    mut value: &'a mut serde_yaml::Value,
+//fn resolve_mut<'a>(
+//    mut value: &'a mut serde_yaml::Value,
+//    mut ptr: &jsonptr::Pointer,
+//) -> Result<&'a mut serde_yaml::Value, anyhow::Error> {
+//    let mut offset = 0;
+//    while let Some((token, rem)) = ptr.split_front() {
+//        let tok_len = token.encoded().len();
+//        ptr = rem;
+//        value = match value {
+//            Value::Sequence(v) => {
+//                let idx = token
+//                    .to_index()
+//                    .map_err(|source| ResolveError::FailedToParseIndex { offset, source })?
+//                    .for_len(v.len())
+//                    .map_err(|source| ResolveError::OutOfBounds { offset, source })?;
+//                Ok(v.get_mut(idx).unwrap())
+//            }
+//
+//            Value::Mapping(v) => v
+//                .get_mut(token.decoded().as_ref())
+//                .ok_or(ResolveError::NotFound { offset }),
+//            // found a leaf node but the pointer hasn't been exhausted
+//            _ => Err(ResolveError::Unreachable { offset }),
+//        }?;
+//        offset += 1 + tok_len;
+//    }
+//    Ok(value)
+//}
+
+// Shamelessly stolen from jsontr::Pointer.
+// It comes from a `Resolve` trait which is implemented for `serde_json::Value` and TOML
+// but sadly not for `serde_yaml::Value`.
+/// Get mutable access to the Value that `ptr` points at within `value`.
+fn resolve_mut2<'a>(
+    mut value: &'a mut MarkedYaml,
     mut ptr: &jsonptr::Pointer,
-) -> Result<&'a mut serde_yaml::Value, anyhow::Error> {
+) -> Result<&'a mut MarkedYaml, anyhow::Error> {
     let mut offset = 0;
     while let Some((token, rem)) = ptr.split_front() {
         let tok_len = token.encoded().len();
         ptr = rem;
-        value = match value {
-            Value::Sequence(v) => {
-                let idx = token
-                    .to_index()
-                    .map_err(|source| ResolveError::FailedToParseIndex { offset, source })?
-                    .for_len(v.len())
-                    .map_err(|source| ResolveError::OutOfBounds { offset, source })?;
-                Ok(v.get_mut(idx).unwrap())
-            }
 
-            Value::Mapping(v) => v
-                .get_mut(token.decoded().as_ref())
-                .ok_or(ResolveError::NotFound { offset }),
-            // found a leaf node but the pointer hasn't been exhausted
-            _ => Err(ResolveError::Unreachable { offset }),
-        }?;
+        value = if value.is_array() {
+            let items = value.data.as_mut_vec().unwrap();
+            let idx = token
+                .to_index()
+                .map_err(|source| ResolveError::FailedToParseIndex { offset, source })?
+                .for_len(items.len())
+                .map_err(|source| ResolveError::OutOfBounds { offset, source })?;
+            &mut items[idx]
+        } else if value.is_hash() {
+            let items = value.data.as_mut_hash().unwrap();
+            let token = token.decoded().to_string();
+            let key = MarkedYaml::from_bare_yaml(saphyr::Yaml::String(token));
+            &mut items[&key]
+        } else {
+            // return Err(ResolveError::Unreachable { offset }.).;
+            bail!("This totally failed!");
+        };
         offset += 1 + tok_len;
     }
     Ok(value)
 }
 
-fn apply_patch(patches: &json_patch::Patch, doc: &mut Value) -> Result<(), Error> {
+fn apply_patch(patches: &json_patch::Patch, doc: &mut MarkedYaml) -> Result<(), Error> {
     for p in patches.iter() {
         match p {
             PatchOperation::Replace(r) => {
-                if let Ok(v) = resolve_mut(doc, &r.path) {
-                    let replacement: serde_yaml::Value =
-                        serde_json::from_value(r.value.clone()).unwrap();
+                if let Ok(v) = resolve_mut2(doc, &r.path) {
+                    let the_yaml = serde_yaml::to_string(&r.value)
+                        .expect("should turn patch value into yaml string");
+                    let replacement = MarkedYaml::load_from_str(the_yaml.as_str())
+                        .expect("valid yaml?")
+                        .remove(0);
                     *v = replacement;
                 } else {
                     return Err(Error::ValueNotFoundAtPath);
@@ -81,12 +121,15 @@ fn apply_patch(patches: &json_patch::Patch, doc: &mut Value) -> Result<(), Error
             }
             PatchOperation::Add(a) => {
                 if let Some((path, field)) = a.path.split_back() {
-                    if let Ok(v) = resolve_mut(doc, path) {
-                        if let Some(m) = v.as_mapping_mut() {
-                            let new_value: serde_yaml::Value =
-                                serde_json::from_value(a.value.clone()).unwrap();
-                            let key = field.to_string().into();
-                            m.insert(key, new_value);
+                    if let Ok(v) = resolve_mut2(doc, path) {
+                        if let Some(m) = v.data.as_mut_hash() {
+                            let the_yaml = serde_yaml::to_string(&a.value)
+                                .expect("should turn patch value into yaml string");
+                            let replacement = MarkedYaml::load_from_str(the_yaml.as_str())
+                                .expect("valid yaml?")
+                                .remove(0);
+                            let key = MarkedYaml::from_bare_yaml(Yaml::String(field.to_string()));
+                            m.insert(key, replacement);
                         };
                     } else {
                         return Err(Error::ValueNotFoundAtPath);
@@ -99,13 +142,13 @@ fn apply_patch(patches: &json_patch::Patch, doc: &mut Value) -> Result<(), Error
     Ok(())
 }
 
-fn document_matches(document_like: &Value, doc: &Value) -> bool {
-    match (document_like, doc) {
-        (Value::Null, Value::Null) => true,
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Number(a), Value::Number(b)) => a == b,
-        (Value::String(a), Value::String(b)) => a == b,
-        (Value::Sequence(required), Value::Sequence(available)) => {
+fn document_matches(document_like: &MarkedYaml, actual_doc: &MarkedYaml) -> bool {
+    match (&document_like.data, &actual_doc.data) {
+        (YamlData::Null, YamlData::Null) => true,
+        (YamlData::Boolean(a), YamlData::Boolean(b)) => a == b,
+        (YamlData::Integer(a), YamlData::Integer(b)) => a == b,
+        (YamlData::String(a), YamlData::String(b)) => a == b,
+        (YamlData::Array(required), YamlData::Array(available)) => {
             for (r, a) in required.iter().zip(available.iter()) {
                 if !document_matches(r, a) {
                     return false;
@@ -113,12 +156,12 @@ fn document_matches(document_like: &Value, doc: &Value) -> bool {
             }
             true
         }
-        (Value::Mapping(required), Value::Mapping(available)) => {
+        (YamlData::Hash(required), YamlData::Hash(available)) => {
             for (key, value) in required {
                 let Some(other_value) = available.get(key) else {
                     return false;
                 };
-                if !document_matches(value, other_value) {
+                if !document_matches(&value, other_value) {
                     return false;
                 }
             }

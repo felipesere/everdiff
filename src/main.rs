@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{clone, fmt, io::Read};
 
 use clap::{Parser, ValueEnum};
 use config::config_from_env;
@@ -6,7 +6,7 @@ use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
-use path::{IgnorePath, Path};
+use path::IgnorePath;
 
 mod config;
 mod diff;
@@ -50,7 +50,8 @@ struct Args {
 
 struct YamlSource {
     file: camino::Utf8PathBuf,
-    yaml: serde_yaml::Value,
+    yaml: saphyr::MarkedYaml,
+    content: String,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -106,16 +107,19 @@ fn read_and_patch(
     paths: &[camino::Utf8PathBuf],
     patches: &[prepatch::PrePatch],
 ) -> anyhow::Result<Vec<YamlSource>> {
-    use serde::Deserialize;
-
     let mut docs = Vec::new();
     for p in paths {
-        let f = std::fs::File::open(p)?;
-        for document in serde_yaml::Deserializer::from_reader(f) {
-            let v = serde_yaml::Value::deserialize(document)?;
+        let mut f = std::fs::File::open(p)?;
+        let mut content = String::new();
+        f.read_to_string(&mut content)?;
+
+        let n = saphyr::MarkedYaml::load_from_str(&content)?;
+        for document in n {
+            // TODO: Consider if we keep the entire YAML here too!
             docs.push(YamlSource {
                 file: p.clone(),
-                yaml: v,
+                yaml: document,
+                content: content.clone(),
             });
         }
     }
