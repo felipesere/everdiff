@@ -12,19 +12,38 @@ pub enum Error {
     ValueNotFoundAtPath,
 }
 
+#[derive(Debug, Clone)]
+struct WrappedYaml(MarkedYaml);
+
+impl<'de> Deserialize<'de> for WrappedYaml {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // TODO: there has to be a 12x better way to do this!
+        let val = serde_yaml::Value::deserialize(deserializer).unwrap();
+
+        let this_is_dumb = serde_yaml::to_string(&val).unwrap();
+
+        let mut n = MarkedYaml::load_from_str(&this_is_dumb).unwrap();
+        Ok(WrappedYaml(n.remove(0)))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrePatch {
+    #[allow(dead_code)]
     name: Option<String>,
-    // TODO: this should be `MarkedYaml` in the future
-    document_like: Option<serde_yaml::Value>,
+    document_like: Option<WrappedYaml>,
     patches: json_patch::Patch,
 }
 
 impl PrePatch {
     pub fn apply_to(&self, documents: &mut Vec<YamlSource>) -> Result<(), Error> {
+        let doc_matcher = self.document_like.as_ref().map(|wy| wy.clone().0);
         for doc in documents {
-            if let Some(doc_matcher) = &self.document_like {
+            if let Some(doc_matcher) = &doc_matcher {
                 if !document_matches(doc_matcher, &doc.yaml) {
                     continue;
                 }
@@ -176,6 +195,7 @@ fn document_matches(document_like: &MarkedYaml, actual_doc: &MarkedYaml) -> bool
 mod tests {
     use expect_test::expect;
     use indoc::indoc;
+    use saphyr::YamlEmitter;
 
     use crate::YamlSource;
 
@@ -231,6 +251,7 @@ mod tests {
 
         let outcome = serialize(&documents);
         expect![[r#"
+            ---
             kind: NetworkPolicy
             metadata:
               name: flux
@@ -269,6 +290,7 @@ mod tests {
 
         let outcome = serialize(&documents);
         expect![[r#"
+            ---
             kind: NetworkPolicy
             metadata:
               name: flux-engine-steam
@@ -283,27 +305,24 @@ mod tests {
     }
 
     pub fn docs(raw: &str) -> Vec<YamlSource> {
-        use serde::Deserialize;
-        use serde_yaml::{Deserializer, Value};
+        let n = saphyr::MarkedYaml::load_from_str(raw)
+            .expect("Bla bla something reading docs into the system");
 
-        let mut docs = Vec::new();
-        for document in Deserializer::from_str(raw) {
-            let yaml = Value::deserialize(document).unwrap();
-            docs.push(YamlSource {
+        n.into_iter()
+            .map(|yaml| YamlSource {
                 file: camino::Utf8PathBuf::new(),
                 yaml,
-            });
-        }
-        docs
+                content: raw.to_string(), // TODO: hmmm...
+            })
+            .collect()
     }
 
     pub fn serialize(docs: &[YamlSource]) -> String {
-        use serde::Serialize;
-
-        let mut serializer = serde_yaml::Serializer::new(Vec::new());
+        let mut out_str = String::new();
+        let mut emitter = YamlEmitter::new(&mut out_str);
         for doc in docs {
-            doc.yaml.serialize(&mut serializer).unwrap();
+            emitter.dump(&doc.yaml);
         }
-        String::from_utf8(serializer.into_inner().unwrap()).unwrap()
+        out_str
     }
 }

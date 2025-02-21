@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::fmt::format;
 use std::{collections::BTreeMap, fmt::Display};
 
 use crate::diff::{ArrayOrdering, Difference as Diff};
@@ -245,25 +244,24 @@ mod tests {
 
     use expect_test::expect;
     use pretty_assertions::assert_eq;
+    use saphyr::MarkedYaml;
 
     use crate::{
         multidoc::{diff, Context, DocKey},
         YamlSource,
     };
     use indoc::indoc;
-    use serde::Deserialize;
-    use serde_yaml::{Deserializer, Value};
 
     pub fn docs(raw: &str) -> Vec<YamlSource> {
-        let mut docs = Vec::new();
-        for document in Deserializer::from_str(raw) {
-            let yaml = Value::deserialize(document).unwrap();
-            docs.push(YamlSource {
+        let docs = MarkedYaml::load_from_str(raw).expect("valid yaml");
+
+        docs.into_iter()
+            .map(|yaml| YamlSource {
                 file: camino::Utf8PathBuf::from_str("/foo/bar/baz.yaml").unwrap(),
                 yaml,
-            });
-        }
-        docs
+                content: raw.to_string(),
+            })
+            .collect()
     }
 
     #[test]
@@ -334,15 +332,51 @@ mod tests {
                             path: Path(
                                 [
                                     Field(
-                                        String("spec"),
+                                        String(
+                                            "spec",
+                                        ),
                                     ),
                                     Field(
-                                        String("color"),
+                                        String(
+                                            "color",
+                                        ),
                                     ),
                                 ],
                             ),
-                            left: String("yellow"),
-                            right: String("blue"),
+                            left: MarkedYaml {
+                                span: Span {
+                                    start: Marker {
+                                        index: 43,
+                                        line: 5,
+                                        col: 9,
+                                    },
+                                    end: Marker {
+                                        index: 49,
+                                        line: 5,
+                                        col: 15,
+                                    },
+                                },
+                                data: String(
+                                    "yellow",
+                                ),
+                            },
+                            right: MarkedYaml {
+                                span: Span {
+                                    start: Marker {
+                                        index: 109,
+                                        line: 12,
+                                        col: 9,
+                                    },
+                                    end: Marker {
+                                        index: 113,
+                                        line: 12,
+                                        col: 13,
+                                    },
+                                },
+                                data: String(
+                                    "blue",
+                                ),
+                            },
                         },
                     ],
                 },
@@ -365,15 +399,51 @@ mod tests {
                             path: Path(
                                 [
                                     Field(
-                                        String("spec"),
+                                        String(
+                                            "spec",
+                                        ),
                                     ),
                                     Field(
-                                        String("thing"),
+                                        String(
+                                            "thing",
+                                        ),
                                     ),
                                 ],
                             ),
-                            left: Number(12),
-                            right: Number(24),
+                            left: MarkedYaml {
+                                span: Span {
+                                    start: Marker {
+                                        index: 113,
+                                        line: 12,
+                                        col: 9,
+                                    },
+                                    end: Marker {
+                                        index: 115,
+                                        line: 12,
+                                        col: 11,
+                                    },
+                                },
+                                data: Integer(
+                                    12,
+                                ),
+                            },
+                            right: MarkedYaml {
+                                span: Span {
+                                    start: Marker {
+                                        index: 59,
+                                        line: 6,
+                                        col: 9,
+                                    },
+                                    end: Marker {
+                                        index: 61,
+                                        line: 6,
+                                        col: 11,
+                                    },
+                                },
+                                data: Integer(
+                                    24,
+                                ),
+                            },
                         },
                     ],
                 },

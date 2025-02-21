@@ -2,18 +2,18 @@ use std::str::FromStr;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Segment {
-    Field(serde_yaml::Value),
+    Field(saphyr::YamlData<MarkedYaml>),
     Index(usize),
 }
 
 impl From<&str> for Segment {
     fn from(value: &str) -> Self {
-        Segment::Field(value.into())
+        Segment::Field(saphyr::YamlData::String(value.to_string()))
     }
 }
 
-impl From<serde_yaml::Value> for Segment {
-    fn from(val: serde_yaml::Value) -> Self {
+impl From<saphyr::YamlData<MarkedYaml>> for Segment {
+    fn from(val: saphyr::YamlData<MarkedYaml>) -> Self {
         Segment::Field(val)
     }
 }
@@ -32,7 +32,7 @@ impl Path {
         let mut buf = String::new();
         for s in &self.0 {
             match s {
-                Segment::Field(serde_yaml::Value::String(s)) => {
+                Segment::Field(saphyr::YamlData::String(s)) => {
                     buf += &format!(".{s}");
                 }
                 Segment::Field(other) => panic!("{other:?} not supported for jq_like"),
@@ -71,10 +71,8 @@ enum MatchElement {
 impl MatchElement {
     fn matches(&self, segment: &Segment) -> bool {
         match (self, segment) {
-            (MatchElement::Field(a), Segment::Field(serde_yaml::Value::String(b))) if a == b => {
-                true
-            }
-            (MatchElement::Index(a), Segment::Index(b)) if a == b => true,
+            (MatchElement::Field(a), Segment::Field(YamlData::String(b))) => a == b,
+            (MatchElement::Index(a), Segment::Index(b)) => a == b,
             (MatchElement::AnyArrayElement, Segment::Index(_)) => true,
             _ => false,
         }
@@ -139,6 +137,7 @@ use nom::combinator::{map, opt};
 use nom::multi::many0;
 use nom::sequence::{delimited, preceded};
 use nom::IResult;
+use saphyr::{MarkedYaml, YamlData};
 
 fn ignore_path(input: &str) -> IResult<&str, IgnorePath> {
     let mut segments = Vec::new();

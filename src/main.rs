@@ -1,4 +1,4 @@
-use std::{clone, fmt, io::Read};
+use std::{fmt, io::Read};
 
 use clap::{Parser, ValueEnum};
 use config::config_from_env;
@@ -7,6 +7,7 @@ use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
+use saphyr::{MarkedYaml, YamlData};
 
 mod config;
 mod diff;
@@ -51,6 +52,7 @@ struct Args {
 struct YamlSource {
     file: camino::Utf8PathBuf,
     yaml: saphyr::MarkedYaml,
+    #[allow(dead_code)]
     content: String,
 }
 
@@ -185,32 +187,38 @@ pub fn render_multidoc_diff(
     }
 }
 
+fn stringify(yaml: &MarkedYaml) -> String {
+    let mut out_str = String::new();
+    let mut emitter = saphyr::YamlEmitter::new(&mut out_str);
+    emitter.dump(&yaml).expect("failed to write YAML to buffer");
+    out_str
+}
+
 pub fn render(differences: Vec<Difference>) {
     use owo_colors::OwoColorize;
     for d in differences {
         match d {
             Difference::Added { path, value } => {
                 println!("Added: {p}:", p = path.jq_like().bold());
-                let added_yaml = indent::indent_all_by(4, serde_yaml::to_string(&value).unwrap());
+                let added_yaml = indent::indent_all_by(4, stringify(&value));
 
                 println!("{a}", a = added_yaml.green());
             }
             Difference::Removed { path, value } => {
                 println!("Removed: {p}:", p = path.jq_like().bold());
-                let removed_yaml = indent::indent_all_by(4, serde_yaml::to_string(&value).unwrap());
+                let removed_yaml = indent::indent_all_by(4, stringify(&value));
                 println!("{r}", r = removed_yaml.red());
             }
             Difference::Changed { path, left, right } => {
                 println!("Changed: {p}:", p = path.jq_like().bold());
 
-                match (left, right) {
-                    (serde_yaml::Value::String(left), serde_yaml::Value::String(right)) => {
-                        render_string_diff(&left, &right)
+                match (&left.data, &right.data) {
+                    (YamlData::String(left), YamlData::String(right)) => {
+                        render_string_diff(left, right)
                     }
-                    (left, right) => {
-                        let left = indent::indent_all_by(4, serde_yaml::to_string(&left).unwrap());
-                        let right =
-                            indent::indent_all_by(4, serde_yaml::to_string(&right).unwrap());
+                    (_, _) => {
+                        let left = indent::indent_all_by(4, stringify(&left));
+                        let right = indent::indent_all_by(4, stringify(&right));
 
                         print!("{r}", r = left.green());
                         print!("{r}", r = right.red());

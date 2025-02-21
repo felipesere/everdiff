@@ -17,11 +17,13 @@ pub fn by_index() -> IdentifierFn {
 }
 
 pub mod kubernetes {
+    use saphyr::MarkedYaml;
+
     use super::*;
     use std::collections::BTreeMap;
 
-    fn string_of(node: Option<&serde_yaml::Value>) -> Option<String> {
-        node?.as_str().map(String::from)
+    fn string_of(node: Option<&MarkedYaml>) -> Option<String> {
+        node?.data.as_str().map(String::from)
     }
 
     /// Keys to identify immutable kinds
