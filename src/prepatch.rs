@@ -12,38 +12,19 @@ pub enum Error {
     ValueNotFoundAtPath,
 }
 
-#[derive(Debug, Clone)]
-struct WrappedYaml(MarkedYaml);
-
-impl<'de> Deserialize<'de> for WrappedYaml {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        // TODO: there has to be a 12x better way to do this!
-        let val = serde_yaml::Value::deserialize(deserializer).unwrap();
-
-        let this_is_dumb = serde_yaml::to_string(&val).unwrap();
-
-        let mut n = MarkedYaml::load_from_str(&this_is_dumb).unwrap();
-        Ok(WrappedYaml(n.remove(0)))
-    }
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrePatch {
     #[allow(dead_code)]
     name: Option<String>,
-    document_like: Option<WrappedYaml>,
+    document_like: Option<serde_yaml::Value>,
     patches: json_patch::Patch,
 }
 
 impl PrePatch {
     pub fn apply_to(&self, documents: &mut Vec<YamlSource>) -> Result<(), Error> {
-        let doc_matcher = self.document_like.as_ref().map(|wy| wy.clone().0);
         for doc in documents {
-            if let Some(doc_matcher) = &doc_matcher {
+            if let Some(doc_matcher) = &self.document_like {
                 if !document_matches(doc_matcher, &doc.yaml) {
                     continue;
                 }
@@ -59,6 +40,8 @@ impl PrePatch {
 // It comes from a `Resolve` trait which is implemented for `serde_json::Value` and TOML
 // but sadly not for `serde_yaml::Value`.
 /// Get mutable access to the Value that `ptr` points at within `value`.
+//
+//
 //fn resolve_mut<'a>(
 //    mut value: &'a mut serde_yaml::Value,
 //    mut ptr: &jsonptr::Pointer,
@@ -161,13 +144,22 @@ fn apply_patch(patches: &json_patch::Patch, doc: &mut MarkedYaml) -> Result<(), 
     Ok(())
 }
 
-fn document_matches(document_like: &MarkedYaml, actual_doc: &MarkedYaml) -> bool {
-    match (&document_like.data, &actual_doc.data) {
-        (YamlData::Null, YamlData::Null) => true,
-        (YamlData::Boolean(a), YamlData::Boolean(b)) => a == b,
-        (YamlData::Integer(a), YamlData::Integer(b)) => a == b,
-        (YamlData::String(a), YamlData::String(b)) => a == b,
-        (YamlData::Array(required), YamlData::Array(available)) => {
+fn document_matches(document_like: &serde_yaml::Value, actual_doc: &MarkedYaml) -> bool {
+    match (document_like, &actual_doc.data) {
+        (serde_yaml::Value::Null, YamlData::Null) => true,
+        (serde_yaml::Value::Bool(a), YamlData::Boolean(b)) => a == b,
+        (serde_yaml::Value::Number(n), YamlData::Integer(b)) if n.is_i64() => {
+            n.as_i64().unwrap() == *b
+        }
+        (serde_yaml::Value::Number(n), YamlData::Real(b)) if n.is_f64() => {
+            let a = n.as_f64().unwrap();
+            let Ok(b) = b.parse::<f64>() else {
+                return false;
+            };
+            a == b
+        }
+        (serde_yaml::Value::String(a), YamlData::String(b)) => a == b,
+        (serde_yaml::Value::Sequence(required), YamlData::Array(available)) => {
             for (r, a) in required.iter().zip(available.iter()) {
                 if !document_matches(r, a) {
                     return false;
@@ -175,9 +167,14 @@ fn document_matches(document_like: &MarkedYaml, actual_doc: &MarkedYaml) -> bool
             }
             true
         }
-        (YamlData::Hash(required), YamlData::Hash(available)) => {
+        (serde_yaml::Value::Mapping(required), YamlData::Hash(available)) => {
             for (key, value) in required {
-                let Some(other_value) = available.get(key) else {
+                let Some(raw_val) = key.as_str() else {
+                    return false;
+                };
+                let Some(other_value) = available.get(&MarkedYaml::from_bare_yaml(Yaml::String(
+                    raw_val.to_string(),
+                ))) else {
                     return false;
                 };
                 if !document_matches(&value, other_value) {

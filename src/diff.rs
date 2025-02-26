@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn reordered_array_should_still_be_equal() {
+    fn detect_when_some_elements_have_been_moved_and_others_have_been_added() {
         let left = saphyr::MarkedYaml::load_from_str(indoc! {r#"
         some_list:
           - name: alpha
@@ -479,9 +479,9 @@ mod tests {
                                 col: 4,
                             },
                             end: Marker {
-                                index: 73,
-                                line: 6,
-                                col: 4,
+                                index: 130,
+                                line: 10,
+                                col: 2,
                             },
                         },
                         data: Hash(
@@ -543,9 +543,9 @@ mod tests {
                                             col: 6,
                                         },
                                         end: Marker {
-                                            index: 103,
-                                            line: 8,
-                                            col: 6,
+                                            index: 130,
+                                            line: 10,
+                                            col: 2,
                                         },
                                     },
                                     data: Hash(
