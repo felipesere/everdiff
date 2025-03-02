@@ -172,7 +172,7 @@ pub fn diff(
         }
         // if the values are the same, no need to further diff
         (left, right) if left == right => Vec::new(),
-        (_, _) => {
+        _ => {
             vec![Difference::Changed {
                 path: ctx.path.clone(),
                 left: left.clone(),

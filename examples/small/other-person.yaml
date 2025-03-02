@@ -1,6 +1,7 @@
 person:
-  name: |
-    Steffan E. Anderson
-    This other line.
-    And a second one
-    Are you there?
+  name: Steven Anderson
+  age: 34
+---
+pet:
+  kind: dog
+  age: 9

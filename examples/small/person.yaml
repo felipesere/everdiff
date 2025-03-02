@@ -1,5 +1,7 @@
 person:
-  name: |
-    Steve E. Anderson
-    This other line.
-    And a last one
+  name: Steve E. Anderson
+  age: 12
+---
+pet:
+  kind: cat
+  age: 7

@@ -1,4 +1,7 @@
-use std::{fmt, io::Read};
+use std::{
+    fmt::{self, format},
+    io::Read,
+};
 
 use clap::{Parser, ValueEnum};
 use config::config_from_env;
@@ -27,6 +30,10 @@ enum Comparison {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Render differences side-by-side
+    #[arg(short = 's', long, default_value = "false")]
+    side_by_side: bool,
+
     /// Use Kubernetes comparison
     #[arg(short = 'k', long, default_value = "false")]
     kubernetes: bool,
@@ -49,7 +56,7 @@ struct Args {
     right: Vec<camino::Utf8PathBuf>,
 }
 
-struct YamlSource {
+pub struct YamlSource {
     file: camino::Utf8PathBuf,
     yaml: saphyr::MarkedYaml,
     #[allow(dead_code)]
@@ -154,6 +161,7 @@ pub fn render_multidoc_diff(
     mut differences: Vec<DocDifference>,
     ignore_moved: bool,
     ignore: &[IgnorePath],
+    side_by_side: bool,
 ) {
     use owo_colors::OwoColorize;
 
@@ -227,6 +235,7 @@ pub fn render(
     _side_by_side: bool,
 ) {
     use owo_colors::OwoColorize;
+    let max_width = termsize::get().unwrap().cols;
     for d in differences {
         match d {
             Difference::Added { path, value } => {
@@ -243,6 +252,8 @@ pub fn render(
             Difference::Changed { path, left, right } => {
                 println!("Changed: {p}:", p = path.jq_like().bold());
 
+                let changed_line = left.span.start.line();
+
                 let parent = path.parent().unwrap().parent().unwrap();
                 let left_parent_node = node_in(&left_doc.yaml, &parent).unwrap();
                 let right_parent_node = node_in(&right_doc.yaml, &parent).unwrap();
@@ -251,15 +262,38 @@ pub fn render(
                 let start = span.start.line();
                 let end = span.end.line();
                 let left = stringify(left_parent_node);
+                let right = stringify(right_parent_node);
+
+                let max_left = ((max_width - 24) / 2) as usize; // includes a bit of random padding, do this proper later
 
                 let left_with_numbers = left
                     .lines()
                     .zip(start..end)
-                    .map(|(line, nr)| format!("{nr}\t│ {line}"))
+                    .map(|(line, nr)| format!("{nr}\t│ {line:<max_left$}"))
+                    .collect::<Vec<_>>();
+
+                let right_with_numbers = right
+                    .lines()
+                    .zip(start..end)
+                    .map(|(line, nr)| format!("{nr}\t│ {line:<max_left$}"))
+                    .collect::<Vec<_>>();
+
+                let combined = left_with_numbers
+                    .iter()
+                    .zip(right_with_numbers)
+                    .enumerate()
+                    .map(|(nr, (l, r))| {
+                        let line = format!("{l} │ {r}");
+                        if start + nr == changed_line {
+                            line.green().to_string()
+                        } else {
+                            line
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
 
-                print!("{left_with_numbers}");
+                println!("{combined}");
 
                 // match (&left.data, &right.data) {
                 //     (YamlData::String(left), YamlData::String(right)) => {
