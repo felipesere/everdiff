@@ -175,8 +175,8 @@ pub enum DocDifference {
     Missing(MissingDoc),
     Changed {
         key: DocKey,
-        left_doc: usize,
-        right_doc: usize,
+        left_doc_idx: usize,
+        right_doc_idx: usize,
         differences: Vec<Diff>,
     },
 }
@@ -223,8 +223,8 @@ pub fn diff(ctx: &Context, lefts: &[YamlSource], rights: &[YamlSource]) -> Vec<D
         if !diffs.is_empty() {
             differences.push(DocDifference::Changed {
                 key,
-                left_doc: left,
-                right_doc: right,
+                left_doc_idx: left,
+                right_doc_idx: right,
                 differences: diffs,
             })
         }

@@ -28,6 +28,16 @@ impl From<usize> for Segment {
 pub struct Path(Vec<Segment>);
 
 impl Path {
+    pub fn parent(&self) -> Option<Self> {
+        if self.0.is_empty() {
+            return None;
+        }
+
+        let mut copy = self.0.clone();
+        copy.pop();
+
+        Some(Path(copy))
+    }
     pub fn jq_like(&self) -> String {
         let mut buf = String::new();
         for s in &self.0 {
@@ -55,7 +65,7 @@ impl Path {
         Path(path)
     }
 
-    fn segments(&self) -> &[Segment] {
+    pub fn segments(&self) -> &[Segment] {
         &self.0
     }
 }

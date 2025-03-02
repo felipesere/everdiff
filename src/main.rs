@@ -80,7 +80,13 @@ fn main() -> anyhow::Result<()> {
 
     let diffs = multidoc::diff(&ctx, &left, &right);
 
-    render_multidoc_diff(diffs, args.ignore_moved, &args.ignore_changes);
+    render_multidoc_diff(
+        (left, right),
+        diffs,
+        args.ignore_moved,
+        &args.ignore_changes,
+        args.side_by_side,
+    );
 
     if args.watch {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -98,7 +104,13 @@ fn main() -> anyhow::Result<()> {
 
             let diffs = multidoc::diff(&ctx, &left, &right);
 
-            render_multidoc_diff(diffs, args.ignore_moved, &args.ignore_changes);
+            render_multidoc_diff(
+                (left, right),
+                diffs,
+                args.ignore_moved,
+                &args.ignore_changes,
+                args.side_by_side,
+            );
         }
     }
 
@@ -114,14 +126,19 @@ fn read_and_patch(
         let mut f = std::fs::File::open(p)?;
         let mut content = String::new();
         f.read_to_string(&mut content)?;
+        let split_docs: Vec<_> = content
+            .clone()
+            .split("---")
+            .map(|c| c.to_string())
+            .collect();
 
         let n = saphyr::MarkedYaml::load_from_str(&content)?;
-        for document in n {
+        for (document, content) in n.into_iter().zip(split_docs) {
             // TODO: Consider if we keep the entire YAML here too!
             docs.push(YamlSource {
                 file: p.clone(),
                 yaml: document,
-                content: content.clone(),
+                content,
             });
         }
     }
@@ -133,6 +150,7 @@ fn read_and_patch(
 }
 
 pub fn render_multidoc_diff(
+    (left, right): (Vec<YamlSource>, Vec<YamlSource>),
     mut differences: Vec<DocDifference>,
     ignore_moved: bool,
     ignore: &[IgnorePath],
@@ -158,7 +176,10 @@ pub fn render_multidoc_diff(
                 println!("{key}");
             }
             DocDifference::Changed {
-                key, differences, ..
+                key,
+                differences,
+                left_doc_idx,
+                right_doc_idx,
             } => {
                 let differences: Vec<_> = differences
                     .into_iter()
@@ -181,7 +202,9 @@ pub fn render_multidoc_diff(
                 let key = indent::indent_all_by(4, key.pretty_print());
                 println!("Changed document:");
                 println!("{key}");
-                render(differences);
+                let actual_left_doc = &left[left_doc_idx];
+                let actual_right_doc = &right[right_doc_idx];
+                render(actual_left_doc, actual_right_doc, differences, side_by_side);
             }
         }
     }
@@ -191,10 +214,18 @@ fn stringify(yaml: &MarkedYaml) -> String {
     let mut out_str = String::new();
     let mut emitter = saphyr::YamlEmitter::new(&mut out_str);
     emitter.dump(&yaml).expect("failed to write YAML to buffer");
-    out_str
+    match out_str.find('\n') {
+        Some(pos) => out_str[pos + 1..].to_string(),
+        None => out_str,
+    }
 }
 
-pub fn render(differences: Vec<Difference>) {
+pub fn render(
+    left_doc: &YamlSource,
+    right_doc: &YamlSource,
+    differences: Vec<Difference>,
+    _side_by_side: bool,
+) {
     use owo_colors::OwoColorize;
     for d in differences {
         match d {
@@ -212,18 +243,36 @@ pub fn render(differences: Vec<Difference>) {
             Difference::Changed { path, left, right } => {
                 println!("Changed: {p}:", p = path.jq_like().bold());
 
-                match (&left.data, &right.data) {
-                    (YamlData::String(left), YamlData::String(right)) => {
-                        render_string_diff(left, right)
-                    }
-                    (_, _) => {
-                        let left = indent::indent_all_by(4, stringify(&left));
-                        let right = indent::indent_all_by(4, stringify(&right));
+                let parent = path.parent().unwrap().parent().unwrap();
+                let left_parent_node = node_in(&left_doc.yaml, &parent).unwrap();
+                let right_parent_node = node_in(&right_doc.yaml, &parent).unwrap();
 
-                        print!("{r}", r = left.green());
-                        print!("{r}", r = right.red());
-                    }
-                }
+                let span = left_parent_node.span;
+                let start = span.start.line();
+                let end = span.end.line();
+                let left = stringify(left_parent_node);
+
+                let left_with_numbers = left
+                    .lines()
+                    .zip(start..end)
+                    .map(|(line, nr)| format!("{nr}\t│ {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                print!("{left_with_numbers}");
+
+                // match (&left.data, &right.data) {
+                //     (YamlData::String(left), YamlData::String(right)) => {
+                //         render_string_diff(left, right)
+                //     }
+                //     _ => {
+                //         let left = indent::indent_all_by(4, stringify(&left));
+                //         let right = indent::indent_all_by(4, stringify(&right));
+
+                //         print!("{r}", r = left.green());
+                //         print!("{r}", r = right.red());
+                //     }
+                // }
             }
             Difference::Moved {
                 original_path,
@@ -238,6 +287,27 @@ pub fn render(differences: Vec<Difference>) {
         }
         println!()
     }
+}
+
+fn node_in<'y>(yaml: &'y MarkedYaml, path: &path::Path) -> Option<&'y MarkedYaml> {
+    let mut n = Some(yaml);
+    for p in path.segments() {
+        match p {
+            path::Segment::Field(f) => {
+                let Some(v) = n.and_then(|n| n.get(f)) else {
+                    return None;
+                };
+                n = Some(v);
+            }
+            path::Segment::Index(nr) => {
+                let Some(v) = n.and_then(|n| n.get(nr)) else {
+                    return None;
+                };
+                n = Some(v);
+            }
+        }
+    }
+    n
 }
 
 fn render_string_diff(left: &str, right: &str) {
