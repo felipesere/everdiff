@@ -1,16 +1,17 @@
 use std::{
-    fmt::{self, format},
+    cmp::min,
+    fmt::{self},
     io::Read,
 };
 
-use clap::{Parser, ValueEnum};
+use clap::{builder::Str, Parser, ValueEnum};
 use config::config_from_env;
 use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
-use saphyr::{MarkedYaml, YamlData};
+use saphyr::MarkedYaml;
 
 mod config;
 mod diff;
@@ -57,10 +58,9 @@ struct Args {
 }
 
 pub struct YamlSource {
-    file: camino::Utf8PathBuf,
-    yaml: saphyr::MarkedYaml,
-    #[allow(dead_code)]
-    content: String,
+    pub file: camino::Utf8PathBuf,
+    pub yaml: saphyr::MarkedYaml,
+    pub content: String,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -133,15 +133,16 @@ fn read_and_patch(
         let mut f = std::fs::File::open(p)?;
         let mut content = String::new();
         f.read_to_string(&mut content)?;
+
         let split_docs: Vec<_> = content
             .clone()
             .split("---")
+            .skip(1)
             .map(|c| c.to_string())
             .collect();
 
         let n = saphyr::MarkedYaml::load_from_str(&content)?;
         for (document, content) in n.into_iter().zip(split_docs) {
-            // TODO: Consider if we keep the entire YAML here too!
             docs.push(YamlSource {
                 file: p.clone(),
                 yaml: document,
@@ -252,44 +253,15 @@ pub fn render(
             Difference::Changed { path, left, right } => {
                 println!("Changed: {p}:", p = path.jq_like().bold());
 
-                let changed_line = left.span.start.line();
-
-                let parent = path.parent().unwrap().parent().unwrap();
-                let left_parent_node = node_in(&left_doc.yaml, &parent).unwrap();
-                let right_parent_node = node_in(&right_doc.yaml, &parent).unwrap();
-
-                let span = left_parent_node.span;
-                let start = span.start.line();
-                let end = span.end.line();
-                let left = stringify(left_parent_node);
-                let right = stringify(right_parent_node);
-
                 let max_left = ((max_width - 24) / 2) as usize; // includes a bit of random padding, do this proper later
+                                                                //
+                let left = render_diff_widget(max_left, left_doc, left);
+                let right = render_diff_widget(max_left, right_doc, right);
 
-                let left_with_numbers = left
-                    .lines()
-                    .zip(start..end)
-                    .map(|(line, nr)| format!("{nr}\t│ {line:<max_left$}"))
-                    .collect::<Vec<_>>();
-
-                let right_with_numbers = right
-                    .lines()
-                    .zip(start..end)
-                    .map(|(line, nr)| format!("{nr}\t│ {line:<max_left$}"))
-                    .collect::<Vec<_>>();
-
-                let combined = left_with_numbers
+                let combined = left
                     .iter()
-                    .zip(right_with_numbers)
-                    .enumerate()
-                    .map(|(nr, (l, r))| {
-                        let line = format!("{l} │ {r}");
-                        if start + nr == changed_line {
-                            line.green().to_string()
-                        } else {
-                            line
-                        }
-                    })
+                    .zip(right)
+                    .map(|(l, r)| format!("{l} │ {r}"))
                     .collect::<Vec<_>>()
                     .join("\n");
 
@@ -321,6 +293,36 @@ pub fn render(
         }
         println!()
     }
+}
+
+fn render_diff_widget(
+    max_width: usize,
+    source: &YamlSource,
+    changed_yaml: MarkedYaml,
+) -> Vec<String> {
+    let start_line_of_document = source.yaml.span.start.line();
+
+    let lines: Vec<_> = source.content.lines().map(|s| s.to_string()).collect();
+
+    let changed_line = changed_yaml.span.start.line() - start_line_of_document;
+    let start = changed_line.saturating_sub(5) + 1;
+    let end = min(changed_line + 5, lines.len());
+    let left_snippet = &lines[start..end];
+
+    left_snippet
+        .iter()
+        .zip(start..end)
+        .map(|(line, nr)| {
+            let (w, line) = if nr == changed_line + 1 {
+                // TODO: Why do I need to make this wider?
+                (max_width + 2, line.green().to_string())
+            } else {
+                (max_width, line.dimmed().to_string())
+            };
+
+            format!("{nr:<3}│ {line:<w$}")
+        })
+        .collect::<Vec<_>>()
 }
 
 fn node_in<'y>(yaml: &'y MarkedYaml, path: &path::Path) -> Option<&'y MarkedYaml> {
