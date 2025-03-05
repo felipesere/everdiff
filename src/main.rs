@@ -4,7 +4,7 @@ use std::{
     io::Read,
 };
 
-use clap::{builder::Str, Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
 use config::config_from_env;
 use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
