@@ -325,8 +325,8 @@ mod tests {
                             "metadata.namespace": None,
                         },
                     },
-                    left_doc: 0,
-                    right_doc: 1,
+                    left_doc_idx: 0,
+                    right_doc_idx: 1,
                     differences: [
                         Changed {
                             path: Path(
@@ -392,8 +392,8 @@ mod tests {
                             ),
                         },
                     },
-                    left_doc: 1,
-                    right_doc: 0,
+                    left_doc_idx: 1,
+                    right_doc_idx: 0,
                     differences: [
                         Changed {
                             path: Path(
