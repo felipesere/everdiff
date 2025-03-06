@@ -12,6 +12,7 @@ use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
 use saphyr::MarkedYaml;
+use snippet::render_difference;
 
 mod config;
 mod diff;
@@ -19,6 +20,7 @@ mod identifier;
 mod multidoc;
 mod path;
 mod prepatch;
+mod snippet;
 
 #[derive(Default, ValueEnum, Clone, Debug)]
 enum Comparison {
@@ -251,20 +253,7 @@ pub fn render(
                 println!("{r}", r = removed_yaml.red());
             }
             Difference::Changed { path, left, right } => {
-                println!("Changed: {p}:", p = path.jq_like().bold());
-
-                let max_left = ((max_width - 24) / 2) as usize; // includes a bit of random padding, do this proper later
-                                                                //
-                let left = render_diff_widget(max_left, left_doc, left);
-                let right = render_diff_widget(max_left, right_doc, right);
-
-                let combined = left
-                    .iter()
-                    .zip(right)
-                    .map(|(l, r)| format!("{l} │ {r}"))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
+                let combined = render_difference(path, left, left_doc, right, right_doc, max_width);
                 println!("{combined}");
 
                 // match (&left.data, &right.data) {
@@ -293,36 +282,6 @@ pub fn render(
         }
         println!()
     }
-}
-
-fn render_diff_widget(
-    max_width: usize,
-    source: &YamlSource,
-    changed_yaml: MarkedYaml,
-) -> Vec<String> {
-    let start_line_of_document = source.yaml.span.start.line();
-
-    let lines: Vec<_> = source.content.lines().map(|s| s.to_string()).collect();
-
-    let changed_line = changed_yaml.span.start.line() - start_line_of_document;
-    let start = changed_line.saturating_sub(5) + 1;
-    let end = min(changed_line + 5, lines.len());
-    let left_snippet = &lines[start..end];
-
-    left_snippet
-        .iter()
-        .zip(start..end)
-        .map(|(line, nr)| {
-            let (w, line) = if nr == changed_line + 1 {
-                // TODO: Why do I need to make this wider?
-                (max_width + 2, line.green().to_string())
-            } else {
-                (max_width, line.dimmed().to_string())
-            };
-
-            format!("{nr:<3}│ {line:<w$}")
-        })
-        .collect::<Vec<_>>()
 }
 
 fn node_in<'y>(yaml: &'y MarkedYaml, path: &path::Path) -> Option<&'y MarkedYaml> {
