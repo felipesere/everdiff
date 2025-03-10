@@ -1,5 +1,4 @@
 use std::{
-    cmp::min,
     fmt::{self},
     io::Read,
 };
@@ -253,7 +252,15 @@ pub fn render(
                 println!("{r}", r = removed_yaml.red());
             }
             Difference::Changed { path, left, right } => {
-                let combined = render_difference(path, left, left_doc, right, right_doc, max_width);
+                let combined = render_difference(
+                    path,
+                    left,
+                    left_doc,
+                    right,
+                    right_doc,
+                    max_width,
+                    snippet::Color::Enabled,
+                );
                 println!("{combined}");
 
                 // match (&left.data, &right.data) {

@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
 use std::{collections::BTreeMap, fmt::Display};
 
+use crate::YamlSource;
 use crate::diff::{ArrayOrdering, Difference as Diff};
 use crate::identifier::IdentifierFn;
-use crate::YamlSource;
 
 #[derive(Debug)]
 pub struct MatchingDocs {
@@ -247,8 +247,8 @@ mod tests {
     use saphyr::MarkedYaml;
 
     use crate::{
-        multidoc::{diff, Context, DocKey},
         YamlSource,
+        multidoc::{Context, DocKey, diff},
     };
     use indoc::indoc;
 
