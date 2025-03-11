@@ -11,7 +11,7 @@ use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
 use saphyr::MarkedYaml;
-use snippet::render_difference;
+use snippet::{Line, render_difference};
 
 mod config;
 mod diff;
@@ -343,17 +343,6 @@ fn render_string_diff(left: &str, right: &str) {
                     println!();
                 }
             }
-        }
-    }
-}
-
-struct Line(Option<usize>);
-
-impl fmt::Display for Line {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.0 {
-            None => write!(f, "   "),
-            Some(idx) => write!(f, "{:<3}", idx + 1),
         }
     }
 }

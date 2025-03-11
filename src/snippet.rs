@@ -1,5 +1,6 @@
-use std::cmp::min;
+use std::{cmp::min, fmt};
 
+use ansi_width::ansi_width;
 use owo_colors::{OwoColorize, Style};
 use saphyr::MarkedYaml;
 
@@ -30,7 +31,7 @@ pub fn render_difference(
         p = highlight.style(path_to_change.jq_like())
     );
 
-    let max_left = ((max_width - 8) / 2) as usize; // includes a bit of random padding, do this proper later
+    let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
     let left = render_snippet(max_left, left_doc, left, color);
     let right = render_snippet(max_left, right_doc, right, color);
 
@@ -71,16 +72,34 @@ pub fn render_snippet(
         .iter()
         .zip(start..end)
         .map(|(line, line_nr)| {
-            let (width, line) = if line_nr == changed_line + 1 {
-                // TODO: Why do I need to make this wider?
-                (max_width + 1, line.style(added).to_string())
+            let line = if line_nr == changed_line + 1 {
+                line.style(added).to_string()
             } else {
-                (max_width, line.style(unchaged).to_string())
+                line.style(unchaged).to_string()
             };
 
-            format!("{line_nr:<4}│ {line:<width$}")
+            // Why are we adding "extras"?
+            // The line may contain non-printable color codes which count for the padding
+            // in format!(...) but don't add to the width on the terminal.
+            // To accomodate, we pretend to make the padding wider again
+            // because we know some of the width won't be visible.
+            let extras = line.len() - ansi_width(&line);
+
+            let line_nr = Line(Some(line_nr - 1));
+            format!("{line_nr}│ {line:<width$}", width = max_width + extras)
         })
         .collect::<Vec<_>>()
+}
+
+pub struct Line(pub Option<usize>);
+
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            None => write!(f, "    "),
+            Some(idx) => write!(f, "{:>3} ", idx + 1),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -141,7 +160,7 @@ mod test {
 
         expect![[r#"
             Changed: .person.name:
-            1   │   name: Steve E. Anderson            │ 1   │   name: Robert Anderson             
-            2   │   age: 12                             │ 2   │   age: 12                            "#]].assert_eq(g.as_str());
+              1 │   name: Steve E. Anderson        │   1 │   name: Robert Anderson         
+              2 │   age: 12                        │   2 │   age: 12                       "#]].assert_eq(g.as_str());
     }
 }
