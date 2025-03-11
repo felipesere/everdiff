@@ -120,8 +120,6 @@ metadata:
     app: flux-engine-steam
     app.kubernetes.io/version: 0.0.27-pre1
     app.kubernetes.io/managed-by: batman
-  annotations:
-    github.com/repository_url: git@github.com:flux-engine-steam
 spec:
   ports:
   - targetPort: 8502

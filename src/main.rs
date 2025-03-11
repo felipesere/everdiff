@@ -11,7 +11,7 @@ use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
 use saphyr::MarkedYaml;
-use snippet::{Line, render_difference};
+use snippet::{Line, render_difference, render_removal};
 
 mod config;
 mod diff;
@@ -247,9 +247,18 @@ pub fn render(
                 println!("{a}", a = added_yaml.green());
             }
             Difference::Removed { path, value } => {
-                println!("Removed: {p}:", p = path.jq_like().bold());
-                let removed_yaml = indent::indent_all_by(4, stringify(&value));
-                println!("{r}", r = removed_yaml.red());
+                let output = render_removal(
+                    path,
+                    value,
+                    left_doc,
+                    right_doc,
+                    max_width,
+                    snippet::Color::Enabled,
+                );
+
+                // println!("Removed: {p}:", p = path.jq_like().bold());
+                // let removed_yaml = indent::indent_all_by(4, stringify(&value));
+                println!("{output}");
             }
             Difference::Changed { path, left, right } => {
                 let combined = render_difference(
@@ -262,19 +271,6 @@ pub fn render(
                     snippet::Color::Enabled,
                 );
                 println!("{combined}");
-
-                // match (&left.data, &right.data) {
-                //     (YamlData::String(left), YamlData::String(right)) => {
-                //         render_string_diff(left, right)
-                //     }
-                //     _ => {
-                //         let left = indent::indent_all_by(4, stringify(&left));
-                //         let right = indent::indent_all_by(4, stringify(&right));
-
-                //         print!("{r}", r = left.green());
-                //         print!("{r}", r = right.red());
-                //     }
-                // }
             }
             Difference::Moved {
                 original_path,
@@ -296,15 +292,11 @@ fn node_in<'y>(yaml: &'y MarkedYaml, path: &path::Path) -> Option<&'y MarkedYaml
     for p in path.segments() {
         match p {
             path::Segment::Field(f) => {
-                let Some(v) = n.and_then(|n| n.get(f)) else {
-                    return None;
-                };
+                let v = n.and_then(|n| n.get(f))?;
                 n = Some(v);
             }
             path::Segment::Index(nr) => {
-                let Some(v) = n.and_then(|n| n.get(nr)) else {
-                    return None;
-                };
+                let v = n.and_then(|n| n.get(nr))?;
                 n = Some(v);
             }
         }

@@ -12,6 +12,72 @@ pub enum Color {
     Disabled,
 }
 
+pub fn render_removal(
+    path_to_change: Path,
+    removal: MarkedYaml,
+    left_doc: &YamlSource,
+    right_doc: &YamlSource,
+    max_width: u16,
+    color: Color,
+) -> String {
+    let highlight = if color == Color::Enabled {
+        Style::new().bold()
+    } else {
+        Style::new()
+    };
+    let title = format!(
+        "Removed: {p}:",
+        p = highlight.style(path_to_change.jq_like())
+    );
+
+    let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
+
+    let parent = path_to_change.parent().unwrap();
+    let parent_node = node_in(&left_doc.yaml, &parent).unwrap();
+
+    let start_line_of_document = left_doc.yaml.span.start.line();
+    let lines: Vec<_> = left_doc.content.lines().map(|s| s.to_string()).collect();
+
+    let removal_start = removal.span.start.line() - start_line_of_document;
+    let removal_end = removal.span.end.line() - start_line_of_document;
+    let start = removal_start.saturating_sub(5) + 1;
+    let end = min(removal_end + 5, lines.len());
+    let left_snippet = &lines[start..end];
+
+    let (delete, unchaged) = match color {
+        Color::Enabled => (
+            owo_colors::Style::new().red(),
+            owo_colors::Style::new().dimmed(),
+        ),
+        Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
+    };
+
+    let left = left_snippet
+        .iter()
+        .zip(start..end)
+        .map(|(line, line_nr)| {
+            let line = if (removal_start..=removal_end).contains(&line_nr) {
+                line.style(delete).to_string()
+            } else {
+                line.style(unchaged).to_string()
+            };
+
+            // Why are we adding "extras"?
+            // The line may contain non-printable color codes which count for the padding
+            // in format!(...) but don't add to the width on the terminal.
+            // To accomodate, we pretend to make the padding wider again
+            // because we know some of the width won't be visible.
+            let extras = line.len() - ansi_width(&line);
+
+            let line_nr = Line(Some(line_nr - 1));
+            format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!("{title}\n{left}")
+}
+
 pub fn render_difference(
     path_to_change: Path,
     left: MarkedYaml,
@@ -32,8 +98,8 @@ pub fn render_difference(
     );
 
     let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
-    let left = render_snippet(max_left, left_doc, left, color);
-    let right = render_snippet(max_left, right_doc, right, color);
+    let left = render_changed_snippet(max_left, left_doc, left, color);
+    let right = render_changed_snippet(max_left, right_doc, right, color);
 
     let body = left
         .iter()
@@ -45,7 +111,7 @@ pub fn render_difference(
     format!("{title}\n{body}")
 }
 
-pub fn render_snippet(
+pub fn render_changed_snippet(
     max_width: usize,
     source: &YamlSource,
     changed_yaml: MarkedYaml,
@@ -102,6 +168,23 @@ impl fmt::Display for Line {
     }
 }
 
+fn node_in<'y>(yaml: &'y MarkedYaml, path: &Path) -> Option<&'y MarkedYaml> {
+    let mut n = Some(yaml);
+    for p in path.segments() {
+        match p {
+            crate::path::Segment::Field(f) => {
+                let v = n.and_then(|n| n.get(f))?;
+                n = Some(v);
+            }
+            crate::path::Segment::Index(nr) => {
+                let v = n.and_then(|n| n.get(nr))?;
+                n = Some(v);
+            }
+        }
+    }
+    n
+}
+
 #[cfg(test)]
 mod test {
     use expect_test::expect;
@@ -113,7 +196,7 @@ mod test {
         diff::{Context, Difference, diff},
     };
 
-    use super::render_difference;
+    use super::{render_difference, render_removal};
 
     fn marked_yaml(yaml: &'static str) -> MarkedYaml {
         let mut m = MarkedYaml::load_from_str(yaml).unwrap();
@@ -162,6 +245,50 @@ mod test {
             Changed: .person.name:
               1 │   name: Steve E. Anderson        │   1 │   name: Robert Anderson         
               2 │   age: 12                        │   2 │   age: 12                       "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_the_removal_of_a_node() {
+        let left_doc = yaml_source(indoc! {r#"
+            person:
+              name: Robert Anderson
+              address:
+                street: foo bar
+                nr: 1
+                postcode: ABC123
+              age: 12
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            person:
+              name: Robert Anderson
+              age: 12
+        "#});
+
+        let mut differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences.remove(0);
+        let Difference::Removed { path, value } = first else {
+            panic!("Should have gotten a Removal");
+        };
+        let content = render_removal(
+            path,
+            value,
+            &left_doc,
+            &right_doc,
+            80,
+            super::Color::Disabled,
+        );
+
+        expect![[r#"
+            Removed: .person.address:
+              1 │   name: Robert Anderson         
+              2 │   address:                      
+              3 │     street: foo bar             
+              4 │     nr: 1                       
+              5 │     postcode: ABC123            
+              6 │   age: 12                       "#]]
         .assert_eq(content.as_str());
     }
 }
