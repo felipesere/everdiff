@@ -142,13 +142,13 @@ mod test {
               age: 12
         "#});
 
-        let mut x = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+        let mut differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let k = x.remove(0);
-        let Difference::Changed { path, left, right } = k else {
+        let first = differences.remove(0);
+        let Difference::Changed { path, left, right } = first else {
             panic!("Should have gotten a Change");
         };
-        let g = render_difference(
+        let content = render_difference(
             path,
             left,
             &left_doc,
@@ -161,6 +161,7 @@ mod test {
         expect![[r#"
             Changed: .person.name:
               1 │   name: Steve E. Anderson        │   1 │   name: Robert Anderson         
-              2 │   age: 12                        │   2 │   age: 12                       "#]].assert_eq(g.as_str());
+              2 │   age: 12                        │   2 │   age: 12                       "#]]
+        .assert_eq(content.as_str());
     }
 }
