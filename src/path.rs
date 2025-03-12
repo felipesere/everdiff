@@ -28,6 +28,13 @@ impl From<usize> for Segment {
 pub struct Path(Vec<Segment>);
 
 impl Path {
+    pub fn head(&self) -> Option<&saphyr::YamlData<MarkedYaml>> {
+        self.0.last().and_then(|segment| match segment {
+            Segment::Field(m) => Some(m),
+            _ => None,
+        })
+    }
+
     pub fn parent(&self) -> Option<Self> {
         if self.0.is_empty() {
             return None;
@@ -140,13 +147,13 @@ impl FromStr for IgnorePath {
 }
 
 use anyhow::bail;
+use nom::IResult;
 use nom::branch::alt;
 use nom::bytes::complete::take_while1;
 use nom::character::complete::char;
 use nom::combinator::{map, opt};
 use nom::multi::many0;
 use nom::sequence::{delimited, preceded};
-use nom::IResult;
 use saphyr::{MarkedYaml, YamlData};
 
 fn ignore_path(input: &str) -> IResult<&str, IgnorePath> {

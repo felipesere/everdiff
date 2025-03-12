@@ -12,9 +12,9 @@ metadata:
     app.kubernetes.io/managed-by: releaser
   annotations:
     github.com/repository_url: git@github.com:flux-engine-steam
-    color: blue
+  foo: 12
 spec:
-  replicas: 4
+  replicas: 3
   revisionHistoryLimit: 1
   selector:
     matchLabels:
@@ -28,7 +28,6 @@ spec:
       annotations:
         kubectl.kubernetes.io/default-container: app
         github.com/repository_url: git@github.com:flux-engine-steam
-        color: blue
       labels:
         helm.sh/chart: flux-engine-steam-2.28.12
         app.kubernetes.io/name: flux-engine-steam
@@ -61,8 +60,6 @@ spec:
         - name: https
           containerPort: 8501
         env:
-        - name: COLOR
-          value: "blue"
         - name: K8S_HOST_IP
           valueFrom:
             fieldRef:
@@ -87,6 +84,13 @@ spec:
           value: k8s.host.ip=$(K8S_HOST_IP),k8s.namespace.name=$(K8S_POD_NAMESPACE),k8s.pod.ip=$(K8S_POD_IP),k8s.pod.name=$(K8S_POD_NAME),service.version=$(SERVICE_VERSION)
         - name: OTEL_SEMCONV_STABILITY_OPT_IN
           value: http/dup
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8501
+          initialDelaySeconds: 120
+          periodSeconds: 20
+          timeoutSeconds: 10
         readinessProbe:
           httpGet:
             path: /healthz
@@ -96,9 +100,9 @@ spec:
           timeoutSeconds: 10
         resources:
           limits:
-            cpu: 1
+            cpu: '1'
             ephemeral-storage: 2Gi
-            memory: 1.5Gi
+            memory: 1Gi
           requests:
             cpu: '0.2'
             ephemeral-storage: 1.2Gi
@@ -120,12 +124,11 @@ metadata:
     app: flux-engine-steam
     app.kubernetes.io/version: 0.0.27-pre1
     app.kubernetes.io/managed-by: batman
-  # intentionally removed
-# annotations:
-#   github.com/repository_url: git@github.com:flux-engine-steam
+  annotations:
+    github.com/repository_url: git@github.com:flux-engine-steam
 spec:
   ports:
-  - targetPort: 8502
+  - targetPort: 8501
     port: 3000
     name: https
   selector:
@@ -165,5 +168,8 @@ spec:
     - ipBlock:
         cidr: 0.0.0.0/0
     ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
       port: 53
   ingress: []

@@ -1,8 +1,11 @@
-use std::{cmp::min, fmt};
+use std::{
+    cmp::min,
+    fmt::{self, format},
+};
 
 use ansi_width::ansi_width;
 use owo_colors::{OwoColorize, Style};
-use saphyr::MarkedYaml;
+use saphyr::{MarkedYaml, YamlData};
 
 use crate::{YamlSource, path::Path};
 
@@ -20,6 +23,7 @@ pub fn render_removal(
     max_width: u16,
     color: Color,
 ) -> String {
+    let ctx_size = 5;
     let highlight = if color == Color::Enabled {
         Style::new().bold()
     } else {
@@ -35,14 +39,34 @@ pub fn render_removal(
     let parent = path_to_change.parent().unwrap();
     let parent_node = node_in(&left_doc.yaml, &parent).unwrap();
 
-    let start_line_of_document = left_doc.yaml.span.start.line();
-    let lines: Vec<_> = left_doc.content.lines().map(|s| s.to_string()).collect();
+    let (before, after) = match &parent_node.data {
+        YamlData::Array(_) => todo!("not dealing with arrays yet"),
+        YamlData::Hash(linked_hash_map) => {
+            // Consider extracting this...
+            let target_key = path_to_change.head().unwrap();
+            let keys: Vec<_> = linked_hash_map.keys().collect();
+            if let Some(idx) = keys.iter().position(|k| &k.data == target_key) {
+                let before = if idx > 0 { Some(keys[idx - 1]) } else { None };
+                let after = if idx < keys.len() - 1 {
+                    Some(keys[idx + 1])
+                } else {
+                    None
+                };
+                (before, after)
+            } else {
+                (None, None)
+            }
+        }
+        _ => unreachable!("parent has to be a container"),
+    };
 
+    let start_line_of_document = left_doc.yaml.span.start.line();
+    let left_lines: Vec<_> = left_doc.content.lines().map(|s| s.to_string()).collect();
     let removal_start = removal.span.start.line() - start_line_of_document;
     let removal_end = removal.span.end.line() - start_line_of_document;
-    let start = removal_start.saturating_sub(5) + 1;
-    let end = min(removal_end + 5, lines.len());
-    let left_snippet = &lines[start..end];
+    let start = removal_start.saturating_sub(ctx_size) + 1;
+    let end = min(removal_end + ctx_size, left_lines.len());
+    let left_snippet = &left_lines[start..end];
 
     let (delete, unchaged) = match color {
         Color::Enabled => (
@@ -52,30 +76,80 @@ pub fn render_removal(
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
     };
 
-    let left = left_snippet
-        .iter()
-        .zip(start..end)
-        .map(|(line, line_nr)| {
-            let line = if (removal_start..=removal_end).contains(&line_nr) {
-                line.style(delete).to_string()
-            } else {
-                line.style(unchaged).to_string()
-            };
+    let left = left_snippet.iter().zip(start..end).map(|(line, line_nr)| {
+        let line = if (removal_start..=removal_end).contains(&line_nr) {
+            line.style(delete).to_string()
+        } else {
+            line.style(unchaged).to_string()
+        };
 
-            // Why are we adding "extras"?
-            // The line may contain non-printable color codes which count for the padding
-            // in format!(...) but don't add to the width on the terminal.
-            // To accomodate, we pretend to make the padding wider again
-            // because we know some of the width won't be visible.
+        // Why are we adding "extras"?
+        // The line may contain non-printable color codes which count for the padding
+        // in format!(...) but don't add to the width on the terminal.
+        // To accomodate, we pretend to make the padding wider again
+        // because we know some of the width won't be visible.
+        let extras = line.len() - ansi_width(&line);
+
+        let line_nr = Line(Some(line_nr - 1));
+        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+    });
+
+    let before_node_title = before.unwrap();
+    let after_node_title = after.unwrap();
+
+    let y = parent.push(before_node_title.data.clone());
+    let x = parent.push(after_node_title.data.clone());
+
+    let before = node_in(&right_doc.yaml, &y);
+    let after = node_in(&right_doc.yaml, &x);
+
+    let start_line_of_right_document = right_doc.yaml.span.start.line();
+    let right_lines: Vec<_> = right_doc.content.lines().map(|s| s.to_string()).collect();
+
+    let gap_start = before.unwrap().span.end.line() - start_line_of_right_document;
+    let gap_end = after.unwrap().span.start.line() - start_line_of_right_document;
+    let gap_with_ctx = gap_start.saturating_sub(ctx_size) + 1;
+    let gap_end_with_ctx = min(gap_end + ctx_size, right_lines.len());
+    let right_snippet = &right_lines[gap_with_ctx..gap_end_with_ctx];
+
+    let removal_size = removal.span.end.line() - removal.span.start.line();
+
+    let pre_gap = right_snippet
+        .iter()
+        .zip(gap_with_ctx..(gap_start + 1))
+        .map(|(line, line_nr)| {
+            let line = line.style(unchaged).to_string();
             let extras = line.len() - ansi_width(&line);
 
             let line_nr = Line(Some(line_nr - 1));
             format!("{line_nr}│ {line:<width$}", width = max_left + extras)
-        })
+        });
+
+    let gap = (0..=removal_size).map(|_| {
+        let l = Line(None);
+        format!("{l}│")
+    });
+
+    let post_gap = right_snippet
+        .iter()
+        .skip(ctx_size)
+        .zip((gap_end + 1)..gap_end_with_ctx)
+        .map(|(line, line_nr)| {
+            let line = line.style(unchaged).to_string();
+            let extras = line.len() - ansi_width(&line);
+
+            let line_nr = Line(Some(line_nr - 1));
+            format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+        });
+
+    let right = pre_gap.chain(gap).chain(post_gap);
+    let x = left
+        .zip(right)
+        .map(|(l, r)| format!("{l} │ {r}"))
         .collect::<Vec<_>>()
         .join("\n");
 
-    format!("{title}\n{left}")
+    format!("{title}\n{x}")
 }
 
 pub fn render_difference(
@@ -185,6 +259,15 @@ fn node_in<'y>(yaml: &'y MarkedYaml, path: &Path) -> Option<&'y MarkedYaml> {
     n
 }
 
+fn surrounding_nodes<'y>(
+    yaml: &'y MarkedYaml,
+    path: &Path,
+) -> (Option<&'y MarkedYaml>, Option<&'y MarkedYaml>) {
+    let target = node_in(yaml, path);
+
+    (None, None)
+}
+
 #[cfg(test)]
 mod test {
     use expect_test::expect;
@@ -283,12 +366,11 @@ mod test {
 
         expect![[r#"
             Removed: .person.address:
-              1 │   name: Robert Anderson         
-              2 │   address:                      
-              3 │     street: foo bar             
-              4 │     nr: 1                       
-              5 │     postcode: ABC123            
-              6 │   age: 12                       "#]]
+              1 │   name: Robert Anderson          │   1 │   name: Robert Anderson         
+              2 │   address:                       │     │
+              3 │     street: foo bar              │     │
+              4 │     nr: 1                        │     │
+              5 │     postcode: ABC123             │     │"#]]
         .assert_eq(content.as_str());
     }
 }
