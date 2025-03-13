@@ -94,34 +94,38 @@ pub fn render_removal(
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
-    let before_node_title = before.unwrap();
-    let after_node_title = after.unwrap();
+    let before = before
+        .map(|key| parent.push(key.data.clone()))
+        .and_then(|path| node_in(&right_doc.yaml, &path));
 
-    let y = parent.push(before_node_title.data.clone());
-    let x = parent.push(after_node_title.data.clone());
+    let after = after
+        .map(|key| parent.push(key.data.clone()))
+        .and_then(|path| node_in(&right_doc.yaml, &path));
 
-    let before = node_in(&right_doc.yaml, &y);
-    let after = node_in(&right_doc.yaml, &x);
+    //-----------------------
+    // now we build the right
+    //-----------------------
 
     let start_line_of_right_document = right_doc.yaml.span.start.line();
-    let right_lines: Vec<_> = right_doc.content.lines().map(|s| s.to_string()).collect();
 
-    let gap_start = before.unwrap().span.end.line() - start_line_of_right_document;
-    let gap_end = after.unwrap().span.start.line() - start_line_of_right_document;
-    let gap_with_ctx = gap_start.saturating_sub(ctx_size) + 1;
-    let gap_end_with_ctx = min(gap_end + ctx_size, right_lines.len());
-    let right_snippet = &right_lines[gap_with_ctx..gap_end_with_ctx];
+    let right_lines: Vec<_> = right_doc.content.lines().map(|s| s.to_string()).collect();
+    let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(0);
+    let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100); // TODO: what is the correct default here?
+
+    let snippet_start = gap_start.saturating_sub(ctx_size) + 1;
+    let snippet_end = min(gap_end + ctx_size, right_lines.len());
+    let right_snippet = &right_lines[snippet_start..snippet_end];
 
     let removal_size = removal.span.end.line() - removal.span.start.line();
 
     let pre_gap = right_snippet
         .iter()
-        .zip(gap_with_ctx..(gap_start + 1))
+        .zip(snippet_start..gap_start)
         .map(|(line, line_nr)| {
             let line = line.style(unchaged).to_string();
             let extras = line.len() - ansi_width(&line);
 
-            let line_nr = Line(Some(line_nr - 1));
+            let line_nr = Line(Some(line_nr));
             format!("{line_nr}│ {line:<width$}", width = max_left + extras)
         });
 
@@ -132,13 +136,13 @@ pub fn render_removal(
 
     let post_gap = right_snippet
         .iter()
-        .skip(ctx_size)
-        .zip((gap_end + 1)..gap_end_with_ctx)
+        .skip(ctx_size - 1)
+        .zip(gap_start..snippet_end)
         .map(|(line, line_nr)| {
             let line = line.style(unchaged).to_string();
             let extras = line.len() - ansi_width(&line);
 
-            let line_nr = Line(Some(line_nr - 1));
+            let line_nr = Line(Some(line_nr));
             format!("{line_nr}│ {line:<width$}", width = max_left + extras)
         });
 
@@ -334,6 +338,7 @@ mod test {
     #[test]
     fn display_the_removal_of_a_node() {
         let left_doc = yaml_source(indoc! {r#"
+            ---
             person:
               name: Robert Anderson
               address:
@@ -341,12 +346,15 @@ mod test {
                 nr: 1
                 postcode: ABC123
               age: 12
+              foo: bar
         "#});
 
         let right_doc = yaml_source(indoc! {r#"
+            ---
             person:
               name: Robert Anderson
               age: 12
+              foo: bar
         "#});
 
         let mut differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
@@ -366,11 +374,14 @@ mod test {
 
         expect![[r#"
             Removed: .person.address:
-              1 │   name: Robert Anderson          │   1 │   name: Robert Anderson         
-              2 │   address:                       │     │
-              3 │     street: foo bar              │     │
-              4 │     nr: 1                        │     │
-              5 │     postcode: ABC123             │     │"#]]
+              1 │ person:                          │   1 │ person:                         
+              2 │   name: Robert Anderson          │   2 │   name: Robert Anderson         
+              3 │   address:                       │     │
+              4 │     street: foo bar              │     │
+              5 │     nr: 1                        │     │
+              6 │     postcode: ABC123             │     │
+              7 │   age: 12                        │   3 │   age: 12
+              8 │   foo: bar                       │   4 │   foo: bar"#]]
         .assert_eq(content.as_str());
     }
 }
