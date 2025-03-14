@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    fmt::{self, format},
+    fmt::{self},
 };
 
 use ansi_width::ansi_width;
@@ -12,8 +12,17 @@ use crate::{YamlSource, path::Path};
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Color {
     Enabled,
+    // mostly used in tests
     Disabled,
 }
+
+// We're going to need a "render context" or "render options" at some point
+// to control a couple of aspects:
+// * rendering the changes "in snippets" or not?
+// * how many lines above and below to to show?
+// * show colors or not?
+// * line numbers that match up with the actual file
+//    - this matters in particular for multi-doc docs
 
 pub fn render_removal(
     path_to_change: Path,
@@ -261,15 +270,6 @@ fn node_in<'y>(yaml: &'y MarkedYaml, path: &Path) -> Option<&'y MarkedYaml> {
         }
     }
     n
-}
-
-fn surrounding_nodes<'y>(
-    yaml: &'y MarkedYaml,
-    path: &Path,
-) -> (Option<&'y MarkedYaml>, Option<&'y MarkedYaml>) {
-    let target = node_in(yaml, path);
-
-    (None, None)
 }
 
 #[cfg(test)]
