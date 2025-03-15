@@ -129,7 +129,7 @@ pub fn render_removal(
 
     let pre_gap = right_snippet
         .iter()
-        .zip(snippet_start..gap_start)
+        .zip((snippet_start - 1)..gap_start)
         .map(|(line, line_nr)| {
             let line = line.style(unchaged).to_string();
             let extras = line.len() - ansi_width(&line);
@@ -143,10 +143,9 @@ pub fn render_removal(
         format!("{l}│")
     });
 
-    let post_gap = right_snippet
+    let post_gap = right_snippet[gap_start..]
         .iter()
-        .skip(ctx_size - 1)
-        .zip(gap_start..snippet_end)
+        .zip(gap_start..)
         .map(|(line, line_nr)| {
             let line = line.style(unchaged).to_string();
             let extras = line.len() - ansi_width(&line);
@@ -156,13 +155,13 @@ pub fn render_removal(
         });
 
     let right = pre_gap.chain(gap).chain(post_gap);
-    let x = left
+    let body = left
         .zip(right)
         .map(|(l, r)| format!("{l} │ {r}"))
         .collect::<Vec<_>>()
         .join("\n");
 
-    format!("{title}\n{x}")
+    format!("{title}\n{body}")
 }
 
 pub fn render_difference(
@@ -380,8 +379,8 @@ mod test {
               4 │     street: foo bar              │     │
               5 │     nr: 1                        │     │
               6 │     postcode: ABC123             │     │
-              7 │   age: 12                        │   3 │   age: 12
-              8 │   foo: bar                       │   4 │   foo: bar"#]]
+              7 │   age: 12                        │   3 │   age: 12                       
+              8 │   foo: bar                       │   4 │   foo: bar                      "#]]
         .assert_eq(content.as_str());
     }
 }
