@@ -99,7 +99,7 @@ pub fn render_removal(
         // because we know some of the width won't be visible.
         let extras = line.len() - ansi_width(&line);
 
-        let line_nr = Line(Some(line_nr - 1));
+        let line_nr = LineWidget(Some(line_nr - 1));
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
@@ -134,12 +134,12 @@ pub fn render_removal(
             let line = line.style(unchaged).to_string();
             let extras = line.len() - ansi_width(&line);
 
-            let line_nr = Line(Some(line_nr));
+            let line_nr = LineWidget(Some(line_nr));
             format!("{line_nr}│ {line:<width$}", width = max_left + extras)
         });
 
     let gap = (0..=removal_size).map(|_| {
-        let l = Line(None);
+        let l = LineWidget(None);
         format!("{l}│")
     });
 
@@ -150,7 +150,7 @@ pub fn render_removal(
             let line = line.style(unchaged).to_string();
             let extras = line.len() - ansi_width(&line);
 
-            let line_nr = Line(Some(line_nr));
+            let line_nr = LineWidget(Some(line_nr));
             format!("{line_nr}│ {line:<width$}", width = max_left + extras)
         });
 
@@ -237,15 +237,15 @@ pub fn render_changed_snippet(
             // because we know some of the width won't be visible.
             let extras = line.len() - ansi_width(&line);
 
-            let line_nr = Line(Some(line_nr - 1));
+            let line_nr = LineWidget(Some(line_nr - 1));
             format!("{line_nr}│ {line:<width$}", width = max_width + extras)
         })
         .collect::<Vec<_>>()
 }
 
-pub struct Line(pub Option<usize>);
+pub struct LineWidget(pub Option<usize>);
 
-impl fmt::Display for Line {
+impl fmt::Display for LineWidget {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
             None => write!(f, "    "),

@@ -11,7 +11,7 @@ use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
 use saphyr::MarkedYaml;
-use snippet::{Line, render_difference, render_removal};
+use snippet::{LineWidget, render_difference, render_removal};
 
 mod config;
 mod diff;
@@ -320,8 +320,8 @@ fn render_string_diff(left: &str, right: &str) {
                 };
                 print!(
                     "{}{} {}│  ",
-                    Line(change.old_index()).to_string().dimmed(),
-                    Line(change.new_index()).to_string().dimmed(),
+                    LineWidget(change.old_index()).to_string().dimmed(),
+                    LineWidget(change.new_index()).to_string().dimmed(),
                     sign.style(emphasis_style).bold(),
                 );
                 for (emphasized, value) in change.iter_strings_lossy() {
