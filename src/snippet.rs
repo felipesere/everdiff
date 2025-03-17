@@ -1,6 +1,7 @@
 use std::{
     cmp::min,
     fmt::{self},
+    num::NonZeroUsize,
 };
 
 use ansi_width::ansi_width;
@@ -14,6 +15,112 @@ pub enum Color {
     Enabled,
     // mostly used in tests
     Disabled,
+}
+
+type Line = NonZeroUsize;
+
+impl From<Line> for LineWidget {
+    fn from(value: Line) -> Self {
+        // TODO: We still do gross `+1` math in here
+        // if the `Line` concept pans out we can clear it
+        Self(Some(value.get() - 1))
+    }
+}
+
+struct Snippet<'source> {
+    lines: &'source [&'source str],
+    from: Line,
+    to: Line,
+}
+
+impl Snippet<'_> {
+    pub fn try_new<'source>(
+        lines: &'source [&'source str],
+        from: Line,
+        to: Line,
+    ) -> Result<Snippet<'source>, anyhow::Error> {
+        if to <= from {
+            anyhow::bail!("'to' was less than 'from'");
+        }
+        if lines.len() < usize::from(to) {
+            anyhow::bail!("'to' reaches out of bounds of 'lines'");
+        }
+        Ok(Snippet { lines, from, to })
+    }
+
+    pub fn iter(&self) -> SnippetLineIter {
+        SnippetLineIter {
+            snippet: self,
+            current: self.from.get(),
+        }
+    }
+
+    fn split(&self, split_at: Line) -> (Snippet<'_>, Snippet<'_>) {
+        let left = Snippet {
+            lines: self.lines,
+            from: self.from,
+            to: split_at,
+        };
+        let right = Snippet {
+            lines: self.lines,
+            from: split_at.saturating_add(1),
+            to: self.to,
+        };
+        (left, right)
+    }
+}
+
+struct SnippetLineIter<'source> {
+    snippet: &'source Snippet<'source>,
+    current: usize,
+}
+
+impl<'source> Iterator for SnippetLineIter<'source> {
+    type Item = (Line, &'source str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current <= self.snippet.to.get() {
+            let content = self.snippet.lines[self.current - 1];
+            let line_nr = Line::new(self.current)?;
+            self.current += 1;
+            Some((line_nr, content))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod snippet_tests {
+    use super::{Line, Snippet};
+
+    #[test]
+    fn lines_of_simple_snippet() {
+        let content = &[
+            "a", // 1
+            "b", // 2
+            "c", // 3
+            "d", // 4
+            "e", // 5
+        ];
+
+        let snippet =
+            Snippet::try_new(content, Line::new(2).unwrap(), Line::new(4).unwrap()).unwrap();
+
+        let actual_lines: Vec<_> = snippet
+            .iter()
+            .map(|(nr, content)| (nr, content.to_string()))
+            .collect();
+
+        assert_eq!(
+            vec![
+                (Line::new(2).unwrap(), "b".to_string()),
+                (Line::new(3).unwrap(), "c".to_string()),
+                (Line::new(4).unwrap(), "d".to_string())
+            ],
+            actual_lines
+        );
+    }
 }
 
 // We're going to need a "render context" or "render options" at some point
@@ -117,42 +224,54 @@ pub fn render_removal(
 
     let start_line_of_right_document = right_doc.yaml.span.start.line();
 
-    let right_lines: Vec<_> = right_doc.content.lines().map(|s| s.to_string()).collect();
+    let right_lines: Vec<_> = right_doc
+        .content
+        .lines()
+        .skip_while(|line| *line == "---")
+        .map(|s| s.to_string())
+        .collect();
     let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(0);
     let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100); // TODO: what is the correct default here?
 
     let snippet_start = gap_start.saturating_sub(ctx_size) + 1;
     let snippet_end = min(gap_end + ctx_size, right_lines.len());
-    let right_snippet = &right_lines[snippet_start..snippet_end];
+
+    let lines: Vec<_> = right_doc
+        .content
+        .lines()
+        .skip_while(|line| *line == "---")
+        .collect();
+    let snippet = Snippet::try_new(
+        &lines,
+        Line::new(snippet_start).unwrap(),
+        Line::new(snippet_end).unwrap(),
+    )
+    .unwrap();
+
+    let (before_gap, after_gap) = snippet.split(Line::new(gap_start).unwrap());
 
     let removal_size = removal.span.end.line() - removal.span.start.line();
 
-    let pre_gap = right_snippet
-        .iter()
-        .zip((snippet_start - 1)..gap_start)
-        .map(|(line, line_nr)| {
-            let line = line.style(unchaged).to_string();
-            let extras = line.len() - ansi_width(&line);
+    let pre_gap = before_gap.iter().map(|(line_nr, line)| {
+        let line = line.style(unchaged).to_string();
+        let extras = line.len() - ansi_width(&line);
 
-            let line_nr = LineWidget(Some(line_nr));
-            format!("{line_nr}│ {line:<width$}", width = max_left + extras)
-        });
+        let line_nr = LineWidget::from(line_nr);
+        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+    });
 
     let gap = (0..=removal_size).map(|_| {
         let l = LineWidget(None);
         format!("{l}│")
     });
 
-    let post_gap = right_snippet[gap_start..]
-        .iter()
-        .zip(gap_start..)
-        .map(|(line, line_nr)| {
-            let line = line.style(unchaged).to_string();
-            let extras = line.len() - ansi_width(&line);
+    let post_gap = after_gap.iter().map(|(line_nr, line)| {
+        let line = line.style(unchaged).to_string();
+        let extras = line.len() - ansi_width(&line);
 
-            let line_nr = LineWidget(Some(line_nr));
-            format!("{line_nr}│ {line:<width$}", width = max_left + extras)
-        });
+        let line_nr = LineWidget::from(line_nr);
+        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+    });
 
     let right = pre_gap.chain(gap).chain(post_gap);
     let body = left
