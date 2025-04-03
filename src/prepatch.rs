@@ -41,7 +41,6 @@ impl PrePatch {
 // but sadly not for `serde_yaml::Value`.
 /// Get mutable access to the Value that `ptr` points at within `value`.
 //
-//
 //fn resolve_mut<'a>(
 //    mut value: &'a mut serde_yaml::Value,
 //    mut ptr: &jsonptr::Pointer,
@@ -177,7 +176,7 @@ fn document_matches(document_like: &serde_yaml::Value, actual_doc: &MarkedYaml) 
                 ))) else {
                     return false;
                 };
-                if !document_matches(&value, other_value) {
+                if !document_matches(value, other_value) {
                     return false;
                 }
             }
@@ -194,7 +193,7 @@ mod tests {
     use indoc::indoc;
     use saphyr::YamlEmitter;
 
-    use crate::YamlSource;
+    use crate::{YamlSource, snippet::Line};
 
     use super::PrePatch;
 
@@ -244,7 +243,7 @@ mod tests {
         "#})
         .unwrap();
 
-        pp.apply_to(&mut documents);
+        let _ = pp.apply_to(&mut documents);
 
         let outcome = serialize(&documents);
         expect![[r#"
@@ -306,10 +305,15 @@ mod tests {
             .expect("Bla bla something reading docs into the system");
 
         n.into_iter()
-            .map(|yaml| YamlSource {
+            .enumerate()
+            .map(|(index, yaml)| YamlSource {
                 file: camino::Utf8PathBuf::new(),
                 yaml,
                 content: raw.to_string(), // TODO: hmmm...
+                index,
+                // TODO: What goes here?
+                first_line: Line::try_from(1).unwrap(),
+                last_line: Line::try_from(10).unwrap(),
             })
             .collect()
     }

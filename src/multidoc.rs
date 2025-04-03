@@ -249,6 +249,7 @@ mod tests {
     use crate::{
         YamlSource,
         multidoc::{Context, DocKey, diff},
+        snippet::Line,
     };
     use indoc::indoc;
 
@@ -256,10 +257,15 @@ mod tests {
         let docs = MarkedYaml::load_from_str(raw).expect("valid yaml");
 
         docs.into_iter()
-            .map(|yaml| YamlSource {
+            .enumerate()
+            .map(|(index, yaml)| YamlSource {
                 file: camino::Utf8PathBuf::from_str("/foo/bar/baz.yaml").unwrap(),
                 yaml,
                 content: raw.to_string(),
+                index,
+                // TODO: What goes here?
+                first_line: Line::try_from(1).unwrap(),
+                last_line: Line::try_from(10).unwrap(),
             })
             .collect()
     }

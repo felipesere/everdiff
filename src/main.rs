@@ -1,7 +1,4 @@
-use std::{
-    fmt::{self},
-    io::Read,
-};
+use std::io::Read;
 
 use clap::{Parser, ValueEnum};
 use config::config_from_env;
@@ -11,7 +8,7 @@ use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
 use saphyr::MarkedYaml;
-use snippet::{LineWidget, render_difference, render_removal};
+use snippet::{Line, LineWidget, render_difference, render_removal};
 
 mod config;
 mod diff;
@@ -62,6 +59,9 @@ pub struct YamlSource {
     pub file: camino::Utf8PathBuf,
     pub yaml: saphyr::MarkedYaml,
     pub content: String,
+    pub index: usize,
+    pub first_line: Line,
+    pub last_line: Line,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -143,11 +143,21 @@ fn read_and_patch(
             .collect();
 
         let n = saphyr::MarkedYaml::load_from_str(&content)?;
-        for (document, content) in n.into_iter().zip(split_docs) {
+        for (index, (document, content)) in n.into_iter().zip(split_docs).enumerate() {
+            let first = first_node(&document).unwrap();
+
+            let first_line = Line::new(first.span.start.line()).unwrap();
+            // TODO: Can this actually fail?
+            let last_line = last_line_in_node(&document).unwrap();
+            //  println!("File: {p} idx: {index}: [{first_line:?}, {last_line:?}]");
+
             docs.push(YamlSource {
                 file: p.clone(),
                 yaml: document,
+                first_line,
+                last_line,
                 content,
+                index,
             });
         }
     }
@@ -156,6 +166,30 @@ fn read_and_patch(
     }
 
     Ok(docs)
+}
+
+// These need a better home
+fn first_node(doc: &MarkedYaml) -> Option<&MarkedYaml> {
+    match &doc.data {
+        saphyr::YamlData::Array(vec) => vec.first(),
+        saphyr::YamlData::Hash(hash) => hash.front().map(|(k, _)| k),
+        _ => Some(doc),
+    }
+}
+
+// These need a better home
+fn last_line_in_node(node: &MarkedYaml) -> Option<Line> {
+    match &node.data {
+        saphyr::YamlData::Array(vec) => {
+            if !vec.is_empty() {
+                vec.last().and_then(last_line_in_node)
+            } else {
+                Line::new(node.span.end.line())
+            }
+        }
+        saphyr::YamlData::Hash(hash) => hash.back().and_then(|(_, v)| last_line_in_node(v)),
+        _ => Line::new(node.span.end.line()),
+    }
 }
 
 pub fn render_multidoc_diff(
@@ -285,23 +319,6 @@ pub fn render(
         }
         println!()
     }
-}
-
-fn node_in<'y>(yaml: &'y MarkedYaml, path: &path::Path) -> Option<&'y MarkedYaml> {
-    let mut n = Some(yaml);
-    for p in path.segments() {
-        match p {
-            path::Segment::Field(f) => {
-                let v = n.and_then(|n| n.get(f))?;
-                n = Some(v);
-            }
-            path::Segment::Index(nr) => {
-                let v = n.and_then(|n| n.get(nr))?;
-                n = Some(v);
-            }
-        }
-    }
-    n
 }
 
 fn render_string_diff(left: &str, right: &str) {

@@ -5,6 +5,7 @@ use std::{
 };
 
 use ansi_width::ansi_width;
+use anyhow::Context;
 use owo_colors::{OwoColorize, Style};
 use saphyr::{MarkedYaml, YamlData};
 
@@ -17,7 +18,7 @@ pub enum Color {
     Disabled,
 }
 
-type Line = NonZeroUsize;
+pub type Line = NonZeroUsize;
 
 impl From<Line> for LineWidget {
     fn from(value: Line) -> Self {
@@ -40,10 +41,13 @@ impl Snippet<'_> {
         to: Line,
     ) -> Result<Snippet<'source>, anyhow::Error> {
         if to <= from {
-            anyhow::bail!("'to' was less than 'from'");
+            anyhow::bail!("'to' ({to}) was less than 'from' ({from})");
         }
         if lines.len() < usize::from(to) {
-            anyhow::bail!("'to' reaches out of bounds of 'lines'");
+            anyhow::bail!(
+                "'to' ({to}) reaches out of bounds of 'lines' ({})",
+                lines.len()
+            );
         }
         Ok(Snippet { lines, from, to })
     }
@@ -176,13 +180,27 @@ pub fn render_removal(
         _ => unreachable!("parent has to be a container"),
     };
 
-    let start_line_of_document = left_doc.yaml.span.start.line();
-    let left_lines: Vec<_> = left_doc.content.lines().map(|s| s.to_string()).collect();
-    let removal_start = removal.span.start.line() - start_line_of_document;
-    let removal_end = removal.span.end.line() - start_line_of_document;
-    let start = removal_start.saturating_sub(ctx_size) + 1;
-    let end = min(removal_end + ctx_size, left_lines.len());
-    let left_snippet = &left_lines[start..end];
+    let start_line_of_left_document = left_doc.yaml.span.start.line();
+    let left_lines: Vec<_> = left_doc
+        .content
+        .lines()
+        .skip_while(|s| *s == "---")
+        .collect();
+
+    let removal_start = Line::new(removal.span.start.line() - start_line_of_left_document + 1)
+        .expect("removed line start");
+    let removal_end = Line::new(removal.span.end.line() - start_line_of_left_document + 1)
+        .expect("removed line end");
+
+    let start = checked_sub(removal_start, ctx_size);
+    let end = min(
+        removal_end.checked_add(ctx_size),
+        Line::new(left_lines.len()),
+    )
+    .expect("either one of them should be positive");
+
+    let left_snippet =
+        Snippet::try_new(&left_lines, start, end).expect("Left snippet could not be created");
 
     let (delete, unchaged) = match color {
         Color::Enabled => (
@@ -192,8 +210,9 @@ pub fn render_removal(
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
     };
 
-    let left = left_snippet.iter().zip(start..end).map(|(line, line_nr)| {
-        let line = if (removal_start..=removal_end).contains(&line_nr) {
+    let removal_range = removal_start..=removal_end;
+    let left = left_snippet.iter().map(|(line_nr, line)| {
+        let line = if removal_range.contains(&line_nr) {
             line.style(delete).to_string()
         } else {
             line.style(unchaged).to_string()
@@ -206,7 +225,7 @@ pub fn render_removal(
         // because we know some of the width won't be visible.
         let extras = line.len() - ansi_width(&line);
 
-        let line_nr = LineWidget(Some(line_nr - 1));
+        let line_nr = LineWidget::from(line_nr);
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
@@ -222,14 +241,13 @@ pub fn render_removal(
     // now we build the right
     //-----------------------
 
-    let start_line_of_right_document = right_doc.yaml.span.start.line();
-
     let right_lines: Vec<_> = right_doc
         .content
         .lines()
         .skip_while(|line| *line == "---")
         .map(|s| s.to_string())
         .collect();
+
     let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(0);
     let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100); // TODO: what is the correct default here?
 
@@ -246,6 +264,14 @@ pub fn render_removal(
         Line::new(snippet_start).unwrap(),
         Line::new(snippet_end).unwrap(),
     )
+    .with_context(|| {
+        format!(
+            "Failed to create a snippet for change {} in  {}:{}",
+            path_to_change.jq_like(),
+            right_doc.file,
+            right_doc.index,
+        )
+    })
     .unwrap();
 
     let (before_gap, after_gap) = snippet.split(Line::new(gap_start).unwrap());
@@ -281,6 +307,14 @@ pub fn render_removal(
         .join("\n");
 
     format!("{title}\n{body}")
+}
+
+fn checked_sub(removal_start: Line, ctx_size: usize) -> Line {
+    let n = removal_start.get();
+    n.checked_sub(ctx_size)
+        .and_then(Line::new)
+        .or_else(|| Line::new(1))
+        .unwrap() // this is safe...
 }
 
 pub fn render_difference(
@@ -401,7 +435,7 @@ mod test {
         diff::{Context, Difference, diff},
     };
 
-    use super::{render_difference, render_removal};
+    use super::{Line, render_difference, render_removal};
 
     fn marked_yaml(yaml: &'static str) -> MarkedYaml {
         let mut m = MarkedYaml::load_from_str(yaml).unwrap();
@@ -413,6 +447,10 @@ mod test {
             file: camino::Utf8PathBuf::new(),
             yaml: marked_yaml(yaml),
             content: yaml.into(),
+            index: 0,
+            first_line: Line::new(2).unwrap(),
+            // we substract the `---` at the top?
+            last_line: Line::new(yaml.lines().count() - 1).unwrap(),
         }
     }
 
@@ -467,6 +505,7 @@ mod test {
               foo: bar
         "#});
 
+        // the entire `adress` section is gone!
         let right_doc = yaml_source(indoc! {r#"
             ---
             person:
