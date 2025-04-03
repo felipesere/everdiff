@@ -143,43 +143,15 @@ pub fn render_removal(
     right_doc: &YamlSource,
     max_width: u16,
     color: Color,
+    highlighting: Style,
 ) -> String {
     let ctx_size = 5;
-    let highlight = if color == Color::Enabled {
-        Style::new().bold()
-    } else {
-        Style::new()
-    };
-    let title = format!(
-        "Removed: {p}:",
-        p = highlight.style(path_to_change.jq_like())
-    );
-
     let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
 
     let parent = path_to_change.parent().unwrap();
     let parent_node = node_in(&left_doc.yaml, &parent).unwrap();
 
-    let (before, after) = match &parent_node.data {
-        YamlData::Array(_) => todo!("not dealing with arrays yet"),
-        YamlData::Hash(linked_hash_map) => {
-            // Consider extracting this...
-            let target_key = path_to_change.head().unwrap();
-            let keys: Vec<_> = linked_hash_map.keys().collect();
-            if let Some(idx) = keys.iter().position(|k| &k.data == target_key) {
-                let before = if idx > 0 { Some(keys[idx - 1]) } else { None };
-                let after = if idx < keys.len() - 1 {
-                    Some(keys[idx + 1])
-                } else {
-                    None
-                };
-                (before, after)
-            } else {
-                (None, None)
-            }
-        }
-        _ => unreachable!("parent has to be a container"),
-    };
+    let (before, after) = surrounding_nodes(parent_node, &path_to_change);
 
     let start_line_of_left_document = left_doc.yaml.span.start.line();
     let left_lines: Vec<_> = left_doc
@@ -203,18 +175,15 @@ pub fn render_removal(
     let left_snippet =
         Snippet::try_new(&left_lines, start, end).expect("Left snippet could not be created");
 
-    let (delete, unchaged) = match color {
-        Color::Enabled => (
-            owo_colors::Style::new().red(),
-            owo_colors::Style::new().dimmed(),
-        ),
+    let (highlighting, unchaged) = match color {
+        Color::Enabled => (highlighting, owo_colors::Style::new().dimmed()),
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
     };
 
     let removal_range = removal_start..=removal_end;
     let left = left_snippet.iter().map(|(line_nr, line)| {
         let line = if removal_range.contains(&line_nr) {
-            line.style(delete).to_string()
+            line.style(highlighting).to_string()
         } else {
             line.style(unchaged).to_string()
         };
@@ -301,13 +270,10 @@ pub fn render_removal(
     });
 
     let right = pre_gap.chain(gap).chain(post_gap);
-    let body = left
-        .zip(right)
+    left.zip(right)
         .map(|(l, r)| format!("{l} │ {r}"))
         .collect::<Vec<_>>()
-        .join("\n");
-
-    format!("{title}\n{body}")
+        .join("\n")
 }
 
 fn checked_sub(removal_start: Line, ctx_size: usize) -> Line {
@@ -316,6 +282,25 @@ fn checked_sub(removal_start: Line, ctx_size: usize) -> Line {
         .and_then(Line::new)
         .or_else(|| Line::new(1))
         .unwrap() // this is safe...
+}
+
+pub fn render_added(
+    path_to_change: Path,
+    addition: MarkedYaml,
+    left_doc: &YamlSource,
+    right_doc: &YamlSource,
+    max_width: u16,
+    color: Color,
+) -> String {
+    render_removal(
+        path_to_change,
+        addition,
+        left_doc,
+        right_doc,
+        max_width,
+        color,
+        Style::new().green(),
+    )
 }
 
 pub fn render_difference(
@@ -425,10 +410,37 @@ fn node_in<'y>(yaml: &'y MarkedYaml, path: &Path) -> Option<&'y MarkedYaml> {
     n
 }
 
+fn surrounding_nodes<'y>(
+    parent_node: &'y MarkedYaml,
+    path: &Path,
+) -> (Option<&'y MarkedYaml>, Option<&'y MarkedYaml>) {
+    match &parent_node.data {
+        YamlData::Array(_) => todo!("not dealing with arrays yet"),
+        YamlData::Hash(linked_hash_map) => {
+            // Consider extracting this...
+            let target_key = path.head().unwrap();
+            let keys: Vec<_> = linked_hash_map.keys().collect();
+            if let Some(idx) = keys.iter().position(|k| &k.data == target_key) {
+                let before = if idx > 0 { Some(keys[idx - 1]) } else { None };
+                let after = if idx < keys.len() - 1 {
+                    Some(keys[idx + 1])
+                } else {
+                    None
+                };
+                (before, after)
+            } else {
+                (None, None)
+            }
+        }
+        _ => unreachable!("parent has to be a container"),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use expect_test::expect;
     use indoc::indoc;
+    use owo_colors::Style;
     use saphyr::MarkedYaml;
 
     use crate::{
@@ -528,10 +540,10 @@ mod test {
             &right_doc,
             80,
             super::Color::Disabled,
+            Style::new().red(),
         );
 
         expect![[r#"
-            Removed: .person.address:
               1 │ person:                          │   1 │ person:                         
               2 │   name: Robert Anderson          │   2 │   name: Robert Anderson         
               3 │   address:                       │     │

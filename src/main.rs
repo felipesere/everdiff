@@ -8,7 +8,7 @@ use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
 use saphyr::MarkedYaml;
-use snippet::{Line, LineWidget, render_difference, render_removal};
+use snippet::{Line, LineWidget, render_added, render_difference, render_removal};
 
 mod config;
 mod diff;
@@ -276,12 +276,8 @@ pub fn render(
         match d {
             Difference::Added { path, value } => {
                 println!("Added: {p}:", p = path.jq_like().bold());
-                let added_yaml = indent::indent_all_by(4, stringify(&value));
 
-                println!("{a}", a = added_yaml.green());
-            }
-            Difference::Removed { path, value } => {
-                let output = render_removal(
+                let added = render_added(
                     path,
                     value,
                     left_doc,
@@ -290,8 +286,20 @@ pub fn render(
                     snippet::Color::Enabled,
                 );
 
-                // println!("Removed: {p}:", p = path.jq_like().bold());
-                // let removed_yaml = indent::indent_all_by(4, stringify(&value));
+                println!("{added}");
+            }
+            Difference::Removed { path, value } => {
+                println!("Removed: {p}:", p = path.jq_like());
+                let output = render_removal(
+                    path,
+                    value,
+                    left_doc,
+                    right_doc,
+                    max_width,
+                    snippet::Color::Enabled,
+                    Style::new().red(),
+                );
+
                 println!("{output}");
             }
             Difference::Changed { path, left, right } => {
