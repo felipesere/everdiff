@@ -15,6 +15,7 @@ use crate::{YamlSource, path::Path};
 pub enum Color {
     Enabled,
     // mostly used in tests
+    #[allow(dead_code)]
     Disabled,
 }
 
