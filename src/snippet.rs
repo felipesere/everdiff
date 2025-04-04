@@ -218,7 +218,7 @@ pub fn render_removal(
         .map(|s| s.to_string())
         .collect();
 
-    let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(0);
+    let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(1);
     let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100); // TODO: what is the correct default here?
 
     let snippet_start = gap_start.saturating_sub(ctx_size) + 1;
