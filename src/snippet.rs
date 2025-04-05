@@ -292,15 +292,138 @@ pub fn render_added(
     max_width: u16,
     color: Color,
 ) -> String {
-    render_removal(
-        path_to_change,
-        addition,
-        left_doc,
-        right_doc,
-        max_width,
-        color,
-        Style::new().green(),
+    let ctx_size = 5;
+    let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
+
+    let parent = path_to_change.parent().unwrap();
+    let parent_node = node_in(&right_doc.yaml, &parent).unwrap();
+
+    let (before, after) = surrounding_nodes(parent_node, &path_to_change);
+
+    let start_line_of_right_document = right_doc.yaml.span.start.line();
+    let right_lines: Vec<_> = right_doc
+        .content
+        .lines()
+        .skip_while(|s| *s == "---")
+        .collect();
+
+    let addition_start = Line::new(addition.span.start.line() - start_line_of_right_document + 1)
+        .expect("added line start");
+    let addition_end = Line::new(addition.span.end.line() - start_line_of_right_document + 1)
+        .expect("added line end");
+
+    let start = checked_sub(addition_start, ctx_size);
+    let end = min(
+        addition_end.checked_add(ctx_size),
+        Line::new(right_lines.len()),
     )
+    .expect("either one of them should be positive");
+
+    let right_snippet =
+        Snippet::try_new(&right_lines, start, end).expect("right snippet could not be created");
+
+    let (highlighting, unchaged) = match color {
+        Color::Enabled => (
+            owo_colors::Style::new().green(),
+            owo_colors::Style::new().dimmed(),
+        ),
+        Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
+    };
+
+    let added_range = addition_start..=addition_end;
+    let right = right_snippet.iter().map(|(line_nr, line)| {
+        let line = if added_range.contains(&line_nr) {
+            line.style(highlighting).to_string()
+        } else {
+            line.style(unchaged).to_string()
+        };
+
+        // Why are we adding "extras"?
+        // The line may contain non-printable color codes which count for the padding
+        // in format!(...) but don't add to the width on the terminal.
+        // To accomodate, we pretend to make the padding wider again
+        // because we know some of the width won't be visible.
+        let extras = line.len() - ansi_width(&line);
+
+        let line_nr = LineWidget::from(line_nr);
+        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+    });
+
+    let before = before
+        .map(|key| parent.push(key.data.clone()))
+        .and_then(|path| node_in(&left_doc.yaml, &path));
+
+    let after = after
+        .map(|key| parent.push(key.data.clone()))
+        .and_then(|path| node_in(&left_doc.yaml, &path));
+
+    //-----------------------
+    // now we build the left
+    //-----------------------
+
+    let left_lines: Vec<_> = left_doc
+        .content
+        .lines()
+        .skip_while(|line| *line == "---")
+        .map(|s| s.to_string())
+        .collect();
+
+    let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(1);
+    let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100); // TODO: what is the correct default here?
+
+    let snippet_start = gap_start.saturating_sub(ctx_size) + 1;
+    let snippet_end = min(gap_end + ctx_size, left_lines.len());
+
+    let lines: Vec<_> = left_doc
+        .content
+        .lines()
+        .skip_while(|line| *line == "---")
+        .collect();
+    let snippet = Snippet::try_new(
+        &lines,
+        Line::new(snippet_start).unwrap(),
+        Line::new(snippet_end).unwrap(),
+    )
+    .with_context(|| {
+        format!(
+            "Failed to create a snippet for change {} in  {}:{}",
+            path_to_change.jq_like(),
+            left_doc.file,
+            left_doc.index,
+        )
+    })
+    .unwrap();
+
+    let (before_gap, after_gap) = snippet.split(Line::new(gap_start).unwrap());
+
+    let addition_size = addition.span.end.line() - addition.span.start.line();
+
+    let pre_gap = before_gap.iter().map(|(line_nr, line)| {
+        let line = line.style(unchaged).to_string();
+        let extras = line.len() - ansi_width(&line);
+
+        let line_nr = LineWidget::from(line_nr);
+        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+    });
+
+    let gap = (0..=addition_size).map(|_| {
+        let l = LineWidget(None);
+        format!("{l}│ {line:<width$}", line = "", width = max_left)
+    });
+
+    let post_gap = after_gap.iter().map(|(line_nr, line)| {
+        let line = line.style(unchaged).to_string();
+        let extras = line.len() - ansi_width(&line);
+
+        let line_nr = LineWidget::from(line_nr);
+        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+    });
+
+    let left = pre_gap.chain(gap).chain(post_gap);
+    left.zip(right)
+        .map(|(l, r)| format!("{l} │ {r}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn render_difference(
@@ -448,7 +571,7 @@ mod test {
         diff::{Context, Difference, diff},
     };
 
-    use super::{Line, render_difference, render_removal};
+    use super::{Line, render_added, render_difference, render_removal};
 
     fn marked_yaml(yaml: &'static str) -> MarkedYaml {
         let mut m = MarkedYaml::load_from_str(yaml).unwrap();
@@ -552,6 +675,56 @@ mod test {
               6 │     postcode: ABC123             │     │
               7 │   age: 12                        │   3 │   age: 12                       
               8 │   foo: bar                       │   4 │   foo: bar                      "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_the_addition_of_a_node() {
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Robert Anderson
+              age: 12
+              foo: bar
+        "#});
+
+        // the entire `adress` section is new!
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Robert Anderson
+              address:
+                street: foo bar
+                nr: 1
+                postcode: ABC123
+              age: 12
+              foo: bar
+        "#});
+
+        let mut differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences.remove(0);
+        let Difference::Added { path, value } = first else {
+            panic!("Should have gotten a Removal");
+        };
+        let content = render_added(
+            path,
+            value,
+            &left_doc,
+            &right_doc,
+            80,
+            super::Color::Disabled,
+        );
+
+        expect![[r#"
+              1 │ person:                          │   1 │ person:                         
+              2 │   name: Robert Anderson          │   2 │   name: Robert Anderson         
+                │                                  │   3 │   address:                      
+                │                                  │   4 │     street: foo bar             
+                │                                  │   5 │     nr: 1                       
+                │                                  │   6 │     postcode: ABC123            
+              3 │   age: 12                        │   7 │   age: 12                       
+              4 │   foo: bar                       │   8 │   foo: bar                      "#]]
         .assert_eq(content.as_str());
     }
 }
