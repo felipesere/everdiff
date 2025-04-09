@@ -2,6 +2,7 @@ use std::{
     cmp::min,
     fmt::{self},
     num::NonZeroUsize,
+    ops::RangeInclusive,
 };
 
 use ansi_width::ansi_width;
@@ -20,6 +21,7 @@ pub enum Color {
 }
 
 pub type Line = NonZeroUsize;
+pub type LineRange = RangeInclusive<Line>;
 
 impl From<Line> for LineWidget {
     fn from(value: Line) -> Self {
@@ -153,34 +155,20 @@ pub fn render_removal(
 
     let (before, after) = surrounding_nodes(parent_node, &path_to_change);
 
-    let start_line_of_left_document = left_doc.yaml.span.start.line();
     let left_lines: Vec<_> = left_doc
         .content
         .lines()
         .skip_while(|s| *s == "---")
         .collect();
 
-    let removal_start = Line::new(removal.span.start.line() - start_line_of_left_document + 1)
-        .expect("removed line start");
-    let removal_end = Line::new(removal.span.end.line() - start_line_of_left_document + 1)
-        .expect("removed line end");
-
-    let start = checked_sub(removal_start, ctx_size);
-    let end = min(
-        removal_end.checked_add(ctx_size),
-        Line::new(left_lines.len()),
-    )
-    .expect("either one of them should be positive");
-
-    let left_snippet =
-        Snippet::try_new(&left_lines, start, end).expect("Left snippet could not be created");
+    let (left_snippet, removal_range) =
+        snippet_with_highlight(left_doc, &left_lines[..], parent_node, ctx_size);
 
     let (highlighting, unchaged) = match color {
         Color::Enabled => (highlighting, owo_colors::Style::new().dimmed()),
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
     };
 
-    let removal_range = removal_start..=removal_end;
     let left = left_snippet.iter().map(|(line_nr, line)| {
         let line = if removal_range.contains(&line_nr) {
             line.style(highlighting).to_string()
@@ -271,22 +259,21 @@ pub fn render_removal(
 
     let right = pre_gap.chain(gap).chain(post_gap);
     left.zip(right)
-        .map(|(l, r)| format!("{l} │ {r}"))
+        .map(|(l, r)| format!("│{l} │ {r}"))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-fn checked_sub(removal_start: Line, ctx_size: usize) -> Line {
-    let n = removal_start.get();
-    n.checked_sub(ctx_size)
+fn checked_sub(a: Line, b: usize) -> Line {
+    let n = a.get();
+    n.checked_sub(b)
         .and_then(Line::new)
-        .or_else(|| Line::new(1))
-        .unwrap() // this is safe...
+        .unwrap_or_else(|| Line::new(1).unwrap())
 }
 
 pub fn render_added(
     path_to_change: Path,
-    addition: MarkedYaml,
+    _addition: MarkedYaml,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     max_width: u16,
@@ -300,27 +287,14 @@ pub fn render_added(
 
     let (before, after) = surrounding_nodes(parent_node, &path_to_change);
 
-    let start_line_of_right_document = right_doc.yaml.span.start.line();
     let right_lines: Vec<_> = right_doc
         .content
         .lines()
         .skip_while(|s| *s == "---")
         .collect();
 
-    let addition_start = Line::new(addition.span.start.line() - start_line_of_right_document + 1)
-        .expect("added line start");
-    let addition_end = Line::new(addition.span.end.line() - start_line_of_right_document + 1)
-        .expect("added line end");
-
-    let start = checked_sub(addition_start, ctx_size);
-    let end = min(
-        addition_end.checked_add(ctx_size),
-        Line::new(right_lines.len()),
-    )
-    .expect("either one of them should be positive");
-
-    let right_snippet =
-        Snippet::try_new(&right_lines, start, end).expect("right snippet could not be created");
+    let (right_snippet, added_range) =
+        snippet_with_highlight(right_doc, &right_lines[..], parent_node, ctx_size);
 
     let (highlighting, unchaged) = match color {
         Color::Enabled => (
@@ -330,7 +304,6 @@ pub fn render_added(
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
     };
 
-    let added_range = addition_start..=addition_end;
     let right = right_snippet.iter().map(|(line_nr, line)| {
         let line = if added_range.contains(&line_nr) {
             line.style(highlighting).to_string()
@@ -396,8 +369,6 @@ pub fn render_added(
 
     let (before_gap, after_gap) = snippet.split(Line::new(gap_start).unwrap());
 
-    let addition_size = addition.span.end.line() - addition.span.start.line();
-
     let pre_gap = before_gap.iter().map(|(line_nr, line)| {
         let line = line.style(unchaged).to_string();
         let extras = line.len() - ansi_width(&line);
@@ -406,7 +377,7 @@ pub fn render_added(
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
-    let gap = (0..=addition_size).map(|_| {
+    let gap = (snippet_start..=snippet_end).map(|_| {
         let l = LineWidget(None);
         format!("{l}│ {line:<width$}", line = "", width = max_left)
     });
@@ -418,12 +389,39 @@ pub fn render_added(
         let line_nr = LineWidget::from(line_nr);
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
-
     let left = pre_gap.chain(gap).chain(post_gap);
+
     left.zip(right)
-        .map(|(l, r)| format!("{l} │ {r}"))
+        .map(|(l, r)| format!("│{l} │ {r}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn snippet_with_highlight<'ys>(
+    doc: &'ys YamlSource,
+    lines: &'ys [&str],
+    hl_node: &MarkedYaml,
+    ctx_size: usize,
+) -> (Snippet<'ys>, LineRange) {
+    let start_line = doc.yaml.span.start.line();
+    let removal_start =
+        Line::new(hl_node.span.start.line() - start_line + 1).expect("removed line start");
+    let removal_end =
+        Line::new(hl_node.span.end.line() - start_line + 1).expect("removed line end");
+
+    let left_lines: Vec<_> = doc.content.lines().skip_while(|s| *s == "---").collect();
+
+    let start = checked_sub(removal_start, ctx_size);
+    let end = min(
+        removal_end.checked_add(ctx_size),
+        Line::new(left_lines.len()),
+    )
+    .expect("either one of them should be positive");
+
+    (
+        Snippet::try_new(lines, start, end).expect("Left snippet could not be created"),
+        removal_start..=removal_end,
+    )
 }
 
 pub fn render_difference(
@@ -667,14 +665,14 @@ mod test {
         );
 
         expect![[r#"
-              1 │ person:                          │   1 │ person:                         
-              2 │   name: Robert Anderson          │   2 │   name: Robert Anderson         
-              3 │   address:                       │     │
-              4 │     street: foo bar              │     │
-              5 │     nr: 1                        │     │
-              6 │     postcode: ABC123             │     │
-              7 │   age: 12                        │   3 │   age: 12                       
-              8 │   foo: bar                       │   4 │   foo: bar                      "#]]
+            │  1 │ person:                          │   1 │ person:                         
+            │  2 │   name: Robert Anderson          │   2 │   name: Robert Anderson         
+            │  3 │   address:                       │     │
+            │  4 │     street: foo bar              │     │
+            │  5 │     nr: 1                        │     │
+            │  6 │     postcode: ABC123             │     │
+            │  7 │   age: 12                        │   3 │   age: 12                       
+            │  8 │   foo: bar                       │   4 │   foo: bar                      "#]]
         .assert_eq(content.as_str());
     }
 
@@ -717,14 +715,14 @@ mod test {
         );
 
         expect![[r#"
-              1 │ person:                          │   1 │ person:                         
-              2 │   name: Robert Anderson          │   2 │   name: Robert Anderson         
-                │                                  │   3 │   address:                      
-                │                                  │   4 │     street: foo bar             
-                │                                  │   5 │     nr: 1                       
-                │                                  │   6 │     postcode: ABC123            
-              3 │   age: 12                        │   7 │   age: 12                       
-              4 │   foo: bar                       │   8 │   foo: bar                      "#]]
+            │  1 │ person:                          │   1 │ person:                         
+            │  2 │   name: Robert Anderson          │   2 │   name: Robert Anderson         
+            │    │                                  │   3 │   address:                      
+            │    │                                  │   4 │     street: foo bar             
+            │    │                                  │   5 │     nr: 1                       
+            │    │                                  │   6 │     postcode: ABC123            
+            │  3 │   age: 12                        │   7 │   age: 12                       
+            │  4 │   foo: bar                       │   8 │   foo: bar                      "#]]
         .assert_eq(content.as_str());
     }
 }
