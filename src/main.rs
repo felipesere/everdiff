@@ -297,7 +297,6 @@ pub fn render(
                     right_doc,
                     max_width,
                     snippet::Color::Enabled,
-                    Style::new().red(),
                 );
 
                 println!("{output}");

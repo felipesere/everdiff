@@ -143,137 +143,16 @@ pub fn render_removal(
     right_doc: &YamlSource,
     max_width: u16,
     color: Color,
-    highlighting: Style,
 ) -> String {
-    let ctx_size = 5;
-    let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
-
-    let parent = path_to_change.parent().unwrap();
-    let parent_node = node_in(&left_doc.yaml, &parent).unwrap();
-
-    let (before, after) = surrounding_nodes(parent_node, &path_to_change);
-
-    let start_line_of_left_document = left_doc.yaml.span.start.line();
-    let left_lines: Vec<_> = left_doc
-        .content
-        .lines()
-        .skip_while(|s| *s == "---")
-        .collect();
-
-    let removal_start = Line::new(removal.span.start.line() - start_line_of_left_document + 1)
-        .expect("removed line start");
-    let removal_end = Line::new(removal.span.end.line() - start_line_of_left_document + 1)
-        .expect("removed line end");
-
-    let start = checked_sub(removal_start, ctx_size);
-    let end = min(
-        removal_end.checked_add(ctx_size),
-        Line::new(left_lines.len()),
+    render_change(
+        path_to_change,
+        removal,
+        left_doc,
+        right_doc,
+        max_width,
+        color,
+        ChangeType::Removal,
     )
-    .expect("either one of them should be positive");
-
-    let left_snippet =
-        Snippet::try_new(&left_lines, start, end).expect("Left snippet could not be created");
-
-    let (highlighting, unchaged) = match color {
-        Color::Enabled => (highlighting, owo_colors::Style::new().dimmed()),
-        Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
-    };
-
-    let removal_range = removal_start..=removal_end;
-    let left = left_snippet.iter().map(|(line_nr, line)| {
-        let line = if removal_range.contains(&line_nr) {
-            line.style(highlighting).to_string()
-        } else {
-            line.style(unchaged).to_string()
-        };
-
-        // Why are we adding "extras"?
-        // The line may contain non-printable color codes which count for the padding
-        // in format!(...) but don't add to the width on the terminal.
-        // To accomodate, we pretend to make the padding wider again
-        // because we know some of the width won't be visible.
-        let extras = line.len() - ansi_width(&line);
-
-        let line_nr = LineWidget::from(line_nr);
-        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
-    });
-
-    let before = before
-        .map(|key| parent.push(key.data.clone()))
-        .and_then(|path| node_in(&right_doc.yaml, &path));
-
-    let after = after
-        .map(|key| parent.push(key.data.clone()))
-        .and_then(|path| node_in(&right_doc.yaml, &path));
-
-    //-----------------------
-    // now we build the right
-    //-----------------------
-
-    let right_lines: Vec<_> = right_doc
-        .content
-        .lines()
-        .skip_while(|line| *line == "---")
-        .map(|s| s.to_string())
-        .collect();
-
-    let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(1);
-    let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100); // TODO: what is the correct default here?
-
-    let snippet_start = gap_start.saturating_sub(ctx_size) + 1;
-    let snippet_end = min(gap_end + ctx_size, right_lines.len());
-
-    let lines: Vec<_> = right_doc
-        .content
-        .lines()
-        .skip_while(|line| *line == "---")
-        .collect();
-    let snippet = Snippet::try_new(
-        &lines,
-        Line::new(snippet_start).unwrap(),
-        Line::new(snippet_end).unwrap(),
-    )
-    .with_context(|| {
-        format!(
-            "Failed to create a snippet for change {} in  {}:{}",
-            path_to_change.jq_like(),
-            right_doc.file,
-            right_doc.index,
-        )
-    })
-    .unwrap();
-
-    let (before_gap, after_gap) = snippet.split(Line::new(gap_start).unwrap());
-
-    let removal_size = removal.span.end.line() - removal.span.start.line();
-
-    let pre_gap = before_gap.iter().map(|(line_nr, line)| {
-        let line = line.style(unchaged).to_string();
-        let extras = line.len() - ansi_width(&line);
-
-        let line_nr = LineWidget::from(line_nr);
-        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
-    });
-
-    let gap = (0..=removal_size).map(|_| {
-        let l = LineWidget(None);
-        format!("{l}│")
-    });
-
-    let post_gap = after_gap.iter().map(|(line_nr, line)| {
-        let line = line.style(unchaged).to_string();
-        let extras = line.len() - ansi_width(&line);
-
-        let line_nr = LineWidget::from(line_nr);
-        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
-    });
-
-    let right = pre_gap.chain(gap).chain(post_gap);
-    left.zip(right)
-        .map(|(l, r)| format!("│{l} │ {r}"))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn checked_sub(a: Line, b: usize) -> Line {
@@ -291,138 +170,177 @@ pub fn render_added(
     max_width: u16,
     color: Color,
 ) -> String {
+    render_change(
+        path_to_change,
+        addition,
+        left_doc,
+        right_doc,
+        max_width,
+        color,
+        ChangeType::Addition,
+    )
+}
+
+enum ChangeType {
+    Removal,
+    Addition,
+}
+
+fn render_change(
+    path_to_change: Path,
+    changed_yaml: MarkedYaml,
+    left_doc: &YamlSource,
+    right_doc: &YamlSource,
+    max_width: u16,
+    color: Color,
+    change_type: ChangeType,
+) -> String {
     let ctx_size = 5;
     let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
 
+    // Select primary and secondary documents based on change type
+    let (primary_doc, secondary_doc) = match change_type {
+        ChangeType::Removal => (left_doc, right_doc),
+        ChangeType::Addition => (right_doc, left_doc),
+    };
+
     let parent = path_to_change.parent().unwrap();
-    let parent_node = node_in(&right_doc.yaml, &parent).unwrap();
+    let parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
 
     let (before, after) = surrounding_nodes(parent_node, &path_to_change);
 
-    let start_line_of_right_document = right_doc.yaml.span.start.line();
-    let right_lines: Vec<_> = right_doc
+    // Extract lines from primary document
+    let start_line_of_primary = primary_doc.yaml.span.start.line();
+    let primary_lines: Vec<_> = primary_doc
         .content
         .lines()
         .skip_while(|s| *s == "---")
         .collect();
 
-    let addition_start = Line::new(addition.span.start.line() - start_line_of_right_document + 1)
-        .expect("added line start");
-    let addition_end = Line::new(addition.span.end.line() - start_line_of_right_document + 1)
-        .expect("added line end");
+    let change_start = Line::new(changed_yaml.span.start.line() - start_line_of_primary + 1)
+        .expect("change line start");
+    let change_end = Line::new(changed_yaml.span.end.line() - start_line_of_primary + 1)
+        .expect("change line end");
 
-    let start = checked_sub(addition_start, ctx_size);
+    let start = checked_sub(change_start, ctx_size);
     let end = min(
-        addition_end.checked_add(ctx_size),
-        Line::new(right_lines.len()),
+        change_end.checked_add(ctx_size),
+        Line::new(primary_lines.len()),
     )
     .expect("either one of them should be positive");
 
-    let right_snippet =
-        Snippet::try_new(&right_lines, start, end).expect("right snippet could not be created");
+    let primary_snippet =
+        Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
 
-    let (highlighting, unchaged) = match color {
+    // Set up styles
+    let (highlighting, unchanged) = match color {
         Color::Enabled => (
-            owo_colors::Style::new().green(),
+            match change_type {
+                ChangeType::Removal => owo_colors::Style::new().green(),
+                ChangeType::Addition => owo_colors::Style::new().red(),
+            },
             owo_colors::Style::new().dimmed(),
         ),
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
     };
 
-    let added_range = addition_start..=addition_end;
-    let right = right_snippet.iter().map(|(line_nr, line)| {
-        let line = if added_range.contains(&line_nr) {
+    // Format the primary side
+    let changed_range = change_start..=change_end;
+    let primary = primary_snippet.iter().map(|(line_nr, line)| {
+        let line = if changed_range.contains(&line_nr) {
             line.style(highlighting).to_string()
         } else {
-            line.style(unchaged).to_string()
+            line.style(unchanged).to_string()
         };
 
-        // Why are we adding "extras"?
-        // The line may contain non-printable color codes which count for the padding
-        // in format!(...) but don't add to the width on the terminal.
-        // To accomodate, we pretend to make the padding wider again
-        // because we know some of the width won't be visible.
         let extras = line.len() - ansi_width(&line);
-
         let line_nr = LineWidget::from(line_nr);
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
+    // Find corresponding nodes in secondary document
     let before = before
         .map(|key| parent.push(key.data.clone()))
-        .and_then(|path| node_in(&left_doc.yaml, &path));
+        .and_then(|path| node_in(&secondary_doc.yaml, &path));
 
     let after = after
         .map(|key| parent.push(key.data.clone()))
-        .and_then(|path| node_in(&left_doc.yaml, &path));
+        .and_then(|path| node_in(&secondary_doc.yaml, &path));
 
-    //-----------------------
-    // now we build the left
-    //-----------------------
-
-    let left_lines: Vec<_> = left_doc
+    // Build the secondary side
+    let secondary_lines: Vec<_> = secondary_doc
         .content
         .lines()
         .skip_while(|line| *line == "---")
-        .map(|s| s.to_string())
         .collect();
 
     let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(1);
-    let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100); // TODO: what is the correct default here?
+    let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100);
 
     let snippet_start = gap_start.saturating_sub(ctx_size) + 1;
-    let snippet_end = min(gap_end + ctx_size, left_lines.len());
+    let snippet_end = min(gap_end + ctx_size, secondary_lines.len());
 
-    let lines: Vec<_> = left_doc
-        .content
-        .lines()
-        .skip_while(|line| *line == "---")
-        .collect();
+    // Create snippet for secondary document
     let snippet = Snippet::try_new(
-        &lines,
+        &secondary_lines,
         Line::new(snippet_start).unwrap(),
         Line::new(snippet_end).unwrap(),
     )
     .with_context(|| {
         format!(
-            "Failed to create a snippet for change {} in  {}:{}",
+            "Failed to create a snippet for change {} in {}:{}",
             path_to_change.jq_like(),
-            left_doc.file,
-            left_doc.index,
+            secondary_doc.file,
+            secondary_doc.index,
         )
     })
     .unwrap();
 
     let (before_gap, after_gap) = snippet.split(Line::new(gap_start).unwrap());
 
-    let addition_size = addition.span.end.line() - addition.span.start.line();
+    let change_size = changed_yaml.span.end.line() - changed_yaml.span.start.line();
 
+    // Format the secondary side with gap
     let pre_gap = before_gap.iter().map(|(line_nr, line)| {
-        let line = line.style(unchaged).to_string();
+        let line = line.style(unchanged).to_string();
         let extras = line.len() - ansi_width(&line);
 
         let line_nr = LineWidget::from(line_nr);
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
-    let gap = (0..=addition_size).map(|_| {
+    // Format the gap differently based on change type
+    let gap = (0..=change_size).map(|_| {
         let l = LineWidget(None);
-        format!("{l}│ {line:<width$}", line = "", width = max_left)
+        match change_type {
+            ChangeType::Removal => format!("{l}│"),
+            ChangeType::Addition => format!("{l}│ {line:<width$}", line = "", width = max_left),
+        }
     });
 
     let post_gap = after_gap.iter().map(|(line_nr, line)| {
-        let line = line.style(unchaged).to_string();
+        let line = line.style(unchanged).to_string();
         let extras = line.len() - ansi_width(&line);
 
         let line_nr = LineWidget::from(line_nr);
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
-    let left = pre_gap.chain(gap).chain(post_gap);
-    left.zip(right)
-        .map(|(l, r)| format!("│{l} │ {r}"))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let secondary = pre_gap.chain(gap).chain(post_gap);
+
+    // Combine the two sides based on change type
+    match change_type {
+        ChangeType::Removal => primary
+            .zip(secondary)
+            .map(|(l, r)| format!("│{l} │ {r}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ChangeType::Addition => secondary
+            .zip(primary)
+            .map(|(l, r)| format!("│{l} │ {r}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
 }
 
 pub fn render_difference(
@@ -662,7 +580,6 @@ mod test {
             &right_doc,
             80,
             super::Color::Disabled,
-            Style::new().red(),
         );
 
         expect![[r#"
