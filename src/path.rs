@@ -6,6 +6,22 @@ pub enum Segment {
     Index(usize),
 }
 
+impl Segment {
+    pub fn as_field(&self) -> Option<saphyr::YamlData<MarkedYaml>> {
+        match self {
+            Segment::Field(yaml_data) => Some(yaml_data.clone()),
+            Segment::Index(_) => None,
+        }
+    }
+
+    pub fn as_index(&self) -> Option<usize> {
+        match self {
+            Segment::Field(_) => None,
+            Segment::Index(idx) => Some(*idx),
+        }
+    }
+}
+
 impl From<&str> for Segment {
     fn from(value: &str) -> Self {
         Segment::Field(saphyr::YamlData::String(value.to_string()))
@@ -28,11 +44,8 @@ impl From<usize> for Segment {
 pub struct Path(Vec<Segment>);
 
 impl Path {
-    pub fn head(&self) -> Option<&saphyr::YamlData<MarkedYaml>> {
-        self.0.last().and_then(|segment| match segment {
-            Segment::Field(m) => Some(m),
-            _ => None,
-        })
+    pub fn head(&self) -> Option<&Segment> {
+        self.0.last()
     }
 
     pub fn parent(&self) -> Option<Self> {

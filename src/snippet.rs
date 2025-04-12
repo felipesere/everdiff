@@ -29,6 +29,7 @@ impl From<Line> for LineWidget {
     }
 }
 
+#[derive(Debug)]
 struct Snippet<'source> {
     lines: &'source [&'source str],
     from: Line,
@@ -207,8 +208,6 @@ fn render_change(
     let parent = path_to_change.parent().unwrap();
     let parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
 
-    let (before, after) = surrounding_nodes(parent_node, &path_to_change);
-
     // Extract lines from primary document
     let start_line_of_primary = primary_doc.yaml.span.start.line();
     let primary_lines: Vec<_> = primary_doc
@@ -258,15 +257,6 @@ fn render_change(
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
-    // Find corresponding nodes in secondary document
-    let before = before
-        .map(|key| parent.push(key.data.clone()))
-        .and_then(|path| node_in(&secondary_doc.yaml, &path));
-
-    let after = after
-        .map(|key| parent.push(key.data.clone()))
-        .and_then(|path| node_in(&secondary_doc.yaml, &path));
-
     // Build the secondary side
     let secondary_lines: Vec<_> = secondary_doc
         .content
@@ -274,6 +264,8 @@ fn render_change(
         .skip_while(|line| *line == "---")
         .collect();
 
+    // Find corresponding nodes in secondary document
+    let (before, after) = surrounding_nodes(parent_node, &path_to_change);
     let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(1);
     let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100);
 
@@ -298,8 +290,6 @@ fn render_change(
 
     let (before_gap, after_gap) = snippet.split(Line::new(gap_start).unwrap());
 
-    let change_size = changed_yaml.span.end.line() - changed_yaml.span.start.line();
-
     // Format the secondary side with gap
     let pre_gap = before_gap.iter().map(|(line_nr, line)| {
         let line = line.style(unchanged).to_string();
@@ -310,6 +300,7 @@ fn render_change(
     });
 
     // Format the gap differently based on change type
+    let change_size = changed_yaml.span.end.line() - changed_yaml.span.start.line();
     let gap = (0..=change_size).map(|_| {
         let l = LineWidget(None);
         match change_type {
@@ -455,12 +446,15 @@ fn surrounding_nodes<'y>(
     path: &Path,
 ) -> (Option<&'y MarkedYaml>, Option<&'y MarkedYaml>) {
     match &parent_node.data {
-        YamlData::Array(_) => todo!("not dealing with arrays yet"),
+        YamlData::Array(children) => {
+            let idx = path.head().and_then(|s| s.as_index()).unwrap();
+            (children.get(idx - 1), children.get(idx + 1))
+        }
         YamlData::Hash(linked_hash_map) => {
             // Consider extracting this...
-            let target_key = path.head().unwrap();
+            let target_key = path.head().and_then(|s| s.as_field()).unwrap();
             let keys: Vec<_> = linked_hash_map.keys().collect();
-            if let Some(idx) = keys.iter().position(|k| &k.data == target_key) {
+            if let Some(idx) = keys.iter().position(|k| k.data == target_key) {
                 let before = if idx > 0 { Some(keys[idx - 1]) } else { None };
                 let after = if idx < keys.len() - 1 {
                     Some(keys[idx + 1])
@@ -485,7 +479,7 @@ mod test {
 
     use crate::{
         YamlSource,
-        diff::{Context, Difference, diff},
+        diff::{ArrayOrdering, Context, Difference, diff},
     };
 
     use super::{Line, render_added, render_difference, render_removal};
@@ -641,6 +635,58 @@ mod test {
             │    │                                  │   6 │     postcode: ABC123            
             │  3 │   age: 12                        │   7 │   age: 12                       
             │  4 │   foo: bar                       │   8 │   foo: bar                      "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_addition_of_node_in_array() {
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            people:
+              - name: Robert Anderson
+                age: 30
+              - name: Sarah Foo
+                age: 31
+        "#});
+
+        // the entire `adress` section is new!
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            people:
+              - name: Robert Anderson
+                age: 30
+              - name: Adam Bar
+                age: 32
+              - name: Sarah Foo
+                age: 31
+        "#});
+
+        let mut ctx = Context::default();
+        ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let mut differences = diff(ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences.remove(0);
+        let Difference::Added { path, value } = first else {
+            panic!("Should have gotten an Addition");
+        };
+        let content = render_added(
+            path,
+            value,
+            &left_doc,
+            &right_doc,
+            80,
+            super::Color::Disabled,
+        );
+
+        expect![[r#"
+            │  1 │ people:                          │   1 │ people:                         
+            │  2 │   - name: Robert Anderson        │   2 │   - name: Robert Anderson       
+            │  3 │     age: 30                      │   3 │     age: 30                     
+            │    │                                  │   4 │   - name: Adam Bar              
+            │    │                                  │   5 │     age: 32                     
+            │  4 │   - name: Sarah Foo              │   6 │   - name: Sarah Foo             
+            │  5 │     age: 31                      │   7 │     age: 31                     "#]]
         .assert_eq(content.as_str());
     }
 }
