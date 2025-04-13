@@ -127,6 +127,54 @@ mod snippet_tests {
             actual_lines
         );
     }
+
+    #[test]
+    fn splitting_a_snippet() {
+        let content = &[
+            "a", // 1
+            "b", // 2
+            "c", // 3
+            "d", // 4
+            "e", // 5
+            "f", // 6
+            "g", // 7
+            "h", // 8
+        ];
+
+        let snippet =
+            Snippet::try_new(content, Line::new(2).unwrap(), Line::new(8).unwrap()).unwrap();
+
+        let (first, second) = snippet.split(Line::new(6).unwrap());
+
+        let first_lines: Vec<_> = first
+            .iter()
+            .map(|(nr, content)| (nr, content.to_string()))
+            .collect();
+
+        let second_lines: Vec<_> = second
+            .iter()
+            .map(|(nr, content)| (nr, content.to_string()))
+            .collect();
+
+        assert_eq!(
+            vec![
+                (Line::new(2).unwrap(), "b".to_string()),
+                (Line::new(3).unwrap(), "c".to_string()),
+                (Line::new(4).unwrap(), "d".to_string()),
+                (Line::new(5).unwrap(), "e".to_string()),
+                (Line::new(6).unwrap(), "f".to_string())
+            ],
+            first_lines
+        );
+
+        assert_eq!(
+            vec![
+                (Line::new(7).unwrap(), "g".to_string()),
+                (Line::new(8).unwrap(), "h".to_string()),
+            ],
+            second_lines
+        );
+    }
 }
 
 // We're going to need a "render context" or "render options" at some point
