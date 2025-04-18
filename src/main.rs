@@ -169,7 +169,7 @@ fn read_and_patch(
 }
 
 // These need a better home
-fn first_node(doc: &MarkedYaml) -> Option<&MarkedYaml> {
+pub fn first_node(doc: &MarkedYaml) -> Option<&MarkedYaml> {
     match &doc.data {
         saphyr::YamlData::Array(vec) => vec.first(),
         saphyr::YamlData::Hash(hash) => hash.front().map(|(k, _)| k),
@@ -178,7 +178,7 @@ fn first_node(doc: &MarkedYaml) -> Option<&MarkedYaml> {
 }
 
 // These need a better home
-fn last_line_in_node(node: &MarkedYaml) -> Option<Line> {
+pub fn last_line_in_node(node: &MarkedYaml) -> Option<Line> {
     match &node.data {
         saphyr::YamlData::Array(vec) => {
             if !vec.is_empty() {
@@ -254,15 +254,15 @@ pub fn render_multidoc_diff(
     }
 }
 
-fn stringify(yaml: &MarkedYaml) -> String {
-    let mut out_str = String::new();
-    let mut emitter = saphyr::YamlEmitter::new(&mut out_str);
-    emitter.dump(&yaml).expect("failed to write YAML to buffer");
-    match out_str.find('\n') {
-        Some(pos) => out_str[pos + 1..].to_string(),
-        None => out_str,
-    }
-}
+//fn stringify(yaml: &MarkedYaml) -> String {
+//    let mut out_str = String::new();
+//    let mut emitter = saphyr::YamlEmitter::new(&mut out_str);
+//    emitter.dump(&yaml).expect("failed to write YAML to buffer");
+//    match out_str.find('\n') {
+//        Some(pos) => out_str[pos + 1..].to_string(),
+//        None => out_str,
+//    }
+//}
 
 pub fn render(
     left_doc: &YamlSource,
@@ -328,6 +328,7 @@ pub fn render(
     }
 }
 
+#[allow(dead_code)]
 fn render_string_diff(left: &str, right: &str) {
     let diff = similar::TextDiff::from_lines(left, right);
 

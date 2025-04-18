@@ -39,7 +39,7 @@ impl PrePatch {
 // Shamelessly stolen from jsontr::Pointer.
 // It comes from a `Resolve` trait which is implemented for `serde_json::Value` and TOML
 // but sadly not for `serde_yaml::Value`.
-/// Get mutable access to the Value that `ptr` points at within `value`.
+// Get mutable access to the Value that `ptr` points at within `value`.
 //
 //fn resolve_mut<'a>(
 //    mut value: &'a mut serde_yaml::Value,
@@ -193,7 +193,7 @@ mod tests {
     use indoc::indoc;
     use saphyr::YamlEmitter;
 
-    use crate::{YamlSource, snippet::Line};
+    use crate::{YamlSource, first_node, last_line_in_node, snippet::Line};
 
     use super::PrePatch;
 
@@ -212,7 +212,7 @@ mod tests {
                 value: "flux"
         "#};
 
-        let pp: PrePatch = serde_yaml::from_str(raw).unwrap();
+        let _pp: PrePatch = serde_yaml::from_str(raw).unwrap();
     }
 
     #[test]
@@ -282,7 +282,7 @@ mod tests {
         "#})
         .unwrap();
 
-        pp.apply_to(&mut documents);
+        pp.apply_to(&mut documents).unwrap();
 
         let outcome = serialize(&documents);
         expect![[r#"
@@ -322,7 +322,7 @@ mod tests {
         let mut out_str = String::new();
         let mut emitter = YamlEmitter::new(&mut out_str);
         for doc in docs {
-            emitter.dump(&doc.yaml);
+            emitter.dump(&doc.yaml).unwrap();
         }
         out_str
     }
