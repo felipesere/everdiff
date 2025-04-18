@@ -543,10 +543,9 @@ mod test {
     use crate::{
         YamlSource,
         diff::{ArrayOrdering, Context, Difference, diff},
-        first_node, last_line_in_node,
     };
 
-    use super::{Line, checked_sub, checked_sub3, render_added, render_difference, render_removal};
+    use super::{Line, render_added, render_difference, render_removal};
 
     fn marked_yaml(yaml: &'static str) -> MarkedYaml {
         let mut m = MarkedYaml::load_from_str(yaml).unwrap();
@@ -554,13 +553,11 @@ mod test {
     }
 
     fn yaml_source(yaml: &'static str) -> YamlSource {
+        let doc_separators = yaml.lines().filter(|line| line.starts_with("---")).count();
         let m_yaml = marked_yaml(yaml);
-        let f_node = first_node(&m_yaml).unwrap();
-        let first_line = Line::new(f_node.span.start.line() - 1).unwrap();
-        let last_line = checked_sub3(
-            last_line_in_node(&m_yaml).unwrap(),
-            checked_sub(first_line, 1),
-        );
+        let first_line = Line::new(m_yaml.span.start.line() - doc_separators).unwrap();
+        /* substract one as the block is considered "ended" on the first line that has no content */
+        let last_line = Line::new(m_yaml.span.end.line() - doc_separators - 1).unwrap();
 
         YamlSource {
             file: camino::Utf8PathBuf::new(),
