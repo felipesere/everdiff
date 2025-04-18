@@ -306,14 +306,18 @@ mod tests {
 
         n.into_iter()
             .enumerate()
-            .map(|(index, yaml)| YamlSource {
-                file: camino::Utf8PathBuf::new(),
-                yaml,
-                content: raw.to_string(), // TODO: hmmm...
-                index,
-                // TODO: What goes here?
-                first_line: Line::try_from(1).unwrap(),
-                last_line: Line::try_from(10).unwrap(),
+            .map(|(index, yaml)| {
+                let first_node = first_node(&yaml).unwrap();
+                let first_line = Line::new(first_node.span.start.line()).unwrap();
+                let last_line = last_line_in_node(&yaml).unwrap();
+                YamlSource {
+                    file: camino::Utf8PathBuf::new(),
+                    yaml,
+                    content: raw.to_string(), // TODO: hmmm...
+                    index,
+                    first_line,
+                    last_line,
+                }
             })
             .collect()
     }

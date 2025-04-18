@@ -211,6 +211,20 @@ fn checked_sub(a: Line, b: usize) -> Line {
         .unwrap_or_else(|| Line::new(1).unwrap())
 }
 
+fn checked_sub2(a: usize, b: Line) -> Line {
+    a.checked_sub(b.get())
+        .and_then(Line::new)
+        .unwrap_or_else(|| Line::new(1).unwrap())
+}
+
+#[allow(dead_code)]
+fn checked_sub3(a: Line, b: Line) -> Line {
+    a.get()
+        .checked_sub(b.get())
+        .and_then(Line::new)
+        .unwrap_or_else(|| Line::new(1).unwrap())
+}
+
 pub fn render_added(
     path_to_change: Path,
     addition: MarkedYaml,
@@ -248,6 +262,8 @@ fn render_change(
     let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
 
     // Select primary and secondary documents based on change type
+    // The `primary_doc` more content and the changed_yaml will be highlighted.
+    // The `secondary_doc` has the gap in it
     let (primary_doc, secondary_doc) = match change_type {
         ChangeType::Removal => (left_doc, right_doc),
         ChangeType::Addition => (right_doc, left_doc),
@@ -257,25 +273,21 @@ fn render_change(
     let parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
 
     // Extract lines from primary document
-    let start_line_of_primary = primary_doc.yaml.span.start.line();
     let primary_lines: Vec<_> = primary_doc
         .content
         .lines()
         .skip_while(|s| *s == "---")
         .collect();
 
-    let change_start = Line::new(changed_yaml.span.start.line() - start_line_of_primary + 1)
-        .expect("change line start");
-    let change_end = Line::new(changed_yaml.span.end.line() - start_line_of_primary + 1)
-        .expect("change line end");
+    let change_start = checked_sub2(changed_yaml.span.start.line(), primary_doc.first_line);
+    let change_end = checked_sub2(changed_yaml.span.end.line(), primary_doc.first_line);
 
+    // Show a few more lines before and after the lines that have changed
     let start = checked_sub(change_start, ctx_size);
     let end = min(
-        change_end.checked_add(ctx_size),
-        Line::new(primary_lines.len()),
-    )
-    .expect("either one of them should be positive");
-
+        change_end.checked_add(ctx_size).unwrap(),
+        primary_doc.last_line,
+    );
     let primary_snippet =
         Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
 
@@ -305,6 +317,8 @@ fn render_change(
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
+    // -----------------------------------------------------------------
+
     // Build the secondary side
     let secondary_lines: Vec<_> = secondary_doc
         .content
@@ -314,16 +328,18 @@ fn render_change(
 
     // Find corresponding nodes in secondary document
     let (before, after) = surrounding_nodes(parent_node, &path_to_change);
-    let gap_start = before.map(|n| n.span.end.line() - 1).unwrap_or(1);
-    let gap_end = after.map(|n| n.span.start.line()).unwrap_or(100);
+    let gap_start = before
+        .map(|before| checked_sub2(before.span.end.line(), primary_doc.first_line))
+        .unwrap_or(Line::new(1).unwrap());
+    let gap_end = after.map(|after| after.span.start.line()).unwrap_or(100);
 
-    let snippet_start = gap_start.saturating_sub(ctx_size) + 1;
+    let snippet_start = checked_sub(gap_start, ctx_size);
     let snippet_end = min(gap_end + ctx_size, secondary_lines.len());
 
     // Create snippet for secondary document
     let snippet = Snippet::try_new(
         &secondary_lines,
-        Line::new(snippet_start).unwrap(),
+        snippet_start,
         Line::new(snippet_end).unwrap(),
     )
     .with_context(|| {
@@ -336,7 +352,7 @@ fn render_change(
     })
     .unwrap();
 
-    let (before_gap, after_gap) = snippet.split(Line::new(gap_start).unwrap());
+    let (before_gap, after_gap) = snippet.split(gap_start);
 
     // Format the secondary side with gap
     let pre_gap = before_gap.iter().map(|(line_nr, line)| {
@@ -347,9 +363,9 @@ fn render_change(
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
-    // Format the gap differently based on change type
-    let change_size = changed_yaml.span.end.line() - changed_yaml.span.start.line();
-    let gap = (0..=change_size).map(|_| {
+    // Both end.line() and start.line() are 1-based
+    let change_size = changed_yaml.span.end.line() - changed_yaml.span.start.line() + 1;
+    let gap = (0..change_size).map(|_| {
         let l = LineWidget(None);
         match change_type {
             ChangeType::Removal => format!("{l}│"),
@@ -522,15 +538,15 @@ fn surrounding_nodes<'y>(
 mod test {
     use expect_test::expect;
     use indoc::indoc;
-    use owo_colors::Style;
     use saphyr::MarkedYaml;
 
     use crate::{
         YamlSource,
         diff::{ArrayOrdering, Context, Difference, diff},
+        first_node, last_line_in_node,
     };
 
-    use super::{Line, render_added, render_difference, render_removal};
+    use super::{Line, checked_sub, checked_sub3, render_added, render_difference, render_removal};
 
     fn marked_yaml(yaml: &'static str) -> MarkedYaml {
         let mut m = MarkedYaml::load_from_str(yaml).unwrap();
@@ -538,14 +554,21 @@ mod test {
     }
 
     fn yaml_source(yaml: &'static str) -> YamlSource {
+        let m_yaml = marked_yaml(yaml);
+        let f_node = first_node(&m_yaml).unwrap();
+        let first_line = Line::new(f_node.span.start.line() - 1).unwrap();
+        let last_line = checked_sub3(
+            last_line_in_node(&m_yaml).unwrap(),
+            checked_sub(first_line, 1),
+        );
+
         YamlSource {
             file: camino::Utf8PathBuf::new(),
-            yaml: marked_yaml(yaml),
+            yaml: m_yaml,
             content: yaml.into(),
             index: 0,
-            first_line: Line::new(2).unwrap(),
-            // we substract the `---` at the top?
-            last_line: Line::new(yaml.lines().count() - 1).unwrap(),
+            first_line,
+            last_line,
         }
     }
 
