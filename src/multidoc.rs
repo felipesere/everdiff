@@ -244,7 +244,7 @@ mod tests {
 
     use expect_test::expect;
     use pretty_assertions::assert_eq;
-    use saphyr::MarkedYaml;
+    use saphyr::{LoadableYamlNode, MarkedYamlOwned};
 
     use crate::{
         YamlSource,
@@ -254,7 +254,7 @@ mod tests {
     use indoc::indoc;
 
     pub fn docs(raw: &str) -> Vec<YamlSource> {
-        let docs = MarkedYaml::load_from_str(raw).expect("valid yaml");
+        let docs = MarkedYamlOwned::load_from_str(raw).expect("valid yaml");
 
         docs.into_iter()
             .enumerate()
@@ -338,18 +338,14 @@ mod tests {
                             path: Path(
                                 [
                                     Field(
-                                        String(
-                                            "spec",
-                                        ),
+                                        "spec",
                                     ),
                                     Field(
-                                        String(
-                                            "color",
-                                        ),
+                                        "color",
                                     ),
                                 ],
                             ),
-                            left: MarkedYaml {
+                            left: MarkedYamlOwned {
                                 span: Span {
                                     start: Marker {
                                         index: 43,
@@ -362,11 +358,13 @@ mod tests {
                                         col: 15,
                                     },
                                 },
-                                data: String(
-                                    "yellow",
+                                data: Value(
+                                    String(
+                                        "yellow",
+                                    ),
                                 ),
                             },
-                            right: MarkedYaml {
+                            right: MarkedYamlOwned {
                                 span: Span {
                                     start: Marker {
                                         index: 109,
@@ -379,8 +377,10 @@ mod tests {
                                         col: 13,
                                     },
                                 },
-                                data: String(
-                                    "blue",
+                                data: Value(
+                                    String(
+                                        "blue",
+                                    ),
                                 ),
                             },
                         },
@@ -405,18 +405,14 @@ mod tests {
                             path: Path(
                                 [
                                     Field(
-                                        String(
-                                            "spec",
-                                        ),
+                                        "spec",
                                     ),
                                     Field(
-                                        String(
-                                            "thing",
-                                        ),
+                                        "thing",
                                     ),
                                 ],
                             ),
-                            left: MarkedYaml {
+                            left: MarkedYamlOwned {
                                 span: Span {
                                     start: Marker {
                                         index: 113,
@@ -429,11 +425,13 @@ mod tests {
                                         col: 11,
                                     },
                                 },
-                                data: Integer(
-                                    12,
+                                data: Value(
+                                    Integer(
+                                        12,
+                                    ),
                                 ),
                             },
-                            right: MarkedYaml {
+                            right: MarkedYamlOwned {
                                 span: Span {
                                     start: Marker {
                                         index: 59,
@@ -446,8 +444,10 @@ mod tests {
                                         col: 11,
                                     },
                                 },
-                                data: Integer(
-                                    24,
+                                data: Value(
+                                    Integer(
+                                        24,
+                                    ),
                                 ),
                             },
                         },

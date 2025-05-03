@@ -1,7 +1,7 @@
 use anyhow::bail;
 use json_patch::PatchOperation;
 use jsonptr::resolve::ResolveError;
-use saphyr::{LoadableYamlNode, MarkedYaml, Yaml, YamlData};
+use saphyr::{LoadableYamlNode, MarkedYamlOwned, Yaml, YamlDataOwned};
 use serde::Deserialize;
 
 use crate::YamlSource;
@@ -75,26 +75,26 @@ impl PrePatch {
 // but sadly not for `serde_yaml::Value`.
 /// Get mutable access to the Value that `ptr` points at within `value`.
 fn resolve_mut2<'a>(
-    mut value: &'a mut MarkedYaml,
+    mut value: &'a mut MarkedYamlOwned,
     mut ptr: &jsonptr::Pointer,
-) -> Result<&'a mut MarkedYaml, anyhow::Error> {
+) -> Result<&'a mut MarkedYamlOwned, anyhow::Error> {
     let mut offset = 0;
     while let Some((token, rem)) = ptr.split_front() {
         let tok_len = token.encoded().len();
         ptr = rem;
 
-        value = if value.is_array() {
-            let items = value.data.as_mut_vec().unwrap();
+        value = if value.is_sequence() {
+            let items = value.data.as_sequence_mut().unwrap();
             let idx = token
                 .to_index()
                 .map_err(|source| ResolveError::FailedToParseIndex { offset, source })?
                 .for_len(items.len())
                 .map_err(|source| ResolveError::OutOfBounds { offset, source })?;
             &mut items[idx]
-        } else if value.is_hash() {
-            let items = value.data.as_mut_hash().unwrap();
+        } else if value.is_mapping() {
+            let items = value.data.as_mapping_mut().unwrap();
             let token = token.decoded().to_string();
-            let key = MarkedYaml::from_bare_yaml(saphyr::Yaml::String(token));
+            let key = MarkedYamlOwned::from_bare_yaml(Yaml::value_from_str(&token));
             &mut items[&key]
         } else {
             // return Err(ResolveError::Unreachable { offset }.).;
@@ -105,14 +105,14 @@ fn resolve_mut2<'a>(
     Ok(value)
 }
 
-fn apply_patch(patches: &json_patch::Patch, doc: &mut MarkedYaml) -> Result<(), Error> {
+fn apply_patch(patches: &json_patch::Patch, doc: &mut MarkedYamlOwned) -> Result<(), Error> {
     for p in patches.iter() {
         match p {
             PatchOperation::Replace(r) => {
                 if let Ok(v) = resolve_mut2(doc, &r.path) {
                     let the_yaml = serde_yaml::to_string(&r.value)
                         .expect("should turn patch value into yaml string");
-                    let replacement = MarkedYaml::load_from_str(the_yaml.as_str())
+                    let replacement = MarkedYamlOwned::load_from_str(the_yaml.as_str())
                         .expect("valid yaml?")
                         .remove(0);
                     *v = replacement;
@@ -123,13 +123,13 @@ fn apply_patch(patches: &json_patch::Patch, doc: &mut MarkedYaml) -> Result<(), 
             PatchOperation::Add(a) => {
                 if let Some((path, field)) = a.path.split_back() {
                     if let Ok(v) = resolve_mut2(doc, path) {
-                        if let Some(m) = v.data.as_mut_hash() {
+                        if let Some(m) = v.data.as_mapping_mut() {
                             let the_yaml = serde_yaml::to_string(&a.value)
                                 .expect("should turn patch value into yaml string");
-                            let replacement = MarkedYaml::load_from_str(the_yaml.as_str())
+                            let replacement = MarkedYamlOwned::load_from_str(the_yaml.as_str())
                                 .expect("valid yaml?")
                                 .remove(0);
-                            let key = MarkedYaml::from_bare_yaml(Yaml::String(field.to_string()));
+                            let key = MarkedYamlOwned::value_from_str(field.to_string().as_ref());
                             m.insert(key, replacement);
                         };
                     } else {
@@ -143,22 +143,29 @@ fn apply_patch(patches: &json_patch::Patch, doc: &mut MarkedYaml) -> Result<(), 
     Ok(())
 }
 
-fn document_matches(document_like: &serde_yaml::Value, actual_doc: &MarkedYaml) -> bool {
+fn document_matches(document_like: &serde_yaml::Value, actual_doc: &MarkedYamlOwned) -> bool {
     match (document_like, &actual_doc.data) {
-        (serde_yaml::Value::Null, YamlData::Null) => true,
-        (serde_yaml::Value::Bool(a), YamlData::Boolean(b)) => a == b,
-        (serde_yaml::Value::Number(n), YamlData::Integer(b)) if n.is_i64() => {
-            n.as_i64().unwrap() == *b
-        }
-        (serde_yaml::Value::Number(n), YamlData::Real(b)) if n.is_f64() => {
-            let a = n.as_f64().unwrap();
-            let Ok(b) = b.parse::<f64>() else {
-                return false;
-            };
+        (serde_yaml::Value::Null, YamlDataOwned::Value(saphyr::ScalarOwned::Null)) => true,
+        (serde_yaml::Value::Bool(a), YamlDataOwned::Value(saphyr::ScalarOwned::Boolean(b))) => {
             a == b
         }
-        (serde_yaml::Value::String(a), YamlData::String(b)) => a == b,
-        (serde_yaml::Value::Sequence(required), YamlData::Array(available)) => {
+        (serde_yaml::Value::Number(n), YamlDataOwned::Value(saphyr::ScalarOwned::Integer(b)))
+            if n.is_i64() =>
+        {
+            n.as_i64().unwrap() == *b
+        }
+        (
+            serde_yaml::Value::Number(n),
+            YamlDataOwned::Value(saphyr::ScalarOwned::FloatingPoint(b)),
+        ) if n.is_f64() => {
+            let a = n.as_f64().unwrap();
+            let b = b.clone().into_inner();
+            a == b
+        }
+        (serde_yaml::Value::String(a), YamlDataOwned::Value(saphyr::ScalarOwned::String(b))) => {
+            a == b
+        }
+        (serde_yaml::Value::Sequence(required), YamlDataOwned::Sequence(available)) => {
             for (r, a) in required.iter().zip(available.iter()) {
                 if !document_matches(r, a) {
                     return false;
@@ -166,14 +173,13 @@ fn document_matches(document_like: &serde_yaml::Value, actual_doc: &MarkedYaml) 
             }
             true
         }
-        (serde_yaml::Value::Mapping(required), YamlData::Hash(available)) => {
+        (serde_yaml::Value::Mapping(required), YamlDataOwned::Mapping(available)) => {
             for (key, value) in required {
                 let Some(raw_val) = key.as_str() else {
                     return false;
                 };
-                let Some(other_value) = available.get(&MarkedYaml::from_bare_yaml(Yaml::String(
-                    raw_val.to_string(),
-                ))) else {
+                let Some(other_value) = available.get(&MarkedYamlOwned::value_from_str(raw_val))
+                else {
                     return false;
                 };
                 if !document_matches(value, other_value) {
@@ -191,7 +197,7 @@ fn document_matches(document_like: &serde_yaml::Value, actual_doc: &MarkedYaml) 
 mod tests {
     use expect_test::expect;
     use indoc::indoc;
-    use saphyr::YamlEmitter;
+    use saphyr::{LoadableYamlNode, YamlEmitter};
 
     use crate::{YamlSource, first_node, last_line_in_node, snippet::Line};
 
@@ -301,7 +307,7 @@ mod tests {
     }
 
     pub fn docs(raw: &str) -> Vec<YamlSource> {
-        let n = saphyr::MarkedYaml::load_from_str(raw)
+        let n = saphyr::MarkedYamlOwned::load_from_str(raw)
             .expect("Bla bla something reading docs into the system");
 
         n.into_iter()

@@ -7,7 +7,7 @@ use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use notify::{RecursiveMode, Watcher};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
-use saphyr::MarkedYaml;
+use saphyr::{LoadableYamlNode, MarkedYamlOwned};
 use snippet::{Line, LineWidget, render_added, render_difference, render_removal};
 
 mod config;
@@ -57,7 +57,7 @@ struct Args {
 
 pub struct YamlSource {
     pub file: camino::Utf8PathBuf,
-    pub yaml: saphyr::MarkedYaml,
+    pub yaml: saphyr::MarkedYamlOwned,
     pub content: String,
     pub index: usize,
     pub first_line: Line,
@@ -142,7 +142,7 @@ fn read_and_patch(
             .map(|c| c.to_string())
             .collect();
 
-        let n = saphyr::MarkedYaml::load_from_str(&content)?;
+        let n = saphyr::MarkedYamlOwned::load_from_str(&content)?;
         for (index, (document, content)) in n.into_iter().zip(split_docs).enumerate() {
             let first = first_node(&document).unwrap();
 
@@ -169,25 +169,25 @@ fn read_and_patch(
 }
 
 // These need a better home
-pub fn first_node(doc: &MarkedYaml) -> Option<&MarkedYaml> {
+pub fn first_node<'n, 'i>(doc: &'n MarkedYamlOwned) -> Option<&'n MarkedYamlOwned> {
     match &doc.data {
-        saphyr::YamlData::Array(vec) => vec.first(),
-        saphyr::YamlData::Hash(hash) => hash.front().map(|(k, _)| k),
+        saphyr::YamlDataOwned::Sequence(vec) => vec.first(),
+        saphyr::YamlDataOwned::Mapping(hash) => hash.front().map(|(k, _)| k),
         _ => Some(doc),
     }
 }
 
 // These need a better home
-pub fn last_line_in_node(node: &MarkedYaml) -> Option<Line> {
+pub fn last_line_in_node(node: &MarkedYamlOwned) -> Option<Line> {
     match &node.data {
-        saphyr::YamlData::Array(vec) => {
+        saphyr::YamlDataOwned::Sequence(vec) => {
             if !vec.is_empty() {
                 vec.last().and_then(last_line_in_node)
             } else {
                 Line::new(node.span.end.line())
             }
         }
-        saphyr::YamlData::Hash(hash) => hash.back().and_then(|(_, v)| last_line_in_node(v)),
+        saphyr::YamlDataOwned::Mapping(hash) => hash.back().and_then(|(_, v)| last_line_in_node(v)),
         _ => Line::new(node.span.end.line()),
     }
 }
@@ -254,7 +254,7 @@ pub fn render_multidoc_diff(
     }
 }
 
-//fn stringify(yaml: &MarkedYaml) -> String {
+//fn stringify(yaml: &MarkedYamlOwned) -> String {
 //    let mut out_str = String::new();
 //    let mut emitter = saphyr::YamlEmitter::new(&mut out_str);
 //    emitter.dump(&yaml).expect("failed to write YAML to buffer");

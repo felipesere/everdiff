@@ -7,7 +7,7 @@ use std::{
 use ansi_width::ansi_width;
 use anyhow::Context;
 use owo_colors::{OwoColorize, Style};
-use saphyr::{MarkedYaml, YamlData};
+use saphyr::{Indexable, MarkedYamlOwned, YamlDataOwned};
 
 use crate::{YamlSource, path::Path};
 
@@ -187,7 +187,7 @@ mod snippet_tests {
 
 pub fn render_removal(
     path_to_change: Path,
-    removal: MarkedYaml,
+    removal: MarkedYamlOwned,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     max_width: u16,
@@ -227,7 +227,7 @@ fn checked_sub3(a: Line, b: Line) -> Line {
 
 pub fn render_added(
     path_to_change: Path,
-    addition: MarkedYaml,
+    addition: MarkedYamlOwned,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     max_width: u16,
@@ -251,7 +251,7 @@ enum ChangeType {
 
 fn render_change(
     path_to_change: Path,
-    changed_yaml: MarkedYaml,
+    changed_yaml: MarkedYamlOwned,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     max_width: u16,
@@ -400,9 +400,9 @@ fn render_change(
 
 pub fn render_difference(
     path_to_change: Path,
-    left: MarkedYaml,
+    left: MarkedYamlOwned,
     left_doc: &YamlSource,
-    right: MarkedYaml,
+    right: MarkedYamlOwned,
     right_doc: &YamlSource,
     max_width: u16,
     color: Color,
@@ -434,7 +434,7 @@ pub fn render_difference(
 pub fn render_changed_snippet(
     max_width: usize,
     source: &YamlSource,
-    changed_yaml: MarkedYaml,
+    changed_yaml: MarkedYamlOwned,
     color: Color,
 ) -> Vec<String> {
     let start_line_of_document = source.yaml.span.start.line();
@@ -488,16 +488,16 @@ impl fmt::Display for LineWidget {
     }
 }
 
-fn node_in<'y>(yaml: &'y MarkedYaml, path: &Path) -> Option<&'y MarkedYaml> {
+fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedYamlOwned> {
     let mut n = Some(yaml);
     for p in path.segments() {
         match p {
             crate::path::Segment::Field(f) => {
-                let v = n.and_then(|n| n.get(f))?;
+                let v = n.and_then(|n| n.get(f.as_str()))?;
                 n = Some(v);
             }
             crate::path::Segment::Index(nr) => {
-                let v = n.and_then(|n| n.get(nr))?;
+                let v = n.and_then(|n| n.get(*nr))?;
                 n = Some(v);
             }
         }
@@ -506,18 +506,19 @@ fn node_in<'y>(yaml: &'y MarkedYaml, path: &Path) -> Option<&'y MarkedYaml> {
 }
 
 fn surrounding_nodes<'y>(
-    parent_node: &'y MarkedYaml,
+    parent_node: &'y MarkedYamlOwned,
     path: &Path,
-) -> (Option<&'y MarkedYaml>, Option<&'y MarkedYaml>) {
+) -> (Option<&'y MarkedYamlOwned>, Option<&'y MarkedYamlOwned>) {
     match &parent_node.data {
-        YamlData::Array(children) => {
+        YamlDataOwned::Sequence(children) => {
             let idx = path.head().and_then(|s| s.as_index()).unwrap();
             (children.get(idx - 1), children.get(idx + 1))
         }
-        YamlData::Hash(linked_hash_map) => {
+        YamlDataOwned::Mapping(children) => {
             // Consider extracting this...
             let target_key = path.head().and_then(|s| s.as_field()).unwrap();
-            let keys: Vec<_> = linked_hash_map.keys().collect();
+            let target_key = YamlDataOwned::Value(saphyr::ScalarOwned::String(target_key));
+            let keys: Vec<_> = children.keys().collect();
             if let Some(idx) = keys.iter().position(|k| k.data == target_key) {
                 let before = if idx > 0 { Some(keys[idx - 1]) } else { None };
                 let after = if idx < keys.len() - 1 {
@@ -538,7 +539,7 @@ fn surrounding_nodes<'y>(
 mod test {
     use expect_test::expect;
     use indoc::indoc;
-    use saphyr::MarkedYaml;
+    use saphyr::{LoadableYamlNode, MarkedYamlOwned};
 
     use crate::{
         YamlSource,
@@ -547,8 +548,8 @@ mod test {
 
     use super::{Line, render_added, render_difference, render_removal};
 
-    fn marked_yaml(yaml: &'static str) -> MarkedYaml {
-        let mut m = MarkedYaml::load_from_str(yaml).unwrap();
+    fn marked_yaml(yaml: &'static str) -> MarkedYamlOwned {
+        let mut m = MarkedYamlOwned::load_from_str(yaml).unwrap();
         m.remove(0)
     }
 

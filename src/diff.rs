@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use saphyr::YamlData;
+use saphyr::YamlDataOwned;
 
 use crate::path::{Path, Segment};
 
@@ -8,16 +8,16 @@ use crate::path::{Path, Segment};
 pub enum Difference {
     Added {
         path: Path,
-        value: saphyr::MarkedYaml,
+        value: saphyr::MarkedYamlOwned,
     },
     Removed {
         path: Path,
-        value: saphyr::MarkedYaml,
+        value: saphyr::MarkedYamlOwned,
     },
     Changed {
         path: Path,
-        left: saphyr::MarkedYaml,
-        right: saphyr::MarkedYaml,
+        left: saphyr::MarkedYamlOwned,
+        right: saphyr::MarkedYamlOwned,
     },
     Moved {
         original_path: Path,
@@ -70,13 +70,13 @@ impl Context {
 }
 
 /// Under a given context `ctx`, extract the differneces between `left` and `right`
-pub fn diff(
+pub fn diff<'l, 'r>(
     ctx: Context,
-    left: &saphyr::MarkedYaml,
-    right: &saphyr::MarkedYaml,
+    left: &saphyr::MarkedYamlOwned,
+    right: &saphyr::MarkedYamlOwned,
 ) -> Vec<Difference> {
     match (&left.data, &right.data) {
-        (YamlData::Hash(left), YamlData::Hash(right)) => {
+        (YamlDataOwned::Mapping(left), YamlDataOwned::Mapping(right)) => {
             let left_keys: HashSet<_> = left.keys().collect();
             let right_keys: HashSet<_> = right.keys().collect();
 
@@ -84,7 +84,8 @@ pub fn diff(
             let mut diffs = Vec::new();
             for key in all_keys {
                 let inner_key = (*key).clone().data;
-                let path = ctx.path.push(key.data.clone());
+                let key_segment = Segment::try_from(key.data.clone()).unwrap();
+                let path = ctx.path.push(key_segment);
                 match (left.get(key), right.get(key)) {
                     (None, None) => unreachable!("the key must be from either left or right!"),
                     (None, Some(addition)) => diffs.push(Difference::Added {
@@ -96,13 +97,14 @@ pub fn diff(
                         value: removal.clone(),
                     }),
                     (Some(left), Some(right)) => {
-                        diffs.append(&mut diff(ctx.for_key(inner_key), left, right));
+                        let inner_key_segment = Segment::try_from(inner_key).unwrap();
+                        diffs.append(&mut diff(ctx.for_key(inner_key_segment), left, right));
                     }
                 }
             }
             diffs
         }
-        (YamlData::Array(left_elements), YamlData::Array(right_elements)) => {
+        (YamlDataOwned::Sequence(left_elements), YamlDataOwned::Sequence(right_elements)) => {
             if ctx.array_ordering == ArrayOrdering::Fixed {
                 // we start by comparing the in order
                 let max_element_idx = std::cmp::max(left_elements.len(), right_elements.len());
@@ -192,7 +194,7 @@ struct MatchingOutcome {
 }
 
 /// Take in a matrix of differneces and produce a set of indizes that minimize it
-fn minimize_differences(matrix: &DiffMatrix) -> MatchingOutcome {
+fn minimize_differences<'input>(matrix: &DiffMatrix) -> MatchingOutcome {
     let mut changed: Vec<(usize, usize, Vec<Difference>)> = Vec::new();
     let mut moved: Vec<(usize, usize)> = Vec::new();
     // this is getting stupid... I need to track these better...
@@ -250,21 +252,21 @@ mod tests {
     use expect_test::expect;
     use indoc::indoc;
     use pretty_assertions::assert_eq;
-    use saphyr::LoadableYamlNode;
+    use saphyr::{LoadableYamlNode, Scalar};
 
     use crate::diff::ArrayOrdering;
 
-    use super::{diff, Context, Difference, Path};
+    use super::{Context, Difference, Path, diff};
 
     #[test]
     fn simple_values_changes() {
-        let left = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let left = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         foo:
           bar: 1
         "#})
         .unwrap();
 
-        let right = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let right = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         foo:
           bar: 2
         "#})
@@ -275,8 +277,12 @@ mod tests {
         assert_eq!(
             differences,
             vec![Difference::Changed {
-                left: saphyr::MarkedYaml::from_bare_yaml(saphyr::Yaml::Integer(1)),
-                right: saphyr::MarkedYaml::from_bare_yaml(saphyr::Yaml::Integer(2)),
+                left: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
+                    Scalar::Integer(1)
+                )),
+                right: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
+                    Scalar::Integer(2)
+                )),
                 path: Path::from_unchecked(vec!["foo".into(), "bar".into(),])
             }]
         )
@@ -284,7 +290,7 @@ mod tests {
 
     #[test]
     fn added_or_changed_element_in_array() {
-        let left = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let left = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         foo:
           - a
           - b
@@ -292,7 +298,7 @@ mod tests {
         "#})
         .unwrap();
 
-        let right = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let right = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         foo:
           - x
           - b
@@ -307,13 +313,19 @@ mod tests {
             differences,
             vec![
                 Difference::Changed {
-                    left: saphyr::MarkedYaml::from_bare_yaml(saphyr::Yaml::String("a".into())),
-                    right: saphyr::MarkedYaml::from_bare_yaml(saphyr::Yaml::String("x".into())),
+                    left: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
+                        Scalar::String("a".into())
+                    )),
+                    right: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
+                        Scalar::String("x".into())
+                    )),
                     path: Path::from_unchecked(vec!["foo".into(), 0.into(),])
                 },
                 Difference::Added {
                     path: Path::from_unchecked(vec!["foo".into(), 3.into()]),
-                    value: saphyr::MarkedYaml::from_bare_yaml(saphyr::Yaml::String("d".into())),
+                    value: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
+                        Scalar::String("d".into())
+                    )),
                 }
             ]
         )
@@ -321,7 +333,7 @@ mod tests {
 
     #[test]
     fn removed_element_in_vector() {
-        let left = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let left = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         foo:
           - a
           - b
@@ -329,7 +341,7 @@ mod tests {
         "#})
         .unwrap();
 
-        let right = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let right = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         foo:
           - a
           - b
@@ -342,20 +354,22 @@ mod tests {
             differences,
             vec![Difference::Removed {
                 path: Path::from_unchecked(vec!["foo".into(), 2.into()]),
-                value: saphyr::MarkedYaml::from_bare_yaml(saphyr::Yaml::String("c".into())),
+                value: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
+                    Scalar::String("c".into())
+                )),
             }]
         )
     }
 
     #[test]
     fn type_change() {
-        let left = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let left = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         foo:
           bar: "12"
         "#})
         .unwrap();
 
-        let right = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let right = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         foo:
           bar: false
         "#})
@@ -366,8 +380,12 @@ mod tests {
         assert_eq!(
             differences,
             vec![Difference::Changed {
-                left: saphyr::MarkedYaml::from_bare_yaml(saphyr::Yaml::String("12".into())),
-                right: saphyr::MarkedYaml::from_bare_yaml(saphyr::Yaml::Boolean(false)),
+                left: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(Scalar::String(
+                    "12".into()
+                ))),
+                right: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
+                    Scalar::Boolean(false)
+                )),
                 path: Path::from_unchecked(vec!["foo".into(), "bar".into(),])
             },]
         )
@@ -375,7 +393,7 @@ mod tests {
 
     #[test]
     fn netpol_example() {
-        let left = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let left = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         egress:
           - ports:
             - port: 80
@@ -386,7 +404,7 @@ mod tests {
         "#})
         .unwrap();
 
-        let right = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let right = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         egress:
           - to:
             - ipBlock:
@@ -407,14 +425,16 @@ mod tests {
                     0.into(),
                     "protocol".into()
                 ]),
-                value: saphyr::MarkedYaml::from_bare_yaml(saphyr::Yaml::String("TCP".into())),
+                value: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
+                    Scalar::String("TCP".into())
+                )),
             }]
         )
     }
 
     #[test]
     fn detect_when_some_elements_have_been_moved_and_others_have_been_added() {
-        let left = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let left = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         some_list:
           - name: alpha
             value:
@@ -431,7 +451,7 @@ mod tests {
         "#})
         .unwrap();
 
-        let right = saphyr::MarkedYaml::load_from_str(indoc! {r#"
+        let right = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         some_list:
           - name: bravo
             value:
@@ -462,16 +482,14 @@ mod tests {
                     path: Path(
                         [
                             Field(
-                                String(
-                                    "some_list",
-                                ),
+                                "some_list",
                             ),
                             Index(
                                 1,
                             ),
                         ],
                     ),
-                    value: MarkedYaml {
+                    value: MarkedYamlOwned {
                         span: Span {
                             start: Marker {
                                 index: 73,
@@ -484,9 +502,9 @@ mod tests {
                                 col: 2,
                             },
                         },
-                        data: Hash(
+                        data: Mapping(
                             {
-                                MarkedYaml {
+                                MarkedYamlOwned {
                                     span: Span {
                                         start: Marker {
                                             index: 73,
@@ -499,10 +517,12 @@ mod tests {
                                             col: 8,
                                         },
                                     },
-                                    data: String(
-                                        "name",
+                                    data: Value(
+                                        String(
+                                            "name",
+                                        ),
                                     ),
-                                }: MarkedYaml {
+                                }: MarkedYamlOwned {
                                     span: Span {
                                         start: Marker {
                                             index: 79,
@@ -515,11 +535,13 @@ mod tests {
                                             col: 16,
                                         },
                                     },
-                                    data: String(
-                                        "lambda",
+                                    data: Value(
+                                        String(
+                                            "lambda",
+                                        ),
                                     ),
                                 },
-                                MarkedYaml {
+                                MarkedYamlOwned {
                                     span: Span {
                                         start: Marker {
                                             index: 90,
@@ -532,10 +554,12 @@ mod tests {
                                             col: 9,
                                         },
                                     },
-                                    data: String(
-                                        "value",
+                                    data: Value(
+                                        String(
+                                            "value",
+                                        ),
                                     ),
-                                }: MarkedYaml {
+                                }: MarkedYamlOwned {
                                     span: Span {
                                         start: Marker {
                                             index: 103,
@@ -548,9 +572,9 @@ mod tests {
                                             col: 2,
                                         },
                                     },
-                                    data: Hash(
+                                    data: Mapping(
                                         {
-                                            MarkedYaml {
+                                            MarkedYamlOwned {
                                                 span: Span {
                                                     start: Marker {
                                                         index: 103,
@@ -563,10 +587,12 @@ mod tests {
                                                         col: 12,
                                                     },
                                                 },
-                                                data: String(
-                                                    "wheels",
+                                                data: Value(
+                                                    String(
+                                                        "wheels",
+                                                    ),
                                                 ),
-                                            }: MarkedYaml {
+                                            }: MarkedYamlOwned {
                                                 span: Span {
                                                     start: Marker {
                                                         index: 111,
@@ -579,11 +605,13 @@ mod tests {
                                                         col: 15,
                                                     },
                                                 },
-                                                data: Integer(
-                                                    9,
+                                                data: Value(
+                                                    Integer(
+                                                        9,
+                                                    ),
                                                 ),
                                             },
-                                            MarkedYaml {
+                                            MarkedYamlOwned {
                                                 span: Span {
                                                     start: Marker {
                                                         index: 119,
@@ -596,10 +624,12 @@ mod tests {
                                                         col: 11,
                                                     },
                                                 },
-                                                data: String(
-                                                    "doors",
+                                                data: Value(
+                                                    String(
+                                                        "doors",
+                                                    ),
                                                 ),
-                                            }: MarkedYaml {
+                                            }: MarkedYamlOwned {
                                                 span: Span {
                                                     start: Marker {
                                                         index: 126,
@@ -612,8 +642,10 @@ mod tests {
                                                         col: 14,
                                                     },
                                                 },
-                                                data: Integer(
-                                                    9,
+                                                data: Value(
+                                                    Integer(
+                                                        9,
+                                                    ),
                                                 ),
                                             },
                                         },
@@ -627,9 +659,7 @@ mod tests {
                     original_path: Path(
                         [
                             Field(
-                                String(
-                                    "some_list",
-                                ),
+                                "some_list",
                             ),
                             Index(
                                 1,
@@ -639,9 +669,7 @@ mod tests {
                     new_path: Path(
                         [
                             Field(
-                                String(
-                                    "some_list",
-                                ),
+                                "some_list",
                             ),
                             Index(
                                 0,
@@ -653,26 +681,20 @@ mod tests {
                     path: Path(
                         [
                             Field(
-                                String(
-                                    "some_list",
-                                ),
+                                "some_list",
                             ),
                             Index(
                                 0,
                             ),
                             Field(
-                                String(
-                                    "value",
-                                ),
+                                "value",
                             ),
                             Field(
-                                String(
-                                    "doors",
-                                ),
+                                "doors",
                             ),
                         ],
                     ),
-                    left: MarkedYaml {
+                    left: MarkedYamlOwned {
                         span: Span {
                             start: Marker {
                                 index: 67,
@@ -685,11 +707,13 @@ mod tests {
                                 col: 14,
                             },
                         },
-                        data: Integer(
-                            1,
+                        data: Value(
+                            Integer(
+                                1,
+                            ),
                         ),
                     },
-                    right: MarkedYaml {
+                    right: MarkedYamlOwned {
                         span: Span {
                             start: Marker {
                                 index: 244,
@@ -702,8 +726,10 @@ mod tests {
                                 col: 14,
                             },
                         },
-                        data: Integer(
-                            2,
+                        data: Value(
+                            Integer(
+                                2,
+                            ),
                         ),
                     },
                 },

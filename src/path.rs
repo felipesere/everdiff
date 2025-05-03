@@ -2,14 +2,14 @@ use std::str::FromStr;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Segment {
-    Field(saphyr::YamlData<MarkedYaml>),
+    Field(String),
     Index(usize),
 }
 
 impl Segment {
-    pub fn as_field(&self) -> Option<saphyr::YamlData<MarkedYaml>> {
+    pub fn as_field(&self) -> Option<String> {
         match self {
-            Segment::Field(yaml_data) => Some(yaml_data.clone()),
+            Segment::Field(f) => Some(f.to_string()),
             Segment::Index(_) => None,
         }
     }
@@ -24,13 +24,21 @@ impl Segment {
 
 impl From<&str> for Segment {
     fn from(value: &str) -> Self {
-        Segment::Field(saphyr::YamlData::String(value.to_string()))
+        Segment::Field(value.to_string())
     }
 }
 
-impl From<saphyr::YamlData<MarkedYaml>> for Segment {
-    fn from(val: saphyr::YamlData<MarkedYaml>) -> Self {
-        Segment::Field(val)
+impl TryFrom<saphyr::YamlDataOwned<MarkedYamlOwned>> for Segment {
+    type Error = anyhow::Error;
+
+    fn try_from(value: saphyr::YamlDataOwned<MarkedYamlOwned>) -> Result<Self, Self::Error> {
+        if let Some(f) = value.as_str() {
+            return Ok(Segment::Field(f.to_string()));
+        }
+        if let Some(n) = value.as_integer() {
+            return Ok(Segment::Index(n as usize));
+        }
+        anyhow::bail!("Only YAML strings and numbers can be turned into Segments")
     }
 }
 
@@ -62,10 +70,9 @@ impl Path {
         let mut buf = String::new();
         for s in &self.0 {
             match s {
-                Segment::Field(saphyr::YamlData::String(s)) => {
+                Segment::Field(s) => {
                     buf += &format!(".{s}");
                 }
-                Segment::Field(other) => panic!("{other:?} not supported for jq_like"),
                 Segment::Index(n) => {
                     buf += &format!("[{n}]");
                 }
@@ -101,7 +108,7 @@ enum MatchElement {
 impl MatchElement {
     fn matches(&self, segment: &Segment) -> bool {
         match (self, segment) {
-            (MatchElement::Field(a), Segment::Field(YamlData::String(b))) => a == b,
+            (MatchElement::Field(a), Segment::Field(b)) => a == b,
             (MatchElement::Index(a), Segment::Index(b)) => a == b,
             (MatchElement::AnyArrayElement, Segment::Index(_)) => true,
             _ => false,
@@ -167,7 +174,7 @@ use nom::character::complete::char;
 use nom::combinator::{map, opt};
 use nom::multi::many0;
 use nom::sequence::{delimited, preceded};
-use saphyr::{MarkedYaml, YamlData};
+use saphyr::MarkedYamlOwned;
 
 fn ignore_path(input: &str) -> IResult<&str, IgnorePath> {
     let mut segments = Vec::new();

@@ -1,4 +1,4 @@
-use crate::{multidoc::DocKey, YamlSource};
+use crate::{YamlSource, multidoc::DocKey};
 use std::collections::BTreeMap;
 
 /// Fn that identifies a document by inspecting keys
@@ -17,12 +17,12 @@ pub fn by_index() -> IdentifierFn {
 }
 
 pub mod kubernetes {
-    use saphyr::MarkedYaml;
+    use saphyr::{Indexable, MarkedYamlOwned};
 
     use super::*;
     use std::collections::BTreeMap;
 
-    fn string_of(node: Option<&MarkedYaml>) -> Option<String> {
+    fn string_of(node: Option<&MarkedYamlOwned>) -> Option<String> {
         node?.data.as_str().map(String::from)
     }
 
