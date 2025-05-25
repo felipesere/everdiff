@@ -169,7 +169,7 @@ fn read_and_patch(
 }
 
 // These need a better home
-pub fn first_node<'n, 'i>(doc: &'n MarkedYamlOwned) -> Option<&'n MarkedYamlOwned> {
+pub fn first_node(doc: &MarkedYamlOwned) -> Option<&MarkedYamlOwned> {
     match &doc.data {
         saphyr::YamlDataOwned::Sequence(vec) => vec.first(),
         saphyr::YamlDataOwned::Mapping(hash) => hash.front().map(|(k, _)| k),

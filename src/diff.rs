@@ -70,7 +70,7 @@ impl Context {
 }
 
 /// Under a given context `ctx`, extract the differneces between `left` and `right`
-pub fn diff<'l, 'r>(
+pub fn diff(
     ctx: Context,
     left: &saphyr::MarkedYamlOwned,
     right: &saphyr::MarkedYamlOwned,
@@ -194,7 +194,7 @@ struct MatchingOutcome {
 }
 
 /// Take in a matrix of differneces and produce a set of indizes that minimize it
-fn minimize_differences<'input>(matrix: &DiffMatrix) -> MatchingOutcome {
+fn minimize_differences(matrix: &DiffMatrix) -> MatchingOutcome {
     let mut changed: Vec<(usize, usize, Vec<Difference>)> = Vec::new();
     let mut moved: Vec<(usize, usize)> = Vec::new();
     // this is getting stupid... I need to track these better...

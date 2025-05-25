@@ -159,7 +159,7 @@ fn document_matches(document_like: &serde_yaml::Value, actual_doc: &MarkedYamlOw
             YamlDataOwned::Value(saphyr::ScalarOwned::FloatingPoint(b)),
         ) if n.is_f64() => {
             let a = n.as_f64().unwrap();
-            let b = b.clone().into_inner();
+            let b = b.into_inner();
             a == b
         }
         (serde_yaml::Value::String(a), YamlDataOwned::Value(saphyr::ScalarOwned::String(b))) => {

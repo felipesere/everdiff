@@ -23,7 +23,7 @@ pub type Line = NonZeroUsize;
 
 impl From<Line> for LineWidget {
     fn from(value: Line) -> Self {
-        // TODO: We still do gross `+1` math in here
+        // TODO: We still do gross `±1` math in here
         // if the `Line` concept pans out we can clear it
         Self(Some(value.get() - 1))
     }
