@@ -15,6 +15,7 @@ pub mod path;
 pub mod prepatch;
 pub mod snippet;
 
+#[derive(Debug)]
 pub struct YamlSource {
     pub file: camino::Utf8PathBuf,
     pub yaml: saphyr::MarkedYamlOwned,

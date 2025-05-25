@@ -1,6 +1,9 @@
 ---
 person:
   name: Steven Anderson
+  location:
+    street: 1 Kentish Street
+    postcode: KS87JJ
   age: 34
 ---
 pet:

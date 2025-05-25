@@ -1,5 +1,5 @@
 use std::{
-    cmp::min,
+    cmp::{max, min},
     fmt::{self},
     num::NonZeroUsize,
 };
@@ -324,28 +324,27 @@ fn render_change(
         .collect();
 
     // Find corresponding nodes in secondary document
-    // TODO: I think is more complex that it initially seems.
-    //       the goal is to get the spans of the nodes that need to surround the gap.
+    // TODO: I think this is more complex than it initially seems.
+    //       The goal is to get the spans of the nodes that need to surround the gap.
     //       Therefor I need know what nodes should be there, and then translate
     //       that into the other document. I tend to do that via the `path`
-    //       I will probably change the `surrounding_nodes` function to return
-    //       2 Paths?
     //
     //       I think that is done?
     //
     //       BUT(!) paths don't necessarily carry over to the other docment.
     //       e.g. if the path to the change is `.people.3`
     //       the surround nodes could be (.people.2, .people.4)
-    //       but who knows if the array as sufficient elements?!
+    //       but who knows if the array has sufficient elements?!
     let parent = path_to_change.parent().unwrap();
     let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
+
     let (before_path, after_path) = surrounding_paths(primary_parent_node, &path_to_change);
 
-    dbg!(&before_path.as_ref().map(|p| p.jq_like()));
-    dbg!(&after_path.as_ref().map(|p| p.jq_like()));
+    // dbg!(&before_path.as_ref().map(|p| p.jq_like()));
+    // dbg!(&after_path.as_ref().map(|p| p.jq_like()));
 
-    let candidate_node_before_change = node_in(&secondary_doc.yaml, &before_path.unwrap());
-    let candidate_node_after_change = node_in(&secondary_doc.yaml, &after_path.unwrap());
+    let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
+    let candidate_node_after_change = after_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
 
     let gap_start = candidate_node_before_change
         .map(|before| {
@@ -356,10 +355,16 @@ fn render_change(
 
     // If we can find a node after the change use its line number, other wise guess based on the
     // start of the gap and the length of the change
-    let gap_end = if let Some(candidate) = candidate_node_after_change {
-        candidate.span.start.line()
+    let gap_end = if let Some(after_node) = candidate_node_after_change {
+        after_node.span.start.line() - 1
     } else {
-        gap_start.get() + node_height(&changed_yaml)
+        // doing "+1" because keys and values are not on the same line:
+        // foo: <--- the key
+        //   name: 'abc'
+        //   thing: true
+        //
+        // the node height is 2, but the total thing should be 3
+        gap_start.get() + node_height(&changed_yaml) + 1
     };
 
     let snippet_start = checked_sub(gap_start, ctx_size);
@@ -381,8 +386,8 @@ fn render_change(
     })
     .unwrap();
 
-    dbg!(&snippet);
-    dbg!(&gap_start);
+    // dbg!(&snippet);
+    // dbg!(&gap_start);
 
     let (before_gap, after_gap) = snippet.split(gap_start);
 
@@ -432,22 +437,117 @@ fn render_change(
 fn node_height(changed_yaml: &MarkedYamlOwned) -> usize {
     let start = changed_yaml.span.start.line();
     let end = changed_yaml.span.end.line();
+    max(end - start, 1)
+}
 
-    // Soo... for some reason mappings that are visually 4 lines large, e.g.
-    // ```yaml
-    //  person:
-    //    name: Steve
-    //    address:
-    //      street: foo bar
-    //      nr: 1
-    //      postcode: ABC123
-    //    age: 32
-    // ```
-    // seem to go from line 3 to 6...which is weird?!
-    // Arrays/Sequences don't have this problem...
-    let extra = if changed_yaml.data.is_mapping() { 1 } else { 0 };
+#[cfg(test)]
+mod test_node_height {
+    use indoc::indoc;
+    use saphyr::{Indexable, LoadableYamlNode, MarkedYamlOwned};
 
-    end - start + extra
+    use crate::snippet::node_height;
+
+    #[test]
+    fn height_of_simple_string() {
+        let raw = indoc! {r#"
+          element: "Hi there"
+        "#};
+
+        let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
+        let yaml = yaml.remove(0);
+        let element = yaml.get("element").unwrap();
+
+        assert_eq!(1, node_height(element));
+    }
+
+    #[test]
+    fn height_of_multiline_string() {
+        let raw = indoc! {r#"
+          element: |
+            This is
+            great and many
+            lines long
+        "#};
+
+        let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
+        let yaml = yaml.remove(0);
+        let element = yaml.get("element").unwrap();
+
+        assert_eq!(3, node_height(element));
+    }
+
+    #[test]
+    fn height_of_boolean() {
+        let raw = indoc! {r#"
+          element: true
+        "#};
+
+        let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
+        let yaml = yaml.remove(0);
+        let element = yaml.get("element").unwrap();
+
+        assert_eq!(1, node_height(element));
+    }
+
+    #[test]
+    fn height_of_integer() {
+        let raw = indoc! {r#"
+          element: 7
+        "#};
+
+        let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
+        let yaml = yaml.remove(0);
+        let element = yaml.get("element").unwrap();
+
+        assert_eq!(1, node_height(element));
+    }
+
+    #[test]
+    fn height_of_null() {
+        let raw = indoc! {r#"
+          element: ~
+        "#};
+
+        let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
+        let yaml = yaml.remove(0);
+        let element = yaml.get("element").unwrap();
+
+        assert_eq!(1, node_height(element));
+    }
+
+    #[test]
+    fn height_of_sequence() {
+        let raw = indoc! {r#"
+          element: 
+            - first
+            - second
+            - third: 3
+              name: dfjsdklf
+        "#};
+
+        let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
+        let yaml = yaml.remove(0);
+        let element = yaml.get("element").unwrap();
+
+        assert_eq!(4, node_height(element));
+    }
+
+    #[test]
+    fn height_of_mapping() {
+        let raw = indoc! {r#"
+          element:
+            thing: 3
+            goo:
+              dfjsdklf: 1
+              item: glasses
+        "#};
+
+        let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
+        let yaml = yaml.remove(0);
+        let element = yaml.get("element").unwrap();
+
+        assert_eq!(4, node_height(element));
+    }
 }
 
 pub fn render_difference(
@@ -500,7 +600,7 @@ pub fn render_changed_snippet(
 
     let (added, unchaged) = match color {
         Color::Enabled => (
-            owo_colors::Style::new().green(),
+            owo_colors::Style::new().yellow(),
             owo_colors::Style::new().dimmed(),
         ),
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
@@ -555,54 +655,6 @@ fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedYamlO
         }
     }
     n
-}
-
-/// Returns the YAML nodes that immediately surround a target node in its parent container.
-///
-/// Given a parent YAML node and a path to a specific child node, this function finds
-/// and returns references to the nodes that come directly before and after the target node.
-///
-/// # Arguments
-///
-/// * `parent_node` - The parent YAML container node
-/// * `path` - The path identifying which child node to find neighbors for
-///
-/// # Returns
-///
-/// A tuple of `(before, after)` where:
-/// * `before` - The node before the target, or `None` if target is first
-/// * `after` - The node after the target, or `None` if target is last
-///
-/// # Behavior
-///
-fn surrounding_nodes<'y>(
-    parent_node: &'y MarkedYamlOwned,
-    path: &Path,
-) -> (Option<&'y MarkedYamlOwned>, Option<&'y MarkedYamlOwned>) {
-    match &parent_node.data {
-        YamlDataOwned::Sequence(children) => {
-            let idx = path.head().and_then(|s| s.as_index()).unwrap();
-            (children.get(idx - 1), children.get(idx + 1))
-        }
-        YamlDataOwned::Mapping(children) => {
-            // Consider extracting this...
-            let target_key = path.head().and_then(|s| s.as_field()).unwrap();
-            let target_key = YamlDataOwned::Value(saphyr::ScalarOwned::String(target_key));
-            let keys: Vec<_> = children.keys().collect();
-            if let Some(idx) = keys.iter().position(|k| k.data == target_key) {
-                let before = if idx > 0 { Some(keys[idx - 1]) } else { None };
-                let after = if idx < keys.len() - 1 {
-                    Some(keys[idx + 1])
-                } else {
-                    None
-                };
-                (before, after)
-            } else {
-                (None, None)
-            }
-        }
-        _ => unreachable!("parent has to be a container"),
-    }
 }
 
 fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path>, Option<Path>) {
