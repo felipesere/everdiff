@@ -269,9 +269,6 @@ fn render_change(
         ChangeType::Addition => (right_doc, left_doc),
     };
 
-    let parent = path_to_change.parent().unwrap();
-    let parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
-
     // Extract lines from primary document
     let primary_lines: Vec<_> = primary_doc
         .content
@@ -327,11 +324,43 @@ fn render_change(
         .collect();
 
     // Find corresponding nodes in secondary document
-    let (before, after) = surrounding_nodes(parent_node, &path_to_change);
-    let gap_start = before
-        .map(|before| checked_sub2(before.span.end.line(), primary_doc.first_line))
+    // TODO: I think is more complex that it initially seems.
+    //       the goal is to get the spans of the nodes that need to surround the gap.
+    //       Therefor I need know what nodes should be there, and then translate
+    //       that into the other document. I tend to do that via the `path`
+    //       I will probably change the `surrounding_nodes` function to return
+    //       2 Paths?
+    //
+    //       I think that is done?
+    //
+    //       BUT(!) paths don't necessarily carry over to the other docment.
+    //       e.g. if the path to the change is `.people.3`
+    //       the surround nodes could be (.people.2, .people.4)
+    //       but who knows if the array as sufficient elements?!
+    let parent = path_to_change.parent().unwrap();
+    let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
+    let (before_path, after_path) = surrounding_paths(primary_parent_node, &path_to_change);
+
+    dbg!(&before_path.as_ref().map(|p| p.jq_like()));
+    dbg!(&after_path.as_ref().map(|p| p.jq_like()));
+
+    let candidate_node_before_change = node_in(&secondary_doc.yaml, &before_path.unwrap());
+    let candidate_node_after_change = node_in(&secondary_doc.yaml, &after_path.unwrap());
+
+    let gap_start = candidate_node_before_change
+        .map(|before| {
+            let n = if before.data.is_mapping() { 1 } else { 0 };
+            checked_sub2(before.span.end.line() - n, primary_doc.first_line)
+        })
         .unwrap_or(Line::new(1).unwrap());
-    let gap_end = after.map(|after| after.span.start.line()).unwrap_or(100);
+
+    // If we can find a node after the change use its line number, other wise guess based on the
+    // start of the gap and the length of the change
+    let gap_end = if let Some(candidate) = candidate_node_after_change {
+        candidate.span.start.line()
+    } else {
+        gap_start.get() + node_height(&changed_yaml)
+    };
 
     let snippet_start = checked_sub(gap_start, ctx_size);
     let snippet_end = min(gap_end + ctx_size, secondary_lines.len());
@@ -352,6 +381,9 @@ fn render_change(
     })
     .unwrap();
 
+    dbg!(&snippet);
+    dbg!(&gap_start);
+
     let (before_gap, after_gap) = snippet.split(gap_start);
 
     // Format the secondary side with gap
@@ -363,8 +395,7 @@ fn render_change(
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
-    // Both end.line() and start.line() are 1-based
-    let change_size = changed_yaml.span.end.line() - changed_yaml.span.start.line() + 1;
+    let change_size = changed_yaml.span.end.line() - changed_yaml.span.start.line();
     let gap = (0..change_size).map(|_| {
         let l = LineWidget(None);
         match change_type {
@@ -396,6 +427,27 @@ fn render_change(
             .collect::<Vec<_>>()
             .join("\n"),
     }
+}
+
+fn node_height(changed_yaml: &MarkedYamlOwned) -> usize {
+    let start = changed_yaml.span.start.line();
+    let end = changed_yaml.span.end.line();
+
+    // Soo... for some reason mappings that are visually 4 lines large, e.g.
+    // ```yaml
+    //  person:
+    //    name: Steve
+    //    address:
+    //      street: foo bar
+    //      nr: 1
+    //      postcode: ABC123
+    //    age: 32
+    // ```
+    // seem to go from line 3 to 6...which is weird?!
+    // Arrays/Sequences don't have this problem...
+    let extra = if changed_yaml.data.is_mapping() { 1 } else { 0 };
+
+    end - start + extra
 }
 
 pub fn render_difference(
@@ -505,6 +557,24 @@ fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedYamlO
     n
 }
 
+/// Returns the YAML nodes that immediately surround a target node in its parent container.
+///
+/// Given a parent YAML node and a path to a specific child node, this function finds
+/// and returns references to the nodes that come directly before and after the target node.
+///
+/// # Arguments
+///
+/// * `parent_node` - The parent YAML container node
+/// * `path` - The path identifying which child node to find neighbors for
+///
+/// # Returns
+///
+/// A tuple of `(before, after)` where:
+/// * `before` - The node before the target, or `None` if target is first
+/// * `after` - The node after the target, or `None` if target is last
+///
+/// # Behavior
+///
 fn surrounding_nodes<'y>(
     parent_node: &'y MarkedYamlOwned,
     path: &Path,
@@ -527,6 +597,46 @@ fn surrounding_nodes<'y>(
                     None
                 };
                 (before, after)
+            } else {
+                (None, None)
+            }
+        }
+        _ => unreachable!("parent has to be a container"),
+    }
+}
+
+fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path>, Option<Path>) {
+    let parent_path = path.parent().unwrap();
+    match &parent_node.data {
+        YamlDataOwned::Sequence(children) => {
+            let idx = path.head().and_then(|s| s.as_index()).unwrap();
+            let left = if idx > 0 {
+                Some(parent_path.push(idx - 1))
+            } else {
+                None
+            };
+            let right = if idx < children.len() {
+                Some(parent_path.push(idx + 1))
+            } else {
+                None
+            };
+            (left, right)
+        }
+        YamlDataOwned::Mapping(children) => {
+            // Consider extracting this...
+            let target_key = path.head().and_then(|s| s.as_field()).unwrap();
+            let keys: Vec<_> = children.keys().filter_map(|k| k.data.as_str()).collect();
+            if let Some(idx) = keys.iter().position(|k| k == &target_key) {
+                let before = if idx > 0 { Some(keys[idx - 1]) } else { None };
+                let after = if idx < keys.len() - 1 {
+                    Some(keys[idx + 1])
+                } else {
+                    None
+                };
+                (
+                    before.map(|k| parent_path.push(k)),
+                    after.map(|k| parent_path.push(k)),
+                )
             } else {
                 (None, None)
             }
