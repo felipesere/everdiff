@@ -3,6 +3,14 @@ name = "everdiff"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "everdiff"
+path = "src/lib.rs"
+
+[[bin]]
+name = "everdiff"
+path = "src/main.rs"
+
 [dependencies]
 ansi-width = "0.1.0"
 anyhow = "1.0.94"

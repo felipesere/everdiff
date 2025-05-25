@@ -1,5 +1,6 @@
-use crate::{YamlSource, multidoc::DocKey};
 use std::collections::BTreeMap;
+
+use crate::{YamlSource, multidoc::DocKey};
 
 /// Fn that identifies a document by inspecting keys
 pub type IdentifierFn = Box<dyn Fn(usize, &YamlSource) -> Option<DocKey>>;
