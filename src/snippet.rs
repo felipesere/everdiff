@@ -299,6 +299,7 @@ fn render_change(
     change_type: ChangeType,
 ) -> String {
     log::debug!("Rendering change for {}", path_to_change.jq_like());
+    log::debug!("The val is: {:#?}", changed_yaml);
     let ctx_size = 5;
     let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
 
@@ -407,9 +408,15 @@ fn render_change(
         })
         .unwrap_or(Line::new(1).unwrap());
 
+    log::debug!("The gap starts at: {gap_start}");
+
     // If we can find a node after the change use its line number, other wise guess based on the
     // start of the gap and the length of the change
     let gap_end = if let Some(after_node) = candidate_node_after_change {
+        log::debug!(
+            "Using start of after_node to find end of gap: {}",
+            after_node.span.start.line()
+        );
         after_node.span.start.line()
     } else {
         // doing "+1" because keys and values are not on the same line:
@@ -418,7 +425,9 @@ fn render_change(
         //   thing: true
         //
         // the node height is 2, but the total thing should be 3
-        gap_start.get() + node_height(&changed_yaml) + 1
+        let height = gap_start.get() + node_height(&changed_yaml) + 1;
+        log::debug!("No after_node present, using height of the changed_yaml node: {height}");
+        height
     };
 
     let snippet_start = gap_start - ctx_size;
@@ -454,7 +463,13 @@ fn render_change(
         format!("{line_nr}│ {line:<width$}", width = max_left + extras)
     });
 
-    let change_size = changed_yaml.span.end.line() - changed_yaml.span.start.line();
+    let change_size = node_height(&changed_yaml);
+    // Are we adding more weird adjustments here?
+    // We did similar `+1` math above with node_height
+    let change_size = match primary_parent_node.data {
+        YamlDataOwned::Mapping(_) => change_size + 1,
+        _ => change_size,
+    };
     let gap = (0..change_size).map(|_| {
         let l = LineWidget(None);
         match change_type {
@@ -894,6 +909,7 @@ mod test {
 
     #[test]
     fn display_the_addition_of_a_node() {
+        init_logging();
         let left_doc = yaml_source(indoc! {r#"
             ---
             person:
