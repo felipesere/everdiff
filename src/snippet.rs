@@ -66,7 +66,7 @@ impl Sub<Line> for usize {
 
     fn sub(self, rhs: Line) -> Self::Output {
         let val = self - rhs.0.get();
-        Line::new(min(val, 1)).expect("Value can't drop below 1")
+        Line::new(max(val, 1)).expect("Value can't drop below 1")
     }
 }
 
@@ -392,7 +392,17 @@ fn render_change(
 
     let gap_start = candidate_node_before_change
         .map(|before| {
-            let n = if before.data.is_mapping() { 1 } else { 0 };
+            let n = if before.data.is_mapping() || before.data.is_sequence() {
+                1
+            } else {
+                0
+            };
+            log::debug!("the before line ends on: {}", before.span.end.line());
+            log::debug!("weird adjustment factor: {n}");
+            log::debug!(
+                "the first line of the doc to adjust by is: {}",
+                primary_doc.first_line
+            );
             before.span.end.line() - n - primary_doc.first_line
         })
         .unwrap_or(Line::new(1).unwrap());
@@ -574,6 +584,25 @@ mod test_node_height {
         let element = yaml.get("element").unwrap();
 
         assert_eq!(4, node_height(element));
+    }
+
+    #[test]
+    fn height_of_array_element() {
+        let raw = indoc! {r#"
+          thing:
+            - foo: 1
+            - foo: 2
+              bar: yay!
+            - foo: 3
+              bar: yay!
+              wtf: true
+        "#};
+
+        let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
+        let yaml = yaml.remove(0);
+        let element = yaml.get("thing").and_then(|thing| thing.get(1)).unwrap();
+
+        assert_eq!(2, node_height(element));
     }
 
     #[test]
@@ -913,8 +942,17 @@ mod test {
         .assert_eq(content.as_str());
     }
 
+    fn init_logging() {
+        if std::env::var("LOG").is_ok() {
+            env_logger::Builder::new()
+                .filter_level(log::LevelFilter::Debug)
+                .init();
+        }
+    }
+
     #[test]
     fn display_addition_of_node_in_array() {
+        init_logging();
         let left_doc = yaml_source(indoc! {r#"
             ---
             people:
