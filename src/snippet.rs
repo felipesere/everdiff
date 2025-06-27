@@ -258,6 +258,7 @@ fn render_change(
     color: Color,
     change_type: ChangeType,
 ) -> String {
+    log::debug!("Rendering change for {}", path_to_change.jq_like());
     let ctx_size = 5;
     let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
 
@@ -340,8 +341,14 @@ fn render_change(
 
     let (before_path, after_path) = surrounding_paths(primary_parent_node, &path_to_change);
 
-    // dbg!(&before_path.as_ref().map(|p| p.jq_like()));
-    // dbg!(&after_path.as_ref().map(|p| p.jq_like()));
+    log::debug!(
+        "The before node is {:?}",
+        &before_path.as_ref().map(|p| p.jq_like())
+    );
+    log::debug!(
+        "The after node is {:?}",
+        &after_path.as_ref().map(|p| p.jq_like())
+    );
 
     let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
     let candidate_node_after_change = after_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
@@ -356,7 +363,7 @@ fn render_change(
     // If we can find a node after the change use its line number, other wise guess based on the
     // start of the gap and the length of the change
     let gap_end = if let Some(after_node) = candidate_node_after_change {
-        after_node.span.start.line() - 1
+        after_node.span.start.line()
     } else {
         // doing "+1" because keys and values are not on the same line:
         // foo: <--- the key
@@ -386,8 +393,8 @@ fn render_change(
     })
     .unwrap();
 
-    // dbg!(&snippet);
-    // dbg!(&gap_start);
+    log::debug!("The snippet is at: {:#?}", &snippet);
+    log::debug!("The gap starts at: {}", &gap_start);
 
     let (before_gap, after_gap) = snippet.split(gap_start);
 
