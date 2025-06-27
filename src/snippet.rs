@@ -2,6 +2,7 @@ use std::{
     cmp::{max, min},
     fmt::{self},
     num::NonZeroUsize,
+    ops::{Add, Sub},
 };
 
 use ansi_width::ansi_width;
@@ -19,13 +20,73 @@ pub enum Color {
     Disabled,
 }
 
-pub type Line = NonZeroUsize;
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Copy, Clone)]
+pub struct Line(NonZeroUsize);
+
+impl Line {
+    fn get(self) -> usize {
+        self.0.get()
+    }
+
+    pub fn new(raw: usize) -> Option<Self> {
+        Some(Line(NonZeroUsize::try_from(raw).ok()?))
+    }
+}
+
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl Add<usize> for Line {
+    type Output = Line;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Line(self.0.saturating_add(rhs))
+    }
+}
+
+impl Sub<usize> for Line {
+    type Output = Line;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        let val = self.0.get();
+        if val <= rhs {
+            Line::new(1).unwrap()
+        } else {
+            let val = val - rhs;
+            Line::new(val).unwrap()
+        }
+    }
+}
+
+impl Sub<Line> for usize {
+    type Output = Line;
+
+    fn sub(self, rhs: Line) -> Self::Output {
+        let val = self - rhs.0.get();
+        Line::new(min(val, 1)).expect("Value can't drop below 1")
+    }
+}
+
+impl PartialOrd<usize> for Line {
+    fn partial_cmp(&self, other: &usize) -> Option<std::cmp::Ordering> {
+        self.0.get().partial_cmp(other)
+    }
+}
+
+impl PartialEq<usize> for Line {
+    fn eq(&self, other: &usize) -> bool {
+        self.0.get().eq(other)
+    }
+}
 
 impl From<Line> for LineWidget {
     fn from(value: Line) -> Self {
         // TODO: We still do gross `±1` math in here
         // if the `Line` concept pans out we can clear it
-        Self(Some(value.get() - 1))
+        Self(Some(value.0.get() - 1))
     }
 }
 
@@ -45,7 +106,7 @@ impl Snippet<'_> {
         if to <= from {
             anyhow::bail!("'to' ({to}) was less than 'from' ({from})");
         }
-        if lines.len() < usize::from(to) {
+        if to > lines.len() {
             anyhow::bail!(
                 "'to' ({to}) reaches out of bounds of 'lines' ({})",
                 lines.len()
@@ -69,7 +130,7 @@ impl Snippet<'_> {
         };
         let right = Snippet {
             lines: self.lines,
-            from: split_at.saturating_add(1),
+            from: split_at + 1,
             to: self.to,
         };
         (left, right)
@@ -204,27 +265,6 @@ pub fn render_removal(
     )
 }
 
-fn checked_sub(a: Line, b: usize) -> Line {
-    let n = a.get();
-    n.checked_sub(b)
-        .and_then(Line::new)
-        .unwrap_or_else(|| Line::new(1).unwrap())
-}
-
-fn checked_sub2(a: usize, b: Line) -> Line {
-    a.checked_sub(b.get())
-        .and_then(Line::new)
-        .unwrap_or_else(|| Line::new(1).unwrap())
-}
-
-#[allow(dead_code)]
-fn checked_sub3(a: Line, b: Line) -> Line {
-    a.get()
-        .checked_sub(b.get())
-        .and_then(Line::new)
-        .unwrap_or_else(|| Line::new(1).unwrap())
-}
-
 pub fn render_added(
     path_to_change: Path,
     addition: MarkedYamlOwned,
@@ -277,15 +317,12 @@ fn render_change(
         .skip_while(|s| *s == "---")
         .collect();
 
-    let change_start = checked_sub2(changed_yaml.span.start.line(), primary_doc.first_line);
-    let change_end = checked_sub2(changed_yaml.span.end.line(), primary_doc.first_line);
+    let change_start = changed_yaml.span.start.line() - primary_doc.first_line;
+    let change_end = changed_yaml.span.end.line() - primary_doc.first_line;
 
     // Show a few more lines before and after the lines that have changed
-    let start = checked_sub(change_start, ctx_size);
-    let end = min(
-        change_end.checked_add(ctx_size).unwrap(),
-        primary_doc.last_line,
-    );
+    let start = change_start - ctx_size;
+    let end = min(change_end + ctx_size, primary_doc.last_line);
     let primary_snippet =
         Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
 
@@ -356,7 +393,7 @@ fn render_change(
     let gap_start = candidate_node_before_change
         .map(|before| {
             let n = if before.data.is_mapping() { 1 } else { 0 };
-            checked_sub2(before.span.end.line() - n, primary_doc.first_line)
+            before.span.end.line() - n - primary_doc.first_line
         })
         .unwrap_or(Line::new(1).unwrap());
 
@@ -374,7 +411,7 @@ fn render_change(
         gap_start.get() + node_height(&changed_yaml) + 1
     };
 
-    let snippet_start = checked_sub(gap_start, ctx_size);
+    let snippet_start = gap_start - ctx_size;
     let snippet_end = min(gap_end + ctx_size, secondary_lines.len());
 
     // Create snippet for secondary document

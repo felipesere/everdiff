@@ -264,8 +264,8 @@ mod tests {
                 content: raw.to_string(),
                 index,
                 // TODO: What goes here?
-                first_line: Line::try_from(1).unwrap(),
-                last_line: Line::try_from(10).unwrap(),
+                first_line: Line::new(1).unwrap(),
+                last_line: Line::new(10).unwrap(),
             })
             .collect()
     }
