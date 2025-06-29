@@ -40,8 +40,8 @@ fn calculate_max_line_width(node: &MarkedYamlOwned) -> usize {
 
 fn extract_original_text(content: &str, span: &Span) -> String {
     let lines: Vec<&str> = content.lines().collect();
-    let start_line = span.start.line() - 1; // Convert to 0-based indexing
-    let end_line = span.end.line() - 1;
+    let start_line = span.start.line();
+    let end_line = span.end.line();
 
     if start_line == end_line {
         // Single line span
@@ -55,7 +55,7 @@ fn extract_original_text(content: &str, span: &Span) -> String {
     } else {
         // Multi-line span
         let mut result = String::new();
-        for line_idx in start_line..=end_line.min(lines.len() - 1) {
+        for line_idx in start_line..=end_line.min(lines.len()) {
             if let Some(line) = lines.get(line_idx) {
                 if line_idx == start_line {
                     // First line - from start column to end

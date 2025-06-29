@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
 
     // Initialize logging with colors
     if args.verbose {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error"))
             .format(|buf, record| {
                 use owo_colors::OwoColorize;
                 use std::io::Write;

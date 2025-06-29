@@ -197,9 +197,9 @@ fn document_matches(document_like: &serde_yaml::Value, actual_doc: &MarkedYamlOw
 mod tests {
     use expect_test::expect;
     use indoc::indoc;
-    use saphyr::{LoadableYamlNode, YamlEmitter};
+    use saphyr::YamlEmitter;
 
-    use crate::{YamlSource, first_node, last_line_in_node, snippet::Line};
+    use crate::{YamlSource, read_doc};
 
     use super::PrePatch;
 
@@ -307,25 +307,7 @@ mod tests {
     }
 
     pub fn docs(raw: &str) -> Vec<YamlSource> {
-        let n = saphyr::MarkedYamlOwned::load_from_str(raw)
-            .expect("Bla bla something reading docs into the system");
-
-        n.into_iter()
-            .enumerate()
-            .map(|(index, yaml)| {
-                let first_node = first_node(&yaml).unwrap();
-                let first_line = Line::new(first_node.span.start.line()).unwrap();
-                let last_line = last_line_in_node(&yaml).unwrap();
-                YamlSource {
-                    file: camino::Utf8PathBuf::new(),
-                    yaml,
-                    content: raw.to_string(), // TODO: hmmm...
-                    index,
-                    first_line,
-                    last_line,
-                }
-            })
-            .collect()
+        read_doc(raw, camino::Utf8PathBuf::new()).unwrap()
     }
 
     pub fn serialize(docs: &[YamlSource]) -> String {

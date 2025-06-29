@@ -9,7 +9,7 @@ use std::{
 use ansi_width::ansi_width;
 use anyhow::Context;
 use owo_colors::{OwoColorize, Style};
-use saphyr::{Indexable, MarkedYamlOwned, YamlDataOwned};
+use saphyr::{Indexable, LoadableYamlNode, MarkedYamlOwned, YamlDataOwned};
 
 use crate::{YamlSource, path::Path};
 
@@ -21,8 +21,14 @@ pub enum Color {
     Disabled,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct Line(NonZeroUsize);
+
+impl fmt::Debug for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("Line({})", &self.0))
+    }
+}
 
 impl Line {
     fn get(self) -> usize {
@@ -48,6 +54,20 @@ impl Add<usize> for Line {
     }
 }
 
+impl Add<i32> for Line {
+    type Output = Line;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        if rhs > 0 {
+            let rhs = usize::try_from(rhs).expect("a small enough addition to line");
+            Line::new(self.get().saturating_add(rhs)).unwrap()
+        } else {
+            let rhs = usize::try_from(rhs.abs()).expect("a small enough addition to line");
+            Line::new(self.get().saturating_sub(rhs)).unwrap()
+        }
+    }
+}
+
 impl Sub<usize> for Line {
     type Output = Line;
 
@@ -59,6 +79,15 @@ impl Sub<usize> for Line {
             let val = val - rhs;
             Line::new(val).unwrap()
         }
+    }
+}
+
+impl Sub for Line {
+    type Output = Line;
+
+    fn sub(self, rhs: Line) -> Self::Output {
+        let val = self.get().saturating_sub(rhs.get());
+        Line::new(val).unwrap()
     }
 }
 
@@ -104,6 +133,9 @@ impl Snippet<'_> {
         from: Line,
         to: Line,
     ) -> Result<Snippet<'source>, anyhow::Error> {
+        log::info!("Creating a new snippet");
+        log::info!("---from: {from} to {to}");
+        log::info!("{:#?}", lines);
         if to <= from {
             anyhow::bail!("'to' ({to}) was less than 'from' ({from})");
         }
@@ -241,15 +273,8 @@ mod snippet_tests {
 
 struct Rendered {
     content: Vec<String>,
-    align: Alignment,
     lines_above: usize,
     lines_below: usize,
-}
-
-enum Alignment {
-    Top,
-    Middle,
-    Bottom,
 }
 
 // We're going to need a "render context" or "render options" at some point
@@ -317,7 +342,7 @@ fn render_change(
     let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
 
     // Select primary and secondary documents based on change type
-    // The `primary_doc` more content and the changed_yaml will be highlighted.
+    // The `primary_doc` has more content and the changed_yaml will be highlighted.
     // The `secondary_doc` has the gap in it
     let (primary_doc, secondary_doc) = match change_type {
         ChangeType::Removal => (left_doc, right_doc),
@@ -325,18 +350,20 @@ fn render_change(
     };
 
     // Extract lines from primary document
-    let primary_lines: Vec<_> = primary_doc
-        .content
-        .lines()
-        .skip_while(|s| *s == "---")
-        .collect();
+    let primary_lines = primary_doc.lines();
 
-    let change_start = changed_yaml.span.start.line() - primary_doc.first_line;
+    let change_start = max(
+        Line::new(changed_yaml.span.start.line()).unwrap(),
+        primary_doc.first_line,
+    );
     let change_end = changed_yaml.span.end.line() - primary_doc.first_line;
 
     // Show a few more lines before and after the lines that have changed
     let start = change_start - ctx_size;
-    let end = min(change_end + ctx_size, primary_doc.last_line);
+    let end = min(
+        change_end + ctx_size,
+        primary_doc.last_line - primary_doc.first_line,
+    );
     let primary_snippet =
         Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
 
@@ -369,11 +396,7 @@ fn render_change(
     // -----------------------------------------------------------------
 
     // Build the secondary side
-    let secondary_lines: Vec<_> = secondary_doc
-        .content
-        .lines()
-        .skip_while(|line| *line == "---")
-        .collect();
+    let secondary_lines = secondary_doc.lines();
 
     // Find corresponding nodes in secondary document
     // TODO: I think this is more complex than it initially seems.
@@ -401,23 +424,30 @@ fn render_change(
         &after_path.as_ref().map(|p| p.jq_like())
     );
 
+    let height_of_changed_node = node_height(&changed_yaml);
+    let size_of_gap = if primary_parent_node.is_mapping() {
+        height_of_changed_node + 1 // we adjust by one because the key is often on its own line
+    } else {
+        height_of_changed_node
+    };
+    log::info!("We estimate the size of the gap to be: {size_of_gap}");
+
     let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
     let candidate_node_after_change = after_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
 
     let gap_start = candidate_node_before_change
         .map(|before| {
-            let n = if before.data.is_mapping() || before.data.is_sequence() {
-                1
-            } else {
-                0
+            let n = match primary_parent_node.data {
+                YamlDataOwned::Mapping(_) => 1,
+                _ => 0,
             };
-            log::debug!("the before line ends on: {}", before.span.end.line());
             log::debug!("weird adjustment factor: {n}");
             log::debug!(
                 "the first line of the doc to adjust by is: {}",
                 primary_doc.first_line
             );
-            before.span.end.line() - n - primary_doc.first_line
+            // for some reason I need to substract more here!
+            before.span.end.line() - primary_doc.first_line + n
         })
         .unwrap_or(Line::new(1).unwrap());
 
@@ -438,9 +468,11 @@ fn render_change(
         //   thing: true
         //
         // the node height is 2, but the total thing should be 3
-        let height = gap_start.get() + node_height(&changed_yaml) + 1;
-        log::debug!("No after_node present, using height of the changed_yaml node: {height}");
-        height
+        let last_line = gap_start.get() + size_of_gap;
+        log::debug!(
+            "No after_node present, using height {size_of_gap} of the changed_yaml for final line: {last_line}"
+        );
+        last_line
     };
 
     let snippet_start = gap_start - ctx_size;
@@ -674,31 +706,35 @@ pub fn render_difference(
     let left = render_changed_snippet(max_left, left_doc, left, color);
     let right = render_changed_snippet(max_left, right_doc, right, color);
 
+    // TODO: this `6` is horrid... I'll have to find a way around this...
     let n = max_left + 6;
     let filler = || std::iter::repeat(format!("{:>n$}", ""));
 
-    let left_top_filler = if left.lines_above < right.lines_above {
-        itertools::Either::Left(filler().take(right.lines_above - left.lines_above))
+    let above_filler = left.lines_above.abs_diff(right.lines_above);
+    let below_filler = left.lines_below.abs_diff(right.lines_below);
+
+    let (left_top_filler, right_top_filler) = if left.lines_above < right.lines_above {
+        (
+            itertools::Either::Left(filler().take(above_filler)),
+            itertools::Either::Right(empty::<String>()),
+        )
     } else {
-        itertools::Either::Right(empty::<String>())
+        (
+            itertools::Either::Right(empty::<String>()),
+            itertools::Either::Left(filler().take(above_filler)),
+        )
     };
 
-    let right_top_filler = if right.lines_above < left.lines_above {
-        itertools::Either::Left(filler().take(left.lines_above - right.lines_above))
+    let (left_bottom_filler, right_bottom_filler) = if left.lines_below < right.lines_below {
+        (
+            itertools::Either::Left(filler().take(below_filler)),
+            itertools::Either::Right(empty::<String>()),
+        )
     } else {
-        itertools::Either::Right(empty::<String>())
-    };
-
-    let left_bottom_filler = if left.lines_below < right.lines_below {
-        itertools::Either::Left(filler().take(right.lines_below - left.lines_above))
-    } else {
-        itertools::Either::Right(empty::<String>())
-    };
-
-    let right_bottom_filler = if right.lines_below < left.lines_above {
-        itertools::Either::Left(filler().take(left.lines_below - right.lines_above))
-    } else {
-        itertools::Either::Right(empty::<String>())
+        (
+            itertools::Either::Right(empty::<String>()),
+            itertools::Either::Left(filler().take(below_filler)),
+        )
     };
 
     let left = left_top_filler
@@ -748,15 +784,6 @@ fn render_changed_snippet(
     let lines_above = changed_line - start;
     let lines_below = end - changed_line;
 
-    let mut alignment = Alignment::Middle;
-    if changed_line == start - 1 {
-        alignment = Alignment::Top;
-    }
-
-    if changed_line == lines.len() {
-        alignment = Alignment::Top;
-    }
-
     let content = left_snippet
         .iter()
         .zip(start..end)
@@ -781,7 +808,6 @@ fn render_changed_snippet(
 
     Rendered {
         content,
-        align: alignment,
         lines_above,
         lines_below,
     }
@@ -857,37 +883,34 @@ fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path
 
 #[cfg(test)]
 mod test {
+    use std::sync::Once;
+
     use expect_test::expect;
     use indoc::indoc;
-    use saphyr::{LoadableYamlNode, MarkedYamlOwned};
 
     use crate::{
         YamlSource,
         diff::{ArrayOrdering, Context, Difference, diff},
+        read_doc,
     };
 
-    use super::{Line, render_added, render_difference, render_removal};
+    use super::{render_added, render_difference, render_removal};
 
-    fn marked_yaml(yaml: &'static str) -> MarkedYamlOwned {
-        let mut m = MarkedYamlOwned::load_from_str(yaml).unwrap();
-        m.remove(0)
+    static LOGGING: Once = Once::new();
+
+    fn init_logging() {
+        LOGGING.call_once(|| {
+            if std::env::var("LOG").is_ok() {
+                env_logger::Builder::new()
+                    .filter_level(log::LevelFilter::Debug)
+                    .init();
+            }
+        });
     }
 
     fn yaml_source(yaml: &'static str) -> YamlSource {
-        let doc_separators = yaml.lines().filter(|line| line.starts_with("---")).count();
-        let m_yaml = marked_yaml(yaml);
-        let first_line = Line::new(m_yaml.span.start.line() - doc_separators).unwrap();
-        /* substract one as the block is considered "ended" on the first line that has no content */
-        let last_line = Line::new(m_yaml.span.end.line() - doc_separators - 1).unwrap();
-
-        YamlSource {
-            file: camino::Utf8PathBuf::new(),
-            yaml: m_yaml,
-            content: yaml.into(),
-            index: 0,
-            first_line,
-            last_line,
-        }
+        let mut docs = read_doc(yaml, camino::Utf8PathBuf::new()).expect("to have parsed properly");
+        docs.remove(0)
     }
 
     #[test]
@@ -986,7 +1009,7 @@ mod test {
               name: Robert Anderson
               age: 12
               foo: bar
-        "#});
+            "#});
 
         // the entire `adress` section is new!
         let right_doc = yaml_source(indoc! {r#"
@@ -999,7 +1022,7 @@ mod test {
                 postcode: ABC123
               age: 12
               foo: bar
-        "#});
+            "#});
 
         let mut differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
@@ -1026,14 +1049,6 @@ mod test {
             │  3 │   age: 12                        │   7 │   age: 12                       
             │  4 │   foo: bar                       │   8 │   foo: bar                      "#]]
         .assert_eq(content.as_str());
-    }
-
-    fn init_logging() {
-        if std::env::var("LOG").is_ok() {
-            env_logger::Builder::new()
-                .filter_level(log::LevelFilter::Debug)
-                .init();
-        }
     }
 
     #[test]

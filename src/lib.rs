@@ -1,5 +1,6 @@
 use std::io::Read;
 
+use camino::Utf8PathBuf;
 use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use owo_colors::{OwoColorize, Style};
@@ -25,6 +26,15 @@ pub struct YamlSource {
     pub last_line: Line,
 }
 
+impl YamlSource {
+    pub fn lines(&self) -> Vec<&str> {
+        self.content
+            .lines()
+            .skip_while(|line| *line == "---" || line.is_empty())
+            .collect()
+    }
+}
+
 pub fn read_and_patch(
     paths: &[camino::Utf8PathBuf],
     patches: &[prepatch::PrePatch],
@@ -35,36 +45,45 @@ pub fn read_and_patch(
         let mut content = String::new();
         f.read_to_string(&mut content)?;
 
-        let raw_docs: Vec<_> = content
-            .clone()
-            .split("---")
-            .filter(|doc| !doc.is_empty())
-            .map(|c| c.to_string())
-            .collect();
+        let n = read_doc(content, p.clone())?;
 
-        let parsed_docs = saphyr::MarkedYamlOwned::load_from_str(&content)?;
-
-        for (index, (document, content)) in parsed_docs.into_iter().zip(raw_docs).enumerate() {
-            let first = first_node(&document).unwrap();
-
-            let first_line = Line::new(first.span.start.line()).unwrap();
-            // TODO: Can this actually fail?
-            let last_line = last_line_in_node(&document).unwrap();
-
-            docs.push(YamlSource {
-                file: p.clone(),
-                yaml: document,
-                first_line,
-                last_line,
-                content,
-                index,
-            });
-        }
+        docs.extend(n.into_iter());
     }
     for patch in patches {
         let _err = patch.apply_to(&mut docs);
     }
 
+    Ok(docs)
+}
+
+pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result<Vec<YamlSource>> {
+    let content = content.into();
+    let mut docs = Vec::new();
+    let raw_docs: Vec<_> = content
+        .clone()
+        .split("---")
+        .filter(|doc| !doc.is_empty())
+        .map(|c| c.to_string())
+        .collect();
+
+    let parsed_docs = saphyr::MarkedYamlOwned::load_from_str(&content)?;
+
+    for (index, (document, content)) in parsed_docs.into_iter().zip(raw_docs).enumerate() {
+        let first = first_node(&document).unwrap();
+
+        let first_line = Line::new(first.span.start.line()).unwrap();
+        let last_line = Line::new(document.span.end.line()).unwrap();
+        // last_line_in_node(&document).unwrap() - 1;
+
+        docs.push(YamlSource {
+            file: path.clone(),
+            yaml: document,
+            first_line,
+            last_line,
+            content,
+            index,
+        });
+    }
     Ok(docs)
 }
 
@@ -253,7 +272,7 @@ fn render_string_diff(left: &str, right: &str) {
                     if emphasized {
                         print!("{}", value.style(emphasis_style.underline()));
                     } else {
-                        print!("{}", value);
+                        print!("{value}");
                     }
                 }
                 if change.missing_newline() {
