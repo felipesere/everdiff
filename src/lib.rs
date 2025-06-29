@@ -35,21 +35,21 @@ pub fn read_and_patch(
         let mut content = String::new();
         f.read_to_string(&mut content)?;
 
-        let split_docs: Vec<_> = content
+        let raw_docs: Vec<_> = content
             .clone()
             .split("---")
-            .skip(1)
+            .filter(|doc| !doc.is_empty())
             .map(|c| c.to_string())
             .collect();
 
-        let n = saphyr::MarkedYamlOwned::load_from_str(&content)?;
-        for (index, (document, content)) in n.into_iter().zip(split_docs).enumerate() {
+        let parsed_docs = saphyr::MarkedYamlOwned::load_from_str(&content)?;
+
+        for (index, (document, content)) in parsed_docs.into_iter().zip(raw_docs).enumerate() {
             let first = first_node(&document).unwrap();
 
             let first_line = Line::new(first.span.start.line()).unwrap();
             // TODO: Can this actually fail?
             let last_line = last_line_in_node(&document).unwrap();
-            //  println!("File: {p} idx: {index}: [{first_line:?}, {last_line:?}]");
 
             docs.push(YamlSource {
                 file: p.clone(),

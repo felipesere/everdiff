@@ -1,6 +1,7 @@
 use std::{
     cmp::{max, min},
     fmt::{self},
+    iter::empty,
     num::NonZeroUsize,
     ops::{Add, Sub},
 };
@@ -238,6 +239,19 @@ mod snippet_tests {
     }
 }
 
+struct Rendered {
+    content: Vec<String>,
+    align: Alignment,
+    lines_above: usize,
+    lines_below: usize,
+}
+
+enum Alignment {
+    Top,
+    Middle,
+    Bottom,
+}
+
 // We're going to need a "render context" or "render options" at some point
 // to control a couple of aspects:
 // * rendering the changes "in snippets" or not?
@@ -245,7 +259,6 @@ mod snippet_tests {
 // * show colors or not?
 // * line numbers that match up with the actual file
 //    - this matters in particular for multi-doc docs
-
 pub fn render_removal(
     path_to_change: Path,
     removal: MarkedYamlOwned,
@@ -661,8 +674,44 @@ pub fn render_difference(
     let left = render_changed_snippet(max_left, left_doc, left, color);
     let right = render_changed_snippet(max_left, right_doc, right, color);
 
+    let n = max_left + 6;
+    let filler = || std::iter::repeat(format!("{:>n$}", ""));
+
+    let left_top_filler = if left.lines_above < right.lines_above {
+        itertools::Either::Left(filler().take(right.lines_above - left.lines_above))
+    } else {
+        itertools::Either::Right(empty::<String>())
+    };
+
+    let right_top_filler = if right.lines_above < left.lines_above {
+        itertools::Either::Left(filler().take(left.lines_above - right.lines_above))
+    } else {
+        itertools::Either::Right(empty::<String>())
+    };
+
+    let left_bottom_filler = if left.lines_below < right.lines_below {
+        itertools::Either::Left(filler().take(right.lines_below - left.lines_above))
+    } else {
+        itertools::Either::Right(empty::<String>())
+    };
+
+    let right_bottom_filler = if right.lines_below < left.lines_above {
+        itertools::Either::Left(filler().take(left.lines_below - right.lines_above))
+    } else {
+        itertools::Either::Right(empty::<String>())
+    };
+
+    let left = left_top_filler
+        .into_iter()
+        .chain(left.content)
+        .chain(left_bottom_filler);
+
+    let right = right_top_filler
+        .into_iter()
+        .chain(right.content)
+        .chain(right_bottom_filler);
+
     let body = left
-        .iter()
         .zip(right)
         .map(|(l, r)| format!("{l} │ {r}"))
         .collect::<Vec<_>>()
@@ -671,19 +720,21 @@ pub fn render_difference(
     format!("{title}\n{body}")
 }
 
-pub fn render_changed_snippet(
+fn render_changed_snippet(
     max_width: usize,
     source: &YamlSource,
     changed_yaml: MarkedYamlOwned,
     color: Color,
-) -> Vec<String> {
+) -> Rendered {
+    // lines to render above and below if available...
+    let context = 5;
     let start_line_of_document = source.yaml.span.start.line();
 
     let lines: Vec<_> = source.content.lines().map(|s| s.to_string()).collect();
 
     let changed_line = changed_yaml.span.start.line() - start_line_of_document;
-    let start = changed_line.saturating_sub(5) + 1;
-    let end = min(changed_line + 5, lines.len());
+    let start = changed_line.saturating_sub(context) + 1;
+    let end = min(changed_line + context, lines.len());
     let left_snippet = &lines[start..end];
 
     let (added, unchaged) = match color {
@@ -694,7 +745,19 @@ pub fn render_changed_snippet(
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
     };
 
-    left_snippet
+    let lines_above = changed_line - start;
+    let lines_below = end - changed_line;
+
+    let mut alignment = Alignment::Middle;
+    if changed_line == start - 1 {
+        alignment = Alignment::Top;
+    }
+
+    if changed_line == lines.len() {
+        alignment = Alignment::Top;
+    }
+
+    let content = left_snippet
         .iter()
         .zip(start..end)
         .map(|(line, line_nr)| {
@@ -714,7 +777,14 @@ pub fn render_changed_snippet(
             let line_nr = LineWidget(Some(line_nr - 1));
             format!("{line_nr}│ {line:<width$}", width = max_width + extras)
         })
-        .collect::<Vec<_>>()
+        .collect::<Vec<_>>();
+
+    Rendered {
+        content,
+        align: alignment,
+        lines_above,
+        lines_below,
+    }
 }
 
 pub struct LineWidget(pub Option<usize>);
@@ -1016,6 +1086,60 @@ mod test {
             │    │                                  │   5 │     age: 32                     
             │  4 │   - name: Sarah Foo              │   6 │   - name: Sarah Foo             
             │  5 │     age: 31                      │   7 │     age: 31                     "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn show_a_change_and_an_additon_at_the_same_time() {
+        init_logging();
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Steve E. Anderson
+              age: 12
+        "#});
+
+        // the entire `adress` section is new!
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Steven Anderson
+              location:
+                street: 1 Kentish Street
+                postcode: KS87JJ
+              age: 34
+        "#});
+
+        let ctx = Context::default();
+
+        let differences = diff(ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences
+            .iter()
+            .find(|diff| matches!(diff, Difference::Changed { .. }))
+            .cloned()
+            .unwrap();
+        let Difference::Changed { path, left, right } = first else {
+            panic!("a change...");
+        };
+        let content = render_difference(
+            path,
+            left,
+            &left_doc,
+            right,
+            &right_doc,
+            80,
+            super::Color::Disabled,
+        );
+
+        expect![[r#"
+            Changed: .person.age:
+                                                   │   1 │ person:                         
+                                                   │   2 │   name: Steven Anderson         
+                                                   │   3 │   location:                     
+              1 │ person:                          │   4 │     street: 1 Kentish Street    
+              2 │   name: Steve E. Anderson        │   5 │     postcode: KS87JJ            
+              3 │   age: 12                        │   6 │   age: 34                       "#]]
         .assert_eq(content.as_str());
     }
 }
