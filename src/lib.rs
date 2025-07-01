@@ -1,12 +1,13 @@
 use std::io::Read;
 
+// TODO: Replace anyhow with structured error types for better error handling and user experience
 use camino::Utf8PathBuf;
 use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
 use saphyr::{LoadableYamlNode, MarkedYamlOwned};
-use snippet::{Line, LineWidget, render_added, render_difference, render_removal};
+use snippet::{Line, LineWidget, RenderContext, render_added, render_difference, render_removal};
 
 pub mod config;
 pub mod diff;
@@ -35,6 +36,7 @@ impl YamlSource {
     }
 }
 
+// TODO: Optimize memory usage for large files - consider streaming approach instead of loading all into memory
 pub fn read_and_patch(
     paths: &[camino::Utf8PathBuf],
     patches: &[prepatch::PrePatch],
@@ -111,6 +113,7 @@ pub fn last_line_in_node(node: &MarkedYamlOwned) -> Option<Line> {
     }
 }
 
+// TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
 pub fn render_multidoc_diff(
     (left, right): (Vec<YamlSource>, Vec<YamlSource>),
     mut differences: Vec<DocDifference>,
@@ -191,45 +194,24 @@ pub fn render(
 ) {
     use owo_colors::OwoColorize;
     let max_width = termsize::get().unwrap().cols;
+    let ctx = RenderContext::new(max_width, snippet::Color::Enabled);
     for d in differences {
         match d {
             Difference::Added { path, value } => {
                 println!("Added: {p}:", p = path.jq_like().bold());
 
-                let added = render_added(
-                    path,
-                    value,
-                    left_doc,
-                    right_doc,
-                    max_width,
-                    snippet::Color::Enabled,
-                );
+                let added = render_added(&ctx, path, value, left_doc, right_doc);
 
                 println!("{added}");
             }
             Difference::Removed { path, value } => {
                 println!("Removed: {p}:", p = path.jq_like());
-                let output = render_removal(
-                    path,
-                    value,
-                    left_doc,
-                    right_doc,
-                    max_width,
-                    snippet::Color::Enabled,
-                );
+                let output = render_removal(&ctx, path, value, left_doc, right_doc);
 
                 println!("{output}");
             }
             Difference::Changed { path, left, right } => {
-                let combined = render_difference(
-                    path,
-                    left,
-                    left_doc,
-                    right,
-                    right_doc,
-                    max_width,
-                    snippet::Color::Enabled,
-                );
+                let combined = render_difference(&ctx, path, left, left_doc, right, right_doc);
                 println!("{combined}");
             }
             Difference::Moved {

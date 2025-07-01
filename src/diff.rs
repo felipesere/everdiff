@@ -69,7 +69,7 @@ impl Context {
     }
 }
 
-/// Under a given context `ctx`, extract the differneces between `left` and `right`
+/// Under a given context `ctx`, extract the differences between `left` and `right`
 pub fn diff(
     ctx: Context,
     left: &saphyr::MarkedYamlOwned,
@@ -129,6 +129,7 @@ pub fn diff(
                 }
                 diffs
             } else {
+                // TODO: Optimize this O(n²) approach for large arrays - consider using LCS or similar algorithms
                 let mut difference_matrix =
                     vec![vec![Vec::<Difference>::new(); right_elements.len()]; left_elements.len()];
 
@@ -193,7 +194,8 @@ struct MatchingOutcome {
     changed: Vec<(usize, usize, Vec<Difference>)>,
 }
 
-/// Take in a matrix of differneces and produce a set of indizes that minimize it
+/// Take in a matrix of differences and produce a set of indices that minimize it
+// TODO: Break down this complex function into smaller, more manageable pieces
 fn minimize_differences(matrix: &DiffMatrix) -> MatchingOutcome {
     let mut changed: Vec<(usize, usize, Vec<Difference>)> = Vec::new();
     let mut moved: Vec<(usize, usize)> = Vec::new();

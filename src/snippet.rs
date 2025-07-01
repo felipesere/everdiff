@@ -13,6 +13,18 @@ use saphyr::{Indexable, LoadableYamlNode, MarkedYamlOwned, YamlDataOwned};
 
 use crate::{YamlSource, path::Path};
 
+#[derive(Debug, Clone)]
+pub struct RenderContext {
+    pub max_width: u16,
+    pub color: Color,
+}
+
+impl RenderContext {
+    pub fn new(max_width: u16, color: Color) -> Self {
+        RenderContext { max_width, color }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Color {
     Enabled,
@@ -285,39 +297,35 @@ struct Rendered {
 // * line numbers that match up with the actual file
 //    - this matters in particular for multi-doc docs
 pub fn render_removal(
+    ctx: &RenderContext,
     path_to_change: Path,
     removal: MarkedYamlOwned,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
-    max_width: u16,
-    color: Color,
 ) -> String {
     render_change(
+        ctx,
         path_to_change,
         removal,
         left_doc,
         right_doc,
-        max_width,
-        color,
         ChangeType::Removal,
     )
 }
 
 pub fn render_added(
+    ctx: &RenderContext,
     path_to_change: Path,
     addition: MarkedYamlOwned,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
-    max_width: u16,
-    color: Color,
 ) -> String {
     render_change(
+        ctx,
         path_to_change,
         addition,
         left_doc,
         right_doc,
-        max_width,
-        color,
         ChangeType::Addition,
     )
 }
@@ -328,18 +336,17 @@ enum ChangeType {
 }
 
 fn render_change(
+    ctx: &RenderContext,
     path_to_change: Path,
     changed_yaml: MarkedYamlOwned,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
-    max_width: u16,
-    color: Color,
     change_type: ChangeType,
 ) -> String {
     log::debug!("Rendering change for {}", path_to_change.jq_like());
     log::debug!("The val is: {:#?}", changed_yaml);
     let ctx_size = 5;
-    let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
+    let max_left = ((ctx.max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
 
     // Select primary and secondary documents based on change type
     // The `primary_doc` has more content and the changed_yaml will be highlighted.
@@ -368,7 +375,7 @@ fn render_change(
         Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
 
     // Set up styles
-    let (highlighting, unchanged) = match color {
+    let (highlighting, unchanged) = match ctx.color {
         Color::Enabled => (
             match change_type {
                 ChangeType::Removal => owo_colors::Style::new().green(),
@@ -684,15 +691,14 @@ mod test_node_height {
 }
 
 pub fn render_difference(
+    ctx: &RenderContext,
     path_to_change: Path,
     left: MarkedYamlOwned,
     left_doc: &YamlSource,
     right: MarkedYamlOwned,
     right_doc: &YamlSource,
-    max_width: u16,
-    color: Color,
 ) -> String {
-    let highlight = if color == Color::Enabled {
+    let highlight = if ctx.color == Color::Enabled {
         Style::new().bold()
     } else {
         Style::new()
@@ -702,12 +708,16 @@ pub fn render_difference(
         p = highlight.style(path_to_change.jq_like())
     );
 
-    let max_left = ((max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
-    let left = render_changed_snippet(max_left, left_doc, left, color);
-    let right = render_changed_snippet(max_left, right_doc, right, color);
+    let max_left = (ctx.max_width - 16) / 2; // includes a bit of random padding, do this proper later
+    let smaller_context = RenderContext {
+        max_width: max_left,
+        color: ctx.color,
+    };
+    let left = render_changed_snippet(&smaller_context, left_doc, left);
+    let right = render_changed_snippet(&smaller_context, right_doc, right);
 
     // TODO: this `6` is horrid... I'll have to find a way around this...
-    let n = max_left + 6;
+    let n = usize::from(max_left + 6);
     let filler = || std::iter::repeat(format!("{:>n$}", ""));
 
     let above_filler = left.lines_above.abs_diff(right.lines_above);
@@ -757,10 +767,9 @@ pub fn render_difference(
 }
 
 fn render_changed_snippet(
-    max_width: usize,
+    ctx: &RenderContext,
     source: &YamlSource,
     changed_yaml: MarkedYamlOwned,
-    color: Color,
 ) -> Rendered {
     // lines to render above and below if available...
     let context = 5;
@@ -773,7 +782,7 @@ fn render_changed_snippet(
     let end = min(changed_line + context, lines.len());
     let left_snippet = &lines[start..end];
 
-    let (added, unchaged) = match color {
+    let (added, unchaged) = match ctx.color {
         Color::Enabled => (
             owo_colors::Style::new().yellow(),
             owo_colors::Style::new().dimmed(),
@@ -800,9 +809,10 @@ fn render_changed_snippet(
             // To accomodate, we pretend to make the padding wider again
             // because we know some of the width won't be visible.
             let extras = line.len() - ansi_width(&line);
+            let width = usize::from(ctx.max_width);
 
             let line_nr = LineWidget(Some(line_nr - 1));
-            format!("{line_nr}│ {line:<width$}", width = max_width + extras)
+            format!("{line_nr}│ {line:<width$}", width = width + extras)
         })
         .collect::<Vec<_>>();
 
@@ -894,7 +904,7 @@ mod test {
         read_doc,
     };
 
-    use super::{render_added, render_difference, render_removal};
+    use super::{RenderContext, render_added, render_difference, render_removal};
 
     static LOGGING: Once = Once::new();
 
@@ -906,6 +916,13 @@ mod test {
                     .init();
             }
         });
+    }
+
+    fn ctx() -> RenderContext {
+        RenderContext {
+            max_width: 80,
+            color: super::Color::Disabled,
+        }
     }
 
     fn yaml_source(yaml: &'static str) -> YamlSource {
@@ -933,15 +950,7 @@ mod test {
         let Difference::Changed { path, left, right } = first else {
             panic!("Should have gotten a Change");
         };
-        let content = render_difference(
-            path,
-            left,
-            &left_doc,
-            right,
-            &right_doc,
-            80,
-            super::Color::Disabled,
-        );
+        let content = render_difference(&ctx(), path, left, &left_doc, right, &right_doc);
 
         expect![[r#"
             Changed: .person.name:
@@ -979,14 +988,7 @@ mod test {
         let Difference::Removed { path, value } = first else {
             panic!("Should have gotten a Removal");
         };
-        let content = render_removal(
-            path,
-            value,
-            &left_doc,
-            &right_doc,
-            80,
-            super::Color::Disabled,
-        );
+        let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
             │  1 │ person:                          │   1 │ person:                         
@@ -1030,14 +1032,7 @@ mod test {
         let Difference::Added { path, value } = first else {
             panic!("Should have gotten a Removal");
         };
-        let content = render_added(
-            path,
-            value,
-            &left_doc,
-            &right_doc,
-            80,
-            super::Color::Disabled,
-        );
+        let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
             │  1 │ person:                          │   1 │ person:                         
@@ -1075,23 +1070,16 @@ mod test {
                 age: 31
         "#});
 
-        let mut ctx = Context::default();
-        ctx.array_ordering = ArrayOrdering::Dynamic;
+        let mut diff_ctx = Context::default();
+        diff_ctx.array_ordering = ArrayOrdering::Dynamic;
 
-        let mut differences = diff(ctx, &left_doc.yaml, &right_doc.yaml);
+        let mut differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
 
         let first = differences.remove(0);
         let Difference::Added { path, value } = first else {
             panic!("Should have gotten an Addition");
         };
-        let content = render_added(
-            path,
-            value,
-            &left_doc,
-            &right_doc,
-            80,
-            super::Color::Disabled,
-        );
+        let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
             │  1 │ people:                          │   1 │ people:                         
@@ -1125,9 +1113,9 @@ mod test {
               age: 34
         "#});
 
-        let ctx = Context::default();
+        let diff_ctx = Context::default();
 
-        let differences = diff(ctx, &left_doc.yaml, &right_doc.yaml);
+        let differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
 
         let first = differences
             .iter()
@@ -1137,15 +1125,7 @@ mod test {
         let Difference::Changed { path, left, right } = first else {
             panic!("a change...");
         };
-        let content = render_difference(
-            path,
-            left,
-            &left_doc,
-            right,
-            &right_doc,
-            80,
-            super::Color::Disabled,
-        );
+        let content = render_difference(&ctx(), path, left, &left_doc, right, &right_doc);
 
         expect![[r#"
             Changed: .person.age:

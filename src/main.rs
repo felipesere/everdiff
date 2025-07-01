@@ -12,7 +12,7 @@ enum Comparison {
     Kubernetes,
 }
 
-/// Differnece between YAML documents
+/// Difference between YAML documents
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -92,7 +92,6 @@ fn main() -> anyhow::Result<()> {
 
     let ctx = multidoc::Context::new_with_doc_identifier(id);
 
-    log::error!("this went wrong!");
 
     let diffs = multidoc::diff(&ctx, &left, &right);
 
