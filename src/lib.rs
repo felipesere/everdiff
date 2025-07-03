@@ -24,6 +24,13 @@ pub struct YamlSource {
     pub yaml: saphyr::MarkedYamlOwned,
     pub content: String,
     pub index: usize,
+    // these numbers are based on the file itself.
+    // they do come from the parser, but carry on counting
+    // up across multiple docs within the same file
+    pub start: usize,
+    pub end: usize,
+    // these are relative numbers.
+    // Unless something is funky, first line should always be Line(1)
     pub first_line: Line,
     pub last_line: Line,
 }
@@ -39,7 +46,7 @@ impl YamlSource {
     /// Turn the absolute, file-wide line number into one that
     /// is relative to the beginning of the document
     fn relative_line(&self, line: usize) -> Line {
-        let raw = max(1, line.saturating_sub(self.first_line.get()));
+        let raw = max(1, line.saturating_sub(self.start));
 
         Line::new(raw).unwrap()
     }
@@ -81,14 +88,19 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
 
     for (index, (document, content)) in parsed_docs.into_iter().zip(raw_docs).enumerate() {
         let first = first_node(&document).unwrap();
+        let start = first.span.start.line();
+        let end = document.span.end.line();
 
-        let first_line = Line::new(first.span.start.line()).unwrap();
-        let last_line = Line::new(document.span.end.line()).unwrap();
-        // last_line_in_node(&document).unwrap() - 1;
+        let first_line = Line::one();
+        // the span ends when the indenation no longer matches, which is the line _after_ the the
+        // last properly indented line
+        let last_line = Line::new(document.span.end.line() - 1 - (start - 1)).unwrap();
 
         docs.push(YamlSource {
             file: path.clone(),
             yaml: document,
+            start,
+            end,
             first_line,
             last_line,
             content,
@@ -104,21 +116,6 @@ pub fn first_node(doc: &MarkedYamlOwned) -> Option<&MarkedYamlOwned> {
         saphyr::YamlDataOwned::Sequence(vec) => vec.first(),
         saphyr::YamlDataOwned::Mapping(hash) => hash.front().map(|(k, _)| k),
         _ => Some(doc),
-    }
-}
-
-// These need a better home
-pub fn last_line_in_node(node: &MarkedYamlOwned) -> Option<Line> {
-    match &node.data {
-        saphyr::YamlDataOwned::Sequence(vec) => {
-            if !vec.is_empty() {
-                vec.last().and_then(last_line_in_node)
-            } else {
-                Line::new(node.span.end.line())
-            }
-        }
-        saphyr::YamlDataOwned::Mapping(hash) => hash.back().and_then(|(_, v)| last_line_in_node(v)),
-        _ => Line::new(node.span.end.line()),
     }
 }
 
@@ -299,15 +296,16 @@ mod test {
 
         // Let's check that we are on the same page...
         // ...the first line of the first document comes after the `---`
-        assert_eq!(first.first_line, Line::unchecked(2));
+        assert_eq!(first.start, 2);
+        assert_eq!(first.first_line, Line::unchecked(1));
         // ...same for the first line of the second document.
         // we just keep counting
-        assert_eq!(second.first_line, Line::unchecked(6),);
+        assert_eq!(second.first_line, Line::unchecked(1));
 
         // the last line is the first line where indentation "resets"
         // this makes the range [first_line, last_line)
-        assert_eq!(first.last_line, Line::unchecked(5));
-        assert_eq!(second.last_line, Line::unchecked(10));
+        assert_eq!(first.last_line, Line::unchecked(3));
+        assert_eq!(second.last_line, Line::unchecked(4));
 
         // .person starts on line 2 according to the debug output
         assert_eq!(first.relative_line(2), Line::unchecked(1));

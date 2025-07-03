@@ -55,6 +55,10 @@ impl Line {
     pub fn unchecked(n: usize) -> Self {
         Self(NonZeroUsize::try_from(n).unwrap())
     }
+
+    pub fn one() -> Self {
+        Self::new(1).unwrap()
+    }
 }
 
 impl fmt::Display for Line {
@@ -91,29 +95,11 @@ impl Sub<usize> for Line {
     fn sub(self, rhs: usize) -> Self::Output {
         let val = self.0.get();
         if val <= rhs {
-            Line::new(1).unwrap()
+            Line::one()
         } else {
             let val = val - rhs;
             Line::new(val).unwrap()
         }
-    }
-}
-
-impl Sub for Line {
-    type Output = Line;
-
-    fn sub(self, rhs: Line) -> Self::Output {
-        let val = self.get().saturating_sub(rhs.get());
-        Line::new(val).unwrap()
-    }
-}
-
-impl Sub<Line> for usize {
-    type Output = Line;
-
-    fn sub(self, rhs: Line) -> Self::Output {
-        let val = self - rhs.0.get();
-        Line::new(max(val, 1)).expect("Value can't drop below 1")
     }
 }
 
@@ -221,8 +207,7 @@ mod snippet_tests {
             "e", // 5
         ];
 
-        let snippet =
-            Snippet::try_new(content, Line::new(2).unwrap(), Line::new(4).unwrap()).unwrap();
+        let snippet = Snippet::try_new(content, Line::unchecked(2), Line::unchecked(4)).unwrap();
 
         let actual_lines: Vec<_> = snippet
             .iter()
@@ -231,9 +216,9 @@ mod snippet_tests {
 
         assert_eq!(
             vec![
-                (Line::new(2).unwrap(), "b".to_string()),
-                (Line::new(3).unwrap(), "c".to_string()),
-                (Line::new(4).unwrap(), "d".to_string())
+                (Line::unchecked(2), "b".to_string()),
+                (Line::unchecked(3), "c".to_string()),
+                (Line::unchecked(4), "d".to_string())
             ],
             actual_lines
         );
@@ -252,10 +237,9 @@ mod snippet_tests {
             "h", // 8
         ];
 
-        let snippet =
-            Snippet::try_new(content, Line::new(2).unwrap(), Line::new(8).unwrap()).unwrap();
+        let snippet = Snippet::try_new(content, Line::unchecked(2), Line::unchecked(8)).unwrap();
 
-        let (first, second) = snippet.split(Line::new(6).unwrap());
+        let (first, second) = snippet.split(Line::unchecked(6));
 
         let first_lines: Vec<_> = first
             .iter()
@@ -269,19 +253,19 @@ mod snippet_tests {
 
         assert_eq!(
             vec![
-                (Line::new(2).unwrap(), "b".to_string()),
-                (Line::new(3).unwrap(), "c".to_string()),
-                (Line::new(4).unwrap(), "d".to_string()),
-                (Line::new(5).unwrap(), "e".to_string()),
-                (Line::new(6).unwrap(), "f".to_string())
+                (Line::unchecked(2), "b".to_string()),
+                (Line::unchecked(3), "c".to_string()),
+                (Line::unchecked(4), "d".to_string()),
+                (Line::unchecked(5), "e".to_string()),
+                (Line::unchecked(6), "f".to_string())
             ],
             first_lines
         );
 
         assert_eq!(
             vec![
-                (Line::new(7).unwrap(), "g".to_string()),
-                (Line::new(8).unwrap(), "h".to_string()),
+                (Line::unchecked(7), "g".to_string()),
+                (Line::unchecked(8), "h".to_string()),
             ],
             second_lines
         );
@@ -369,10 +353,7 @@ fn render_change(
 
     // Show a few more lines before and after the lines that have changed
     let start = change_start - ctx_size;
-    let end = min(
-        change_end + ctx_size,
-        primary_doc.last_line - primary_doc.first_line,
-    );
+    let end = min(change_end + ctx_size, primary_doc.last_line);
     let primary_snippet =
         Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
 
@@ -451,14 +432,10 @@ fn render_change(
                 _ => 0,
             };
             log::debug!("weird adjustment factor: {n}");
-            log::debug!(
-                "the first line of the doc to adjust by is: {}",
-                primary_doc.first_line
-            );
-            // for some reason I need to substract more here!
-            before.span.end.line() - primary_doc.first_line + n
+            // is the plus n here 'the line after'?
+            primary_doc.relative_line(before.span.end.line() + n) // maybe plus `n`?
         })
-        .unwrap_or(Line::new(1).unwrap());
+        .unwrap_or(Line::one());
 
     log::debug!("The gap starts at: {gap_start}");
 
@@ -469,7 +446,7 @@ fn render_change(
             "Using start of after_node to find end of gap: {}",
             after_node.span.start.line()
         );
-        after_node.span.start.line()
+        primary_doc.relative_line(after_node.span.start.line())
     } else {
         // doing "+1" because keys and values are not on the same line:
         // foo: <--- the key
@@ -477,31 +454,29 @@ fn render_change(
         //   thing: true
         //
         // the node height is 2, but the total thing should be 3
-        let last_line = gap_start.get() + size_of_gap;
+        // maybe this is no longer relevant?
+
+        let n = gap_start + size_of_gap;
         log::debug!(
-            "No after_node present, using height {size_of_gap} of the changed_yaml for final line: {last_line}"
+            "No after_node present, using height {size_of_gap} of the changed_yaml for final line: {n}"
         );
-        last_line
+        n
     };
 
     let snippet_start = gap_start - ctx_size;
-    let snippet_end = min(gap_end + ctx_size, secondary_lines.len());
+    let snippet_end = min(gap_end + ctx_size, secondary_doc.last_line);
 
     // Create snippet for secondary document
-    let snippet = Snippet::try_new(
-        &secondary_lines,
-        snippet_start,
-        Line::new(snippet_end).unwrap(),
-    )
-    .with_context(|| {
-        format!(
-            "Failed to create a snippet for change {} in {}:{}",
-            path_to_change.jq_like(),
-            secondary_doc.file,
-            secondary_doc.index,
-        )
-    })
-    .unwrap();
+    let snippet = Snippet::try_new(&secondary_lines, snippet_start, snippet_end)
+        .with_context(|| {
+            format!(
+                "Failed to create a snippet for change {} in {}:{}",
+                path_to_change.jq_like(),
+                secondary_doc.file,
+                secondary_doc.index,
+            )
+        })
+        .unwrap();
 
     log::debug!("The snippet is at: {:#?}", &snippet);
     log::debug!("The gap starts at: {}", &gap_start);

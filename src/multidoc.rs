@@ -244,30 +244,20 @@ mod tests {
 
     use expect_test::expect;
     use pretty_assertions::assert_eq;
-    use saphyr::{LoadableYamlNode, MarkedYamlOwned};
 
     use crate::{
         YamlSource,
         multidoc::{Context, DocKey, diff},
-        snippet::Line,
+        read_doc,
     };
     use indoc::indoc;
 
     pub fn docs(raw: &str) -> Vec<YamlSource> {
-        let docs = MarkedYamlOwned::load_from_str(raw).expect("valid yaml");
-
-        docs.into_iter()
-            .enumerate()
-            .map(|(index, yaml)| YamlSource {
-                file: camino::Utf8PathBuf::from_str("/foo/bar/baz.yaml").unwrap(),
-                yaml,
-                content: raw.to_string(),
-                index,
-                // TODO: What goes here?
-                first_line: Line::new(1).unwrap(),
-                last_line: Line::new(10).unwrap(),
-            })
-            .collect()
+        read_doc(
+            raw,
+            camino::Utf8PathBuf::from_str("/foo/bar/baz.yaml").unwrap(),
+        )
+        .unwrap()
     }
 
     #[test]
