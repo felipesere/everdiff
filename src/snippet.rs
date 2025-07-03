@@ -43,12 +43,17 @@ impl fmt::Debug for Line {
 }
 
 impl Line {
-    fn get(self) -> usize {
+    pub(crate) fn get(&self) -> usize {
         self.0.get()
     }
 
     pub fn new(raw: usize) -> Option<Self> {
         Some(Line(NonZeroUsize::try_from(raw).ok()?))
+    }
+
+    #[cfg(test)]
+    pub fn unchecked(n: usize) -> Self {
+        Self(NonZeroUsize::try_from(n).unwrap())
     }
 }
 
@@ -359,11 +364,8 @@ fn render_change(
     // Extract lines from primary document
     let primary_lines = primary_doc.lines();
 
-    let change_start = max(
-        Line::new(changed_yaml.span.start.line()).unwrap(),
-        primary_doc.first_line,
-    );
-    let change_end = changed_yaml.span.end.line() - primary_doc.first_line;
+    let change_start = primary_doc.relative_line(changed_yaml.span.start.line());
+    let change_end = primary_doc.relative_line(changed_yaml.span.end.line());
 
     // Show a few more lines before and after the lines that have changed
     let start = change_start - ctx_size;
