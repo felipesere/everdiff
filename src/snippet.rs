@@ -879,7 +879,7 @@ mod test {
     use crate::{
         YamlSource,
         diff::{ArrayOrdering, Context, Difference, diff},
-        read_doc,
+        read_doc, render,
     };
 
     use super::{RenderContext, render_added, render_difference, render_removal};
@@ -1091,28 +1091,41 @@ mod test {
               age: 34
         "#});
 
-        let diff_ctx = Context::default();
+        let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
-
-        let first = differences
-            .iter()
-            .find(|diff| matches!(diff, Difference::Changed { .. }))
-            .cloned()
-            .unwrap();
-        let Difference::Changed { path, left, right } = first else {
-            panic!("a change...");
-        };
-        let content = render_difference(&ctx(), path, left, &left_doc, right, &right_doc);
+        let content = render(
+            RenderContext::new(80, super::Color::Disabled),
+            &left_doc,
+            &right_doc,
+            differences,
+            true,
+        );
 
         expect![[r#"
+            Changed: .person.name:
+              1 │ person:                          │   1 │ person:                         
+              2 │   name: Steve E. Anderson        │   2 │   name: Steven Anderson         
+              3 │   age: 12                        │   3 │   location:                     
+                                                   │   4 │     street: 1 Kentish Street    
+                                                   │   5 │     postcode: KS87JJ            
+
             Changed: .person.age:
                                                    │   1 │ person:                         
                                                    │   2 │   name: Steven Anderson         
                                                    │   3 │   location:                     
               1 │ person:                          │   4 │     street: 1 Kentish Street    
               2 │   name: Steve E. Anderson        │   5 │     postcode: KS87JJ            
-              3 │   age: 12                        │   6 │   age: 34                       "#]]
+              3 │   age: 12                        │   6 │   age: 34                       
+
+            Added: .person.location:
+            │  1 │ person:                          │   1 │ person:                         
+            │  2 │   name: Steve E. Anderson        │   2 │   name: Steven Anderson         
+            │    │                                  │   3 │   location:                     
+            │    │                                  │   4 │     street: 1 Kentish Street    
+            │    │                                  │   5 │     postcode: KS87JJ            
+            │  3 │   age: 12                        │   6 │   age: 34                       
+
+        "#]]
         .assert_eq(content.as_str());
     }
 }

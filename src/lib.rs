@@ -1,4 +1,4 @@
-use std::{cmp::max, io::Read};
+use std::{cmp::max, fmt::Write, io::Read};
 
 // TODO: Replace anyhow with structured error types for better error handling and user experience
 use camino::Utf8PathBuf;
@@ -7,7 +7,9 @@ use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
 use saphyr::{LoadableYamlNode, MarkedYamlOwned};
-use snippet::{Line, LineWidget, RenderContext, render_added, render_difference, render_removal};
+use snippet::{
+    Color, Line, LineWidget, RenderContext, render_added, render_difference, render_removal,
+};
 
 pub mod config;
 pub mod diff;
@@ -176,7 +178,19 @@ pub fn render_multidoc_diff(
                 println!("{key}");
                 let actual_left_doc = &left[left_doc_idx];
                 let actual_right_doc = &right[right_doc_idx];
-                render(actual_left_doc, actual_right_doc, differences, side_by_side);
+
+                let max_width = termsize::get().unwrap().cols;
+                let ctx = RenderContext::new(max_width, snippet::Color::Enabled);
+                print!(
+                    "{}",
+                    render(
+                        ctx,
+                        actual_left_doc,
+                        actual_right_doc,
+                        differences,
+                        side_by_side
+                    )
+                );
             }
         }
     }
@@ -193,46 +207,52 @@ pub fn render_multidoc_diff(
 //}
 
 pub fn render(
+    ctx: RenderContext,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     differences: Vec<Difference>,
     _side_by_side: bool,
-) {
+) -> String {
     use owo_colors::OwoColorize;
-    let max_width = termsize::get().unwrap().cols;
-    let ctx = RenderContext::new(max_width, snippet::Color::Enabled);
+    let mut buf = String::new();
     for d in differences {
         match d {
             Difference::Added { path, value } => {
-                println!("Added: {p}:", p = path.jq_like().bold());
+                let p = if ctx.color == Color::Enabled {
+                    path.jq_like().bold().to_string()
+                } else {
+                    path.jq_like()
+                };
+                writeln!(&mut buf, "Added: {p}:").unwrap();
 
                 let added = render_added(&ctx, path, value, left_doc, right_doc);
-
-                println!("{added}");
+                writeln!(&mut buf, "{added}").unwrap();
             }
             Difference::Removed { path, value } => {
-                println!("Removed: {p}:", p = path.jq_like());
+                writeln!(&mut buf, "Removed: {p}:", p = path.jq_like()).unwrap();
                 let output = render_removal(&ctx, path, value, left_doc, right_doc);
-
-                println!("{output}");
+                writeln!(&mut buf, "{output}").unwrap();
             }
             Difference::Changed { path, left, right } => {
                 let combined = render_difference(&ctx, path, left, left_doc, right, right_doc);
-                println!("{combined}");
+                writeln!(&mut buf, "{combined}").unwrap();
             }
             Difference::Moved {
                 original_path,
                 new_path,
             } => {
-                println!(
+                writeln!(
+                    &mut buf,
                     "Moved: from {p} to {q}:",
                     p = original_path.jq_like().yellow(),
                     q = new_path.jq_like().yellow()
-                );
+                )
+                .unwrap();
             }
         }
-        println!()
+        writeln!(&mut buf).unwrap()
     }
+    buf
 }
 
 #[allow(dead_code)]

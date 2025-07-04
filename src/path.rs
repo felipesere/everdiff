@@ -92,6 +92,24 @@ impl Path {
         Path(path)
     }
 
+    #[cfg(test)]
+    pub fn parse_str(val: &'static str) -> Self {
+        let segments = val
+            .split(".")
+            .skip(1) // paths start with a `.` at their root
+            .map(|raw_segment| {
+                if raw_segment.contains("[") {
+                    let num = raw_segment.trim_start_matches("[").trim_end_matches("]");
+                    Segment::Index(num.parse().expect("the segment to have a valid number"))
+                } else {
+                    Segment::Field(raw_segment.to_string())
+                }
+            })
+            .collect();
+
+        Self(segments)
+    }
+
     pub fn segments(&self) -> &[Segment] {
         &self.0
     }
