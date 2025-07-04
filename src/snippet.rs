@@ -83,8 +83,9 @@ impl Add<i32> for Line {
             let rhs = usize::try_from(rhs).expect("a small enough addition to line");
             Line::new(self.get().saturating_add(rhs)).unwrap()
         } else {
-            let rhs = usize::try_from(rhs.abs()).expect("a small enough addition to line");
-            Line::new(self.get().saturating_sub(rhs)).unwrap()
+            // let rhs = usize::try_from(rhs.abs()).expect("a small enough addition to line");
+            // Line::new(self.get().saturating_sub(rhs)).unwrap();
+            unimplemented!("Are we really adding a negative number?");
         }
     }
 }

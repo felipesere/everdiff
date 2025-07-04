@@ -94,7 +94,7 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
         let first_line = Line::one();
         // the span ends when the indenation no longer matches, which is the line _after_ the the
         // last properly indented line
-        let last_line = Line::new(document.span.end.line() - 1 - (start - 1)).unwrap();
+        let last_line = Line::new(document.span.end.line() - start).unwrap();
 
         docs.push(YamlSource {
             file: path.clone(),
