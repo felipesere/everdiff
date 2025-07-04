@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-
+use linked_hash_set::LinkedHashSet;
 use saphyr::YamlDataOwned;
 
 use crate::path::{Path, Segment};
@@ -77,10 +76,10 @@ pub fn diff(
 ) -> Vec<Difference> {
     match (&left.data, &right.data) {
         (YamlDataOwned::Mapping(left), YamlDataOwned::Mapping(right)) => {
-            let left_keys: HashSet<_> = left.keys().collect();
-            let right_keys: HashSet<_> = right.keys().collect();
+            let left_keys: LinkedHashSet<_> = left.keys().collect();
+            let right_keys: LinkedHashSet<_> = right.keys().collect();
 
-            let all_keys: HashSet<_> = left_keys.union(&right_keys).collect();
+            let all_keys: LinkedHashSet<_> = left_keys.union(&right_keys).collect();
             let mut diffs = Vec::new();
             for key in all_keys {
                 let inner_key = (*key).clone().data;
