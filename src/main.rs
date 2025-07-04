@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use clap_verbosity_flag::Verbosity;
 use everdiff::{
     config::config_from_env, identifier, multidoc, path::IgnorePath, read_and_patch,
     render_multidoc_diff,
@@ -37,8 +38,8 @@ struct Args {
     watch: bool,
 
     /// Enable verbose logging
-    #[arg(short = 'v', long, default_value = "false")]
-    verbose: bool,
+    #[command(flatten)]
+    verbosity: Verbosity,
 
     #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
     left: Vec<camino::Utf8PathBuf>,
@@ -49,27 +50,10 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // Initialize logging with colors
-    if args.verbose {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error"))
-            .format(|buf, record| {
-                use owo_colors::OwoColorize;
-                use std::io::Write;
-
-                let level_color = match record.level() {
-                    log::Level::Error => record.level().to_string().red().to_string(),
-                    log::Level::Warn => record.level().to_string().yellow().to_string(),
-                    log::Level::Info => record.level().to_string().green().to_string(),
-                    log::Level::Debug => record.level().to_string().blue().to_string(),
-                    log::Level::Trace => record.level().to_string().purple().to_string(),
-                };
-
-                writeln!(buf, "[{}] {}", level_color, record.args())
-            })
-            .init();
-    } else {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("off")).init();
-    }
+    env_logger::Builder::new()
+        .filter_level(args.verbosity.into())
+        .format_timestamp(None)
+        .init();
 
     log::debug!("Starting everdiff with args: {:?}", args);
 
@@ -91,7 +75,6 @@ fn main() -> anyhow::Result<()> {
     };
 
     let ctx = multidoc::Context::new_with_doc_identifier(id);
-
 
     let diffs = multidoc::diff(&ctx, &left, &right);
 

@@ -4,12 +4,13 @@ use std::{
     iter::empty,
     num::NonZeroUsize,
     ops::{Add, Sub},
+    usize,
 };
 
 use ansi_width::ansi_width;
 use anyhow::Context;
 use owo_colors::{OwoColorize, Style};
-use saphyr::{Indexable, LoadableYamlNode, MarkedYamlOwned, YamlDataOwned};
+use saphyr::{Indexable, MarkedYamlOwned, YamlDataOwned};
 
 use crate::{YamlSource, path::Path};
 
@@ -124,11 +125,31 @@ impl From<Line> for LineWidget {
     }
 }
 
-#[derive(Debug)]
 struct Snippet<'source> {
     lines: &'source [&'source str],
     from: Line,
     to: Line,
+}
+
+// Nicer way to print the snippet to include line-nrs
+impl<'source> fmt::Debug for Snippet<'source> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let digits: usize = usize::try_from(self.lines.len().checked_ilog10().unwrap_or(0) + 1)
+            .unwrap_or(usize::MAX);
+        f.debug_struct("Snippet")
+            .field(
+                "lines",
+                &self
+                    .lines
+                    .iter()
+                    .enumerate()
+                    .map(|(nr, line)| format!("[{:>digits$}] {}", nr + 1, line))
+                    .collect::<Vec<_>>(),
+            )
+            .field("from", &self.from)
+            .field("to", &self.to)
+            .finish()
+    }
 }
 
 impl Snippet<'_> {
@@ -334,7 +355,7 @@ fn render_change(
     change_type: ChangeType,
 ) -> String {
     log::debug!("Rendering change for {}", path_to_change.jq_like());
-    log::debug!("The val is: {:#?}", changed_yaml);
+    log::debug!("The changed yaml node looks like: {:#?}", changed_yaml);
     let ctx_size = 5;
     let max_left = ((ctx.max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
 
@@ -362,8 +383,8 @@ fn render_change(
     let (highlighting, unchanged) = match ctx.color {
         Color::Enabled => (
             match change_type {
-                ChangeType::Removal => owo_colors::Style::new().green(),
-                ChangeType::Addition => owo_colors::Style::new().red(),
+                ChangeType::Removal => owo_colors::Style::new().red(),
+                ChangeType::Addition => owo_colors::Style::new().green(),
             },
             owo_colors::Style::new().dimmed(),
         ),
@@ -372,6 +393,7 @@ fn render_change(
 
     // Format the primary side
     let changed_range = change_start..=change_end;
+    log::info!("We will highlight {change_start}..={change_end}");
     let primary = primary_snippet.iter().map(|(line_nr, line)| {
         let line = if changed_range.contains(&line_nr) {
             line.style(highlighting).to_string()
@@ -390,17 +412,15 @@ fn render_change(
     let secondary_lines = secondary_doc.lines();
 
     // Find corresponding nodes in secondary document
-    // TODO: I think this is more complex than it initially seems.
-    //       The goal is to get the spans of the nodes that need to surround the gap.
-    //       Therefor I need know what nodes should be there, and then translate
-    //       that into the other document. I tend to do that via the `path`
+    // I think this is more complex than it initially seems.
+    // The goal is to get the spans of the nodes that need to surround the gap.
+    // Therefor I need know what nodes should be there, and then translate
+    // that into the other document. I tend to do that via the `path`
     //
-    //       I think that is done?
-    //
-    //       BUT(!) paths don't necessarily carry over to the other docment.
-    //       e.g. if the path to the change is `.people.3`
-    //       the surround nodes could be (.people.2, .people.4)
-    //       but who knows if the array has sufficient elements?!
+    // BUT(!) paths don't necessarily carry over to the other docment.
+    // e.g. if the path to the change is `.people.3`
+    // the surround nodes could be (.people.2, .people.4)
+    // but who knows if the array has sufficient elements?!
     let parent = path_to_change.parent().unwrap();
     let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
 
@@ -415,12 +435,7 @@ fn render_change(
         &after_path.as_ref().map(|p| p.jq_like())
     );
 
-    let height_of_changed_node = node_height(&changed_yaml);
-    let size_of_gap = if primary_parent_node.is_mapping() {
-        height_of_changed_node + 1 // we adjust by one because the key is often on its own line
-    } else {
-        height_of_changed_node
-    };
+    let size_of_gap = node_height(&changed_yaml);
     log::info!("We estimate the size of the gap to be: {size_of_gap}");
 
     let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
@@ -429,12 +444,11 @@ fn render_change(
     let gap_start = candidate_node_before_change
         .map(|before| {
             let n = match primary_parent_node.data {
-                YamlDataOwned::Mapping(_) => 1,
+                YamlDataOwned::Sequence(_) => 1,
                 _ => 0,
             };
             log::debug!("weird adjustment factor: {n}");
-            // is the plus n here 'the line after'?
-            primary_doc.relative_line(before.span.end.line() + n) // maybe plus `n`?
+            primary_doc.relative_line(before.span.end.line() - n)
         })
         .unwrap_or(Line::one());
 
@@ -456,13 +470,11 @@ fn render_change(
         //
         // the node height is 2, but the total thing should be 3
         // maybe this is no longer relevant?
+        log::debug!("No after_node present, using height {size_of_gap} of the changed_yaml");
 
-        let n = gap_start + size_of_gap;
-        log::debug!(
-            "No after_node present, using height {size_of_gap} of the changed_yaml for final line: {n}"
-        );
-        n
+        gap_start + size_of_gap
     };
+    log::debug!("The gap ends on {gap_end}");
 
     let snippet_start = gap_start - ctx_size;
     let snippet_end = min(gap_end + ctx_size, secondary_doc.last_line);
@@ -1127,5 +1139,95 @@ mod test {
 
         "#]]
         .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn real_life_example() {
+        init_logging();
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: flux-engine-steam
+              namespace: classification
+              labels:
+                helm.sh/chart: flux-engine-steam-2.28.12
+                app.kubernetes.io/name: flux-engine-steam
+                app: flux-engine-steam
+                app.kubernetes.io/version: 0.0.27-pre1
+                app.kubernetes.io/managed-by: batman
+              annotations:
+                github.com/repository_url: git@github.com:flux-engine-steam
+            spec:
+              ports:
+                - targetPort: 8501
+                  port: 3000
+                  name: https
+              selector:
+                app: flux-engine-steam
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: flux-engine-steam
+              namespace: classification
+              labels:
+                helm.sh/chart: flux-engine-steam-2.28.12
+                app.kubernetes.io/name: flux-engine-steam
+                app: flux-engine-steam
+                app.kubernetes.io/version: 0.0.27-pre1
+                app.kubernetes.io/managed-by: batman
+              annotations:
+                github.com/repository_url: git@github.com:flux-engine-steam
+                this_is: new
+            spec:
+              ports:
+                - targetPort: 8502
+                  port: 3000
+                  name: https
+              selector:
+                app: flux-engine-steam
+            "#});
+
+        let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+
+        let content = render(
+            RenderContext::new(150, super::Color::Disabled),
+            &left_doc,
+            &right_doc,
+            differences,
+            true,
+        );
+
+        expect![[r#"
+            Added: .metadata.annotations.this_is:
+            │  9 │     app: flux-engine-steam                                          │   9 │     app: flux-engine-steam                                         
+            │ 10 │     app.kubernetes.io/version: 0.0.27-pre1                          │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         
+            │ 11 │     app.kubernetes.io/managed-by: batman                            │  11 │     app.kubernetes.io/managed-by: batman                           
+            │ 12 │   annotations:                                                      │  12 │   annotations:                                                     
+            │ 13 │     github.com/repository_url: git@github.com:flux-engine-steam     │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
+            │    │                                                                     │  14 │     this_is: new                                                   
+            │ 14 │ spec:                                                               │  15 │ spec:                                                              
+            │ 15 │   ports:                                                            │  16 │   ports:                                                           
+            │ 16 │     - targetPort: 8501                                              │  17 │     - targetPort: 8502                                             
+            │ 17 │       port: 3000                                                    │  18 │       port: 3000                                                   
+            │ 18 │       name: https                                                   │  19 │       name: https                                                  
+
+            Changed: .spec.ports[0].targetPort:
+             11 │     app.kubernetes.io/managed-by: batman                            │  12 │   annotations:                                                     
+             12 │   annotations:                                                      │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
+             13 │     github.com/repository_url: git@github.com:flux-engine-steam     │  14 │     this_is: new                                                   
+             14 │ spec:                                                               │  15 │ spec:                                                              
+             15 │   ports:                                                            │  16 │   ports:                                                           
+             16 │     - targetPort: 8501                                              │  17 │     - targetPort: 8502                                             
+             17 │       port: 3000                                                    │  18 │       port: 3000                                                   
+             18 │       name: https                                                   │  19 │       name: https                                                  
+             19 │   selector:                                                         │  20 │   selector:                                                        
+
+        "#]].assert_eq(content.as_str());
     }
 }

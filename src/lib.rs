@@ -6,7 +6,7 @@ use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
-use saphyr::{LoadableYamlNode, MarkedYamlOwned};
+use saphyr::LoadableYamlNode;
 use snippet::{
     Color, Line, LineWidget, RenderContext, render_added, render_difference, render_removal,
 };
@@ -48,7 +48,7 @@ impl YamlSource {
     /// Turn the absolute, file-wide line number into one that
     /// is relative to the beginning of the document
     fn relative_line(&self, line: usize) -> Line {
-        let raw = max(1, line.saturating_sub(self.start));
+        let raw = max(1, line.saturating_sub(self.start - 1));
 
         Line::new(raw).unwrap()
     }
@@ -89,8 +89,7 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
     let parsed_docs = saphyr::MarkedYamlOwned::load_from_str(&content)?;
 
     for (index, (document, content)) in parsed_docs.into_iter().zip(raw_docs).enumerate() {
-        let first = first_node(&document).unwrap();
-        let start = first.span.start.line();
+        let start = document.span.start.line();
         let end = document.span.end.line();
 
         let first_line = Line::one();
@@ -110,15 +109,6 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
         });
     }
     Ok(docs)
-}
-
-// These need a better home
-pub fn first_node(doc: &MarkedYamlOwned) -> Option<&MarkedYamlOwned> {
-    match &doc.data {
-        saphyr::YamlDataOwned::Sequence(vec) => vec.first(),
-        saphyr::YamlDataOwned::Mapping(hash) => hash.front().map(|(k, _)| k),
-        _ => Some(doc),
-    }
 }
 
 // TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
@@ -332,5 +322,48 @@ mod test {
 
         // .pet starts on 6
         assert_eq!(second.relative_line(6), Line::unchecked(1));
+    }
+
+    #[test]
+    fn real_life_relative_numbers() {
+        let content = indoc::indoc! {
+            r#"
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: flux-engine-steam
+            namespace: classification
+            labels:
+              helm.sh/chart: flux-engine-steam-2.28.12
+              app.kubernetes.io/name: flux-engine-steam
+              app: flux-engine-steam
+              app.kubernetes.io/version: 0.0.27-pre1
+              app.kubernetes.io/managed-by: batman
+            annotations:
+              github.com/repository_url: git@github.com:flux-engine-steam
+              this_is: new
+          spec:
+            ports:
+              - targetPort: 8502
+                port: 3000
+                name: https
+            selector:
+              app: flux-engine-steam
+          ---
+          foo: bar
+        "#,
+        };
+
+        let mut source = read_doc(content, camino::Utf8PathBuf::new()).unwrap();
+
+        dbg!(&source);
+        let source = source.remove(0);
+
+        assert_eq!(source.start, 2);
+        assert_eq!(source.first_line, Line::unchecked(1));
+        assert_eq!(source.last_line, Line::unchecked(21));
+
+        assert_eq!(source.relative_line(15), Line::unchecked(14));
     }
 }
