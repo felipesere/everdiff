@@ -1,10 +1,10 @@
+use core::option::Option::None;
 use std::{
     cmp::{max, min},
     fmt::{self},
-    iter::empty,
+    iter::{empty, repeat_n},
     num::NonZeroUsize,
     ops::{Add, Sub},
-    usize,
 };
 
 use ansi_width::ansi_width;
@@ -17,12 +17,22 @@ use crate::{YamlSource, path::Path};
 #[derive(Debug, Clone)]
 pub struct RenderContext {
     pub max_width: u16,
+    pub visual_context: usize,
     pub color: Color,
 }
 
 impl RenderContext {
     pub fn new(max_width: u16, color: Color) -> Self {
-        RenderContext { max_width, color }
+        RenderContext {
+            max_width,
+            color,
+            visual_context: 5,
+        }
+    }
+
+    pub fn half_width(&self) -> usize {
+        // includes a bit of random padding, do this proper later
+        ((self.max_width - 16) / 2) as usize
     }
 }
 
@@ -59,6 +69,17 @@ impl Line {
 
     pub fn one() -> Self {
         Self::new(1).unwrap()
+    }
+
+    pub fn distance(&self, other: &Line) -> usize {
+        assert!(
+            self.get() >= other.get(),
+            "self has to be bigger to get distance"
+        );
+        let a = self.get();
+        let b = other.get();
+
+        a - b
     }
 }
 
@@ -170,6 +191,19 @@ impl Snippet<'_> {
                 lines.len()
             );
         }
+        Ok(Snippet { lines, from, to })
+    }
+
+    pub fn new<'source>(
+        lines: &'source [&'source str],
+        from: Line,
+        to: Line,
+    ) -> Result<Snippet<'source>, anyhow::Error> {
+        if to <= from {
+            anyhow::bail!("'to' ({to}) was less than 'from' ({from})");
+        }
+        let to = min(Line::new(lines.len() - 1).unwrap(), to);
+        let from = max(Line::one(), from);
         Ok(Snippet { lines, from, to })
     }
 
@@ -356,8 +390,6 @@ fn render_change(
 ) -> String {
     log::debug!("Rendering change for {}", path_to_change.jq_like());
     log::debug!("The changed yaml node looks like: {:#?}", changed_yaml);
-    let ctx_size = 5;
-    let max_left = ((ctx.max_width - 16) / 2) as usize; // includes a bit of random padding, do this proper later
 
     // Select primary and secondary documents based on change type
     // The `primary_doc` has more content and the changed_yaml will be highlighted.
@@ -367,20 +399,8 @@ fn render_change(
         ChangeType::Addition => (right_doc, left_doc),
     };
 
-    // Extract lines from primary document
-    let primary_lines = primary_doc.lines();
-
-    let change_start = primary_doc.relative_line(changed_yaml.span.start.line());
-    let change_end = primary_doc.relative_line(changed_yaml.span.end.line());
-
-    // Show a few more lines before and after the lines that have changed
-    let start = change_start - ctx_size;
-    let end = min(change_end + ctx_size, primary_doc.last_line);
-    let primary_snippet =
-        Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
-
     // Set up styles
-    let (highlighting, unchanged) = match ctx.color {
+    let colors = match ctx.color {
         Color::Enabled => (
             match change_type {
                 ChangeType::Removal => owo_colors::Style::new().red(),
@@ -390,94 +410,175 @@ fn render_change(
         ),
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
     };
+    // Meh...
+    let unchanged = colors.1;
+
+    let primary = render_primary_side(ctx, primary_doc, &changed_yaml, colors);
+    let gap_size = node_height(&changed_yaml);
+
+    let parent = path_to_change.parent().unwrap();
+    let parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
+
+    let (align_to_element, _) = surrounding_paths(parent_node, &path_to_change);
+    let align_to_element = align_to_element.unwrap();
+
+    let secondary = render_secondary_side_alternative(
+        ctx,
+        secondary_doc,
+        align_to_element,
+        primary.len(),
+        gap_size,
+        unchanged,
+    );
+
+    // let secondary = render_secondary_side(
+    //     ctx,
+    //     primary_doc,
+    //     secondary_doc,
+    //     path_to_change,
+    //     &change_type,
+    //     &changed_yaml,
+    //     unchanged,
+    // );
+
+    // Combine the two sides based on change type
+    match change_type {
+        ChangeType::Removal => primary
+            .iter()
+            .zip(secondary)
+            .map(|(l, r)| format!("│{l} │ {r}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ChangeType::Addition => secondary
+            .iter()
+            .zip(primary)
+            .map(|(l, r)| format!("│{l} │ {r}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
+fn render_primary_side(
+    ctx: &RenderContext,
+    primary_doc: &YamlSource,
+    changed_yaml: &MarkedYamlOwned,
+    (highlighting, unchanged): (Style, Style),
+) -> Vec<String> {
+    // Extract lines from primary document
+    let primary_lines = primary_doc.lines();
+
+    let change_start = primary_doc.relative_line(changed_yaml.span.start.line());
+    let change_end = primary_doc.relative_line(changed_yaml.span.end.line());
+
+    // Show a few more lines before and after the lines that have changed
+    let start = change_start - ctx.visual_context;
+    let end = min(change_end + ctx.visual_context, primary_doc.last_line);
+    log::info!("Snippet for primary document");
+    let primary_snippet =
+        Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
 
     // Format the primary side
     let changed_range = change_start..=change_end;
     log::info!("We will highlight {change_start}..={change_end}");
-    let primary = primary_snippet.iter().map(|(line_nr, line)| {
-        let line = if changed_range.contains(&line_nr) {
-            line.style(highlighting).to_string()
-        } else {
-            line.style(unchanged).to_string()
-        };
+    primary_snippet
+        .iter()
+        .map(move |(line_nr, line)| {
+            let line = if changed_range.contains(&line_nr) {
+                line.style(highlighting).to_string()
+            } else {
+                line.style(unchanged).to_string()
+            };
 
+            let extras = line.len() - ansi_width(&line);
+            let line_nr = LineWidget::from(line_nr);
+            format!(
+                "{line_nr}│ {line:<width$}",
+                width = ctx.half_width() + extras
+            )
+        })
+        .collect()
+}
+
+fn render_secondary_side_alternative(
+    ctx: &RenderContext,
+    secondary_doc: &YamlSource,
+    align_to_element: Path,
+    primary_snippet_size: usize,
+    gap_size: usize,
+    unchanged: Style,
+) -> Vec<String> {
+    let node_to_align = node_in(&secondary_doc.yaml, &align_to_element).unwrap();
+
+    let gap_start = secondary_doc.relative_line(node_to_align.span.start.line());
+    log::info!("The gap should be right after: {gap_start}");
+    let start = gap_start - (ctx.visual_context - node_height(node_to_align));
+    let end = gap_start + gap_size + ctx.visual_context;
+
+    let filler = repeat_n(
+        "".to_string(),
+        end.distance(&start).saturating_sub(primary_snippet_size),
+    );
+
+    let lines = secondary_doc.lines();
+
+    let s = Snippet::new(&lines, start, end).unwrap();
+    let (before_gap, after_gap) = s.split(gap_start);
+
+    let pre_gap = before_gap.iter().map(|(line_nr, line)| {
+        let line = line.style(unchanged).to_string();
         let extras = line.len() - ansi_width(&line);
+
         let line_nr = LineWidget::from(line_nr);
-        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+        format!(
+            "{line_nr}│ {line:<width$}",
+            width = ctx.half_width() + extras
+        )
     });
 
-    // -----------------------------------------------------------------
+    let gap = (0..gap_size).map(|_| {
+        let l = LineWidget(None);
+        format!("{l}│ {line:<width$}", line = "", width = ctx.half_width())
+    });
 
+    let post_gap = after_gap.iter().map(|(line_nr, line)| {
+        let line = line.style(unchanged).to_string();
+        let extras = line.len() - ansi_width(&line);
+
+        let line_nr = LineWidget::from(line_nr);
+        format!(
+            "{line_nr}│ {line:<width$}",
+            width = ctx.half_width() + extras
+        )
+    });
+
+    filler.chain(pre_gap).chain(gap).chain(post_gap).collect()
+}
+
+// This is the side that would have a gap!
+fn render_secondary_side(
+    ctx: &RenderContext,
+    primary_doc: &YamlSource,
+    secondary_doc: &YamlSource,
+    path_to_change: Path,
+    change_type: &ChangeType,
+    changed: &MarkedYamlOwned,
+    unchanged: Style,
+) -> Vec<String> {
     // Build the secondary side
     let secondary_lines = secondary_doc.lines();
 
-    // Find corresponding nodes in secondary document
-    // I think this is more complex than it initially seems.
-    // The goal is to get the spans of the nodes that need to surround the gap.
-    // Therefor I need know what nodes should be there, and then translate
-    // that into the other document. I tend to do that via the `path`
-    //
-    // BUT(!) paths don't necessarily carry over to the other docment.
-    // e.g. if the path to the change is `.people.3`
-    // the surround nodes could be (.people.2, .people.4)
-    // but who knows if the array has sufficient elements?!
     let parent = path_to_change.parent().unwrap();
     let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
 
-    let (before_path, after_path) = surrounding_paths(primary_parent_node, &path_to_change);
-
-    log::debug!(
-        "The before node is {:?}",
-        &before_path.as_ref().map(|p| p.jq_like())
-    );
-    log::debug!(
-        "The after node is {:?}",
-        &after_path.as_ref().map(|p| p.jq_like())
-    );
-
-    let size_of_gap = node_height(&changed_yaml);
-    log::info!("We estimate the size of the gap to be: {size_of_gap}");
-
-    let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
-    let candidate_node_after_change = after_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
-
-    let gap_start = candidate_node_before_change
-        .map(|before| {
-            let n = match primary_parent_node.data {
-                YamlDataOwned::Sequence(_) => 1,
-                _ => 0,
-            };
-            log::debug!("weird adjustment factor: {n}");
-            primary_doc.relative_line(before.span.end.line() - n)
-        })
-        .unwrap_or(Line::one());
+    let gap_start = gap_start(primary_doc, secondary_doc, path_to_change.clone());
+    let gap_size = gap_size(changed, primary_parent_node);
 
     log::debug!("The gap starts at: {gap_start}");
 
-    // If we can find a node after the change use its line number, other wise guess based on the
-    // start of the gap and the length of the change
-    let gap_end = if let Some(after_node) = candidate_node_after_change {
-        log::debug!(
-            "Using start of after_node to find end of gap: {}",
-            after_node.span.start.line()
-        );
-        primary_doc.relative_line(after_node.span.start.line())
-    } else {
-        // doing "+1" because keys and values are not on the same line:
-        // foo: <--- the key
-        //   name: 'abc'
-        //   thing: true
-        //
-        // the node height is 2, but the total thing should be 3
-        // maybe this is no longer relevant?
-        log::debug!("No after_node present, using height {size_of_gap} of the changed_yaml");
+    let snippet_start = gap_start - ctx.visual_context + 1;
+    let snippet_end = min(gap_start + ctx.visual_context, secondary_doc.last_line);
 
-        gap_start + size_of_gap
-    };
-    log::debug!("The gap ends on {gap_end}");
-
-    let snippet_start = gap_start - ctx_size;
-    let snippet_end = min(gap_end + ctx_size, secondary_doc.last_line);
+    let snipept_size = snippet_end.distance(&snippet_start);
 
     // Create snippet for secondary document
     let snippet = Snippet::try_new(&secondary_lines, snippet_start, snippet_end)
@@ -495,6 +596,7 @@ fn render_change(
     log::debug!("The gap starts at: {}", &gap_start);
 
     let (before_gap, after_gap) = snippet.split(gap_start);
+    log::info!("The snippet for before the gap is: {before_gap:#?}");
 
     // Format the secondary side with gap
     let pre_gap = before_gap.iter().map(|(line_nr, line)| {
@@ -502,21 +604,19 @@ fn render_change(
         let extras = line.len() - ansi_width(&line);
 
         let line_nr = LineWidget::from(line_nr);
-        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+        format!(
+            "{line_nr}│ {line:<width$}",
+            width = ctx.half_width() + extras
+        )
     });
 
-    let change_size = node_height(&changed_yaml);
-    // Are we adding more weird adjustments here?
-    // We did similar `+1` math above with node_height
-    let change_size = match primary_parent_node.data {
-        YamlDataOwned::Mapping(_) => change_size + 1,
-        _ => change_size,
-    };
-    let gap = (0..change_size).map(|_| {
+    let gap = (0..gap_size).map(|_| {
         let l = LineWidget(None);
         match change_type {
             ChangeType::Removal => format!("{l}│"),
-            ChangeType::Addition => format!("{l}│ {line:<width$}", line = "", width = max_left),
+            ChangeType::Addition => {
+                format!("{l}│ {line:<width$}", line = "", width = ctx.half_width())
+            }
         }
     });
 
@@ -525,30 +625,69 @@ fn render_change(
         let extras = line.len() - ansi_width(&line);
 
         let line_nr = LineWidget::from(line_nr);
-        format!("{line_nr}│ {line:<width$}", width = max_left + extras)
+        format!(
+            "{line_nr}│ {line:<width$}",
+            width = ctx.half_width() + extras
+        )
     });
 
-    let secondary = pre_gap.chain(gap).chain(post_gap);
-
-    // Combine the two sides based on change type
-    match change_type {
-        ChangeType::Removal => primary
-            .zip(secondary)
-            .map(|(l, r)| format!("│{l} │ {r}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        ChangeType::Addition => secondary
-            .zip(primary)
-            .map(|(l, r)| format!("│{l} │ {r}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    }
+    pre_gap.chain(gap).chain(post_gap).collect()
 }
 
 fn node_height(changed_yaml: &MarkedYamlOwned) -> usize {
     let start = changed_yaml.span.start.line();
     let end = changed_yaml.span.end.line();
     max(end - start, 1)
+}
+
+/// Find corresponding nodes in secondary document
+/// I think this is more complex than it initially seems.
+/// The goal is to get the spans of the nodes that need to surround the gap.
+/// Therefor I need know what nodes should be there, and then translate
+/// that into the other document. I tend to do that via the `path`
+///
+/// BUT(!) paths don't necessarily carry over to the other docment.
+/// e.g. if the path to the change is `.people.3`
+/// the surround nodes could be (.people.2, .people.4)
+/// but who knows if the array has sufficient elements?!
+pub fn gap_start(
+    primary_doc: &YamlSource,
+    secondary_doc: &YamlSource,
+    path_to_change: Path,
+) -> Line {
+    let parent = path_to_change.parent().unwrap();
+    let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
+
+    let (before_path, _) = surrounding_paths(primary_parent_node, &path_to_change);
+
+    log::debug!(
+        "The before node is {:?}",
+        &before_path.as_ref().map(|p| p.jq_like())
+    );
+
+    let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
+
+    candidate_node_before_change
+        .map(|before| {
+            let n = match primary_parent_node.data {
+                YamlDataOwned::Sequence(_) => 1,
+                _ => 0,
+            };
+            log::debug!("weird adjustment factor: {n}");
+            primary_doc.relative_line(before.span.end.line() - n)
+        })
+        .unwrap_or(Line::one())
+}
+
+fn gap_size(changed: &MarkedYamlOwned, parent: &MarkedYamlOwned) -> usize {
+    let change_size = node_height(changed);
+
+    // Are we adding more weird adjustments here?
+    // We did similar `+1` math above with node_height
+    match parent.data {
+        YamlDataOwned::Mapping(_) if change_size > 1 => change_size + 1,
+        _ => change_size,
+    }
 }
 
 #[cfg(test)]
@@ -680,6 +819,121 @@ mod test_node_height {
     }
 }
 
+#[cfg(test)]
+mod test_gap_start {
+    use std::sync::Once;
+
+    use crate::{path::Path, read_doc, snippet::Line};
+
+    use super::gap_start;
+
+    static LOGGING: Once = Once::new();
+
+    fn init_logging() {
+        LOGGING.call_once(|| {
+            if std::env::var("LOG").is_ok() {
+                env_logger::Builder::new()
+                    .filter_level(log::LevelFilter::Debug)
+                    .init();
+            }
+        });
+    }
+
+    #[test]
+    pub fn clean_split_down_the_middle() {
+        init_logging();
+        let primary = indoc::indoc! {r#"
+            ---
+            person:
+              name: Steve E. Anderson
+              location:
+                street: 1 Kentish Street
+                postcode: KS87JJ
+              age: 12
+            "#};
+
+        let primary = read_doc(primary, camino::Utf8PathBuf::default())
+            .unwrap()
+            .remove(0);
+
+        let secondary = indoc::indoc! {r#"
+            ---
+            person:
+              name: Steve E. Anderson
+              age: 12
+            "#};
+        let secondary = read_doc(secondary, camino::Utf8PathBuf::default())
+            .unwrap()
+            .remove(0);
+
+        let location = Path::parse_str(".person.location");
+
+        let actual_start = gap_start(&primary, &secondary, location);
+
+        // The split we are looking for is
+        // [1] person:
+        // [2]   name: Steve E. Anderson
+        // <--- the gap --->
+        // [3]   age: 12
+        assert_eq!(actual_start, Line::new(2).unwrap());
+    }
+
+    #[test]
+    pub fn example() {
+        init_logging();
+        let primary = indoc::indoc! {r#"
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: flux-engine-steam
+              namespace: classification
+              labels:
+                app.kubernetes.io/managed-by: batman
+              annotations:
+                github.com/repository_url: git@github.com:flux-engine-steam
+                this_is: new
+            spec:
+              ports:
+                - port: 3000
+            "#};
+
+        let primary = read_doc(primary, camino::Utf8PathBuf::default())
+            .unwrap()
+            .remove(0);
+
+        let secondary = indoc::indoc! {r#"
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: flux-engine-steam
+              namespace: classification
+              labels:
+                app.kubernetes.io/managed-by: batman
+              annotations:
+                github.com/repository_url: git@github.com:flux-engine-steam
+            spec:
+              ports:
+                - port: 3000
+            "#};
+        let secondary = read_doc(secondary, camino::Utf8PathBuf::default())
+            .unwrap()
+            .remove(0);
+
+        let location = Path::parse_str(".metadata.annotations.this_is");
+
+        let actual_start = gap_start(&primary, &secondary, location);
+
+        // The split we are looking for is
+        // [1] person:
+        // [2]   name: Steve E. Anderson
+        // <--- the gap --->
+        // [3]   age: 12
+        assert_eq!(actual_start, Line::new(9).unwrap());
+    }
+}
+
 pub fn render_difference(
     ctx: &RenderContext,
     path_to_change: Path,
@@ -702,6 +956,7 @@ pub fn render_difference(
     let smaller_context = RenderContext {
         max_width: max_left,
         color: ctx.color,
+        visual_context: 5,
     };
     let left = render_changed_snippet(&smaller_context, left_doc, left);
     let right = render_changed_snippet(&smaller_context, right_doc, right);
@@ -818,8 +1073,8 @@ pub struct LineWidget(pub Option<usize>);
 impl fmt::Display for LineWidget {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
-            None => write!(f, "    "),
             Some(idx) => write!(f, "{:>3} ", idx + 1),
+            None => write!(f, "    "),
         }
     }
 }
@@ -841,8 +1096,11 @@ fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedYamlO
     n
 }
 
+// TODO: remove the `after node`
 fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path>, Option<Path>) {
     let parent_path = path.parent().unwrap();
+    log::debug!("the parent is: {}", parent_path.jq_like());
+    log::debug!("the parent node is: {:#?}", parent_node);
     match &parent_node.data {
         YamlDataOwned::Sequence(children) => {
             let idx = path.head().and_then(|s| s.as_index()).unwrap();
@@ -861,7 +1119,10 @@ fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path
         YamlDataOwned::Mapping(children) => {
             // Consider extracting this...
             let target_key = path.head().and_then(|s| s.as_field()).unwrap();
+            log::debug!("looking for: {target_key}");
             let keys: Vec<_> = children.keys().filter_map(|k| k.data.as_str()).collect();
+
+            log::debug!("possible children keys: {:?}", keys);
             if let Some(idx) = keys.iter().position(|k| k == &target_key) {
                 let before = if idx > 0 { Some(keys[idx - 1]) } else { None };
                 let after = if idx < keys.len() - 1 {
@@ -912,6 +1173,7 @@ mod test {
         RenderContext {
             max_width: 80,
             color: super::Color::Disabled,
+            visual_context: 5,
         }
     }
 
