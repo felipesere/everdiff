@@ -8,7 +8,6 @@ use std::{
 };
 
 use ansi_width::ansi_width;
-use anyhow::Context;
 use owo_colors::{OwoColorize, Style};
 use saphyr::{Indexable, MarkedYamlOwned, YamlDataOwned};
 
@@ -420,9 +419,16 @@ fn render_change(
     let parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
 
     let (align_to_element, _) = surrounding_paths(parent_node, &path_to_change);
-    let align_to_element = align_to_element.unwrap();
+    // TODO: Do this better...
+    let Some(align_to_element) = align_to_element else {
+        log::error!(
+            "Failed to find surrounding nodes for {path} in primary doc",
+            path = path_to_change.jq_like()
+        );
+        panic!("no surround nodes to align");
+    };
 
-    let secondary = render_secondary_side_alternative(
+    let secondary = render_secondary_side(
         ctx,
         secondary_doc,
         align_to_element,
@@ -431,28 +437,29 @@ fn render_change(
         unchanged,
     );
 
-    // let secondary = render_secondary_side(
-    //     ctx,
-    //     primary_doc,
-    //     secondary_doc,
-    //     path_to_change,
-    //     &change_type,
-    //     &changed_yaml,
-    //     unchanged,
-    // );
+    // wtf is this +6
+    let width = ctx.half_width() + 6;
+
+    let fixed_with_line = |(left, right)| format!("│ {left:<width$}│ {right:<width$}");
+
+    log::info!(
+        "Sizes:  primary {}, secondary {}",
+        primary.len(),
+        secondary.len()
+    );
 
     // Combine the two sides based on change type
     match change_type {
         ChangeType::Removal => primary
             .iter()
             .zip(secondary)
-            .map(|(l, r)| format!("│{l} │ {r}"))
+            .map(fixed_with_line)
             .collect::<Vec<_>>()
             .join("\n"),
         ChangeType::Addition => secondary
             .iter()
             .zip(primary)
-            .map(|(l, r)| format!("│{l} │ {r}"))
+            .map(fixed_with_line)
             .collect::<Vec<_>>()
             .join("\n"),
     }
@@ -499,7 +506,7 @@ fn render_primary_side(
         .collect()
 }
 
-fn render_secondary_side_alternative(
+fn render_secondary_side(
     ctx: &RenderContext,
     secondary_doc: &YamlSource,
     align_to_element: Path,
@@ -511,18 +518,27 @@ fn render_secondary_side_alternative(
 
     let gap_start = secondary_doc.relative_line(node_to_align.span.start.line());
     log::info!("The gap should be right after: {gap_start}");
-    let start = gap_start - (ctx.visual_context - node_height(node_to_align));
-    let end = gap_start + gap_size + ctx.visual_context;
-
-    let filler = repeat_n(
-        "".to_string(),
-        end.distance(&start).saturating_sub(primary_snippet_size),
-    );
+    let start = gap_start
+        - (ctx
+            .visual_context
+            .saturating_sub(node_height(node_to_align)));
+    let end: Line = gap_start + gap_size + ctx.visual_context + 1;
 
     let lines = secondary_doc.lines();
 
     let s = Snippet::new(&lines, start, end).unwrap();
     let (before_gap, after_gap) = s.split(gap_start);
+
+    let filler_len = if end.distance(&start) > primary_snippet_size {
+        log::warn!("Secondary snippet is bigger than the primary one?");
+        0
+    } else {
+        log::warn!("Primary is bigger, so we need a little bit of filler");
+        dbg!(end.distance(&start)).saturating_sub(dbg!(primary_snippet_size))
+    };
+    log::info!("Filler will be {filler_len}");
+
+    let filler = repeat_n("".to_string(), filler_len);
 
     let pre_gap = before_gap.iter().map(|(line_nr, line)| {
         let line = line.style(unchanged).to_string();
@@ -552,86 +568,6 @@ fn render_secondary_side_alternative(
     });
 
     filler.chain(pre_gap).chain(gap).chain(post_gap).collect()
-}
-
-// This is the side that would have a gap!
-fn render_secondary_side(
-    ctx: &RenderContext,
-    primary_doc: &YamlSource,
-    secondary_doc: &YamlSource,
-    path_to_change: Path,
-    change_type: &ChangeType,
-    changed: &MarkedYamlOwned,
-    unchanged: Style,
-) -> Vec<String> {
-    // Build the secondary side
-    let secondary_lines = secondary_doc.lines();
-
-    let parent = path_to_change.parent().unwrap();
-    let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
-
-    let gap_start = gap_start(primary_doc, secondary_doc, path_to_change.clone());
-    let gap_size = gap_size(changed, primary_parent_node);
-
-    log::debug!("The gap starts at: {gap_start}");
-
-    let snippet_start = gap_start - ctx.visual_context + 1;
-    let snippet_end = min(gap_start + ctx.visual_context, secondary_doc.last_line);
-
-    let snipept_size = snippet_end.distance(&snippet_start);
-
-    // Create snippet for secondary document
-    let snippet = Snippet::try_new(&secondary_lines, snippet_start, snippet_end)
-        .with_context(|| {
-            format!(
-                "Failed to create a snippet for change {} in {}:{}",
-                path_to_change.jq_like(),
-                secondary_doc.file,
-                secondary_doc.index,
-            )
-        })
-        .unwrap();
-
-    log::debug!("The snippet is at: {:#?}", &snippet);
-    log::debug!("The gap starts at: {}", &gap_start);
-
-    let (before_gap, after_gap) = snippet.split(gap_start);
-    log::info!("The snippet for before the gap is: {before_gap:#?}");
-
-    // Format the secondary side with gap
-    let pre_gap = before_gap.iter().map(|(line_nr, line)| {
-        let line = line.style(unchanged).to_string();
-        let extras = line.len() - ansi_width(&line);
-
-        let line_nr = LineWidget::from(line_nr);
-        format!(
-            "{line_nr}│ {line:<width$}",
-            width = ctx.half_width() + extras
-        )
-    });
-
-    let gap = (0..gap_size).map(|_| {
-        let l = LineWidget(None);
-        match change_type {
-            ChangeType::Removal => format!("{l}│"),
-            ChangeType::Addition => {
-                format!("{l}│ {line:<width$}", line = "", width = ctx.half_width())
-            }
-        }
-    });
-
-    let post_gap = after_gap.iter().map(|(line_nr, line)| {
-        let line = line.style(unchanged).to_string();
-        let extras = line.len() - ansi_width(&line);
-
-        let line_nr = LineWidget::from(line_nr);
-        format!(
-            "{line_nr}│ {line:<width$}",
-            width = ctx.half_width() + extras
-        )
-    });
-
-    pre_gap.chain(gap).chain(post_gap).collect()
 }
 
 fn node_height(changed_yaml: &MarkedYamlOwned) -> usize {
@@ -677,17 +613,6 @@ pub fn gap_start(
             primary_doc.relative_line(before.span.end.line() - n)
         })
         .unwrap_or(Line::one())
-}
-
-fn gap_size(changed: &MarkedYamlOwned, parent: &MarkedYamlOwned) -> usize {
-    let change_size = node_height(changed);
-
-    // Are we adding more weird adjustments here?
-    // We did similar `+1` math above with node_height
-    match parent.data {
-        YamlDataOwned::Mapping(_) if change_size > 1 => change_size + 1,
-        _ => change_size,
-    }
 }
 
 #[cfg(test)]
@@ -1002,9 +927,13 @@ pub fn render_difference(
         .chain(right.content)
         .chain(right_bottom_filler);
 
+    let width = ctx.half_width() + 6;
+
+    let fixed_with_line = |(left, right)| format!("│ {left:<width$}│ {right:<width$}");
+
     let body = left
         .zip(right)
-        .map(|(l, r)| format!("{l} │ {r}"))
+        .map(fixed_with_line)
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -1155,7 +1084,7 @@ mod test {
         read_doc, render,
     };
 
-    use super::{RenderContext, render_added, render_difference, render_removal};
+    use super::{RenderContext, render_added, render_difference};
 
     static LOGGING: Once = Once::new();
 
@@ -1206,8 +1135,8 @@ mod test {
 
         expect![[r#"
             Changed: .person.name:
-              1 │   name: Steve E. Anderson        │   1 │   name: Robert Anderson         
-              2 │   age: 12                        │   2 │   age: 12                       "#]]
+            │   1 │   name: Steve E. Anderson       │   1 │   name: Robert Anderson         
+            │   2 │   age: 12                       │   2 │   age: 12                       "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1234,13 +1163,9 @@ mod test {
               foo: bar
         "#});
 
-        let mut differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+        let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let first = differences.remove(0);
-        let Difference::Removed { path, value } = first else {
-            panic!("Should have gotten a Removal");
-        };
-        let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
+        let content = render(ctx(), &left_doc, &right_doc, differences, true);
 
         expect![[r#"
             │  1 │ person:                          │   1 │ person:                         
@@ -1278,13 +1203,9 @@ mod test {
               foo: bar
             "#});
 
-        let mut differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+        let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let first = differences.remove(0);
-        let Difference::Added { path, value } = first else {
-            panic!("Should have gotten a Removal");
-        };
-        let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
+        let content = render(ctx(), &left_doc, &right_doc, differences, true);
 
         expect![[r#"
             │  1 │ person:                          │   1 │ person:                         
@@ -1377,27 +1298,27 @@ mod test {
 
         expect![[r#"
             Changed: .person.name:
-              1 │ person:                          │   1 │ person:                         
-              2 │   name: Steve E. Anderson        │   2 │   name: Steven Anderson         
-              3 │   age: 12                        │   3 │   location:                     
-                                                   │   4 │     street: 1 Kentish Street    
-                                                   │   5 │     postcode: KS87JJ            
+            │   1 │ person:                         │   1 │ person:                         
+            │   2 │   name: Steve E. Anderson       │   2 │   name: Steven Anderson         
+            │   3 │   age: 12                       │   3 │   location:                     
+            │                                       │   4 │     street: 1 Kentish Street    
+            │                                       │   5 │     postcode: KS87JJ            
 
             Changed: .person.age:
-                                                   │   1 │ person:                         
-                                                   │   2 │   name: Steven Anderson         
-                                                   │   3 │   location:                     
-              1 │ person:                          │   4 │     street: 1 Kentish Street    
-              2 │   name: Steve E. Anderson        │   5 │     postcode: KS87JJ            
-              3 │   age: 12                        │   6 │   age: 34                       
+            │                                       │   1 │ person:                         
+            │                                       │   2 │   name: Steven Anderson         
+            │                                       │   3 │   location:                     
+            │   1 │ person:                         │   4 │     street: 1 Kentish Street    
+            │   2 │   name: Steve E. Anderson       │   5 │     postcode: KS87JJ            
+            │   3 │   age: 12                       │   6 │   age: 34                       
 
             Added: .person.location:
-            │  1 │ person:                          │   1 │ person:                         
-            │  2 │   name: Steve E. Anderson        │   2 │   name: Steven Anderson         
-            │    │                                  │   3 │   location:                     
-            │    │                                  │   4 │     street: 1 Kentish Street    
-            │    │                                  │   5 │     postcode: KS87JJ            
-            │  3 │   age: 12                        │   6 │   age: 34                       
+            │                                       │   1 │ person:                         
+            │                                       │   2 │   name: Steven Anderson         
+            │   1 │ person:                         │   3 │   location:                     
+            │   2 │   name: Steve E. Anderson       │   4 │     street: 1 Kentish Street    
+            │     │                                 │   5 │     postcode: KS87JJ            
+            │     │                                 │   6 │   age: 34                       
 
         "#]]
         .assert_eq(content.as_str());
@@ -1467,28 +1388,28 @@ mod test {
 
         expect![[r#"
             Added: .metadata.annotations.this_is:
-            │  9 │     app: flux-engine-steam                                          │   9 │     app: flux-engine-steam                                         
-            │ 10 │     app.kubernetes.io/version: 0.0.27-pre1                          │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         
-            │ 11 │     app.kubernetes.io/managed-by: batman                            │  11 │     app.kubernetes.io/managed-by: batman                           
-            │ 12 │   annotations:                                                      │  12 │   annotations:                                                     
-            │ 13 │     github.com/repository_url: git@github.com:flux-engine-steam     │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
-            │    │                                                                     │  14 │     this_is: new                                                   
-            │ 14 │ spec:                                                               │  15 │ spec:                                                              
-            │ 15 │   ports:                                                            │  16 │   ports:                                                           
-            │ 16 │     - targetPort: 8501                                              │  17 │     - targetPort: 8502                                             
-            │ 17 │       port: 3000                                                    │  18 │       port: 3000                                                   
-            │ 18 │       name: https                                                   │  19 │       name: https                                                  
+            │   9 │     app: flux-engine-steam                                         │   9 │     app: flux-engine-steam                                         
+            │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         
+            │  11 │     app.kubernetes.io/managed-by: batman                           │  11 │     app.kubernetes.io/managed-by: batman                           
+            │  12 │   annotations:                                                     │  12 │   annotations:                                                     
+            │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
+            │     │                                                                    │  14 │     this_is: new                                                   
+            │  14 │ spec:                                                              │  15 │ spec:                                                              
+            │  15 │   ports:                                                           │  16 │   ports:                                                           
+            │  16 │     - targetPort: 8501                                             │  17 │     - targetPort: 8502                                             
+            │  17 │       port: 3000                                                   │  18 │       port: 3000                                                   
+            │  18 │       name: https                                                  │  19 │       name: https                                                  
 
             Changed: .spec.ports[0].targetPort:
-             11 │     app.kubernetes.io/managed-by: batman                            │  12 │   annotations:                                                     
-             12 │   annotations:                                                      │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
-             13 │     github.com/repository_url: git@github.com:flux-engine-steam     │  14 │     this_is: new                                                   
-             14 │ spec:                                                               │  15 │ spec:                                                              
-             15 │   ports:                                                            │  16 │   ports:                                                           
-             16 │     - targetPort: 8501                                              │  17 │     - targetPort: 8502                                             
-             17 │       port: 3000                                                    │  18 │       port: 3000                                                   
-             18 │       name: https                                                   │  19 │       name: https                                                  
-             19 │   selector:                                                         │  20 │   selector:                                                        
+            │  11 │     app.kubernetes.io/managed-by: batman                           │  12 │   annotations:                                                     
+            │  12 │   annotations:                                                     │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
+            │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    │  14 │     this_is: new                                                   
+            │  14 │ spec:                                                              │  15 │ spec:                                                              
+            │  15 │   ports:                                                           │  16 │   ports:                                                           
+            │  16 │     - targetPort: 8501                                             │  17 │     - targetPort: 8502                                             
+            │  17 │       port: 3000                                                   │  18 │       port: 3000                                                   
+            │  18 │       name: https                                                  │  19 │       name: https                                                  
+            │  19 │   selector:                                                        │  20 │   selector:                                                        
 
         "#]].assert_eq(content.as_str());
     }
