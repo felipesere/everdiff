@@ -1,4 +1,5 @@
-use linked_hash_set::LinkedHashSet;
+use hashlink::LinkedHashSet;
+use log::info;
 use saphyr::YamlDataOwned;
 
 use crate::path::{Path, Segment};
@@ -75,26 +76,45 @@ pub fn diff(
     right: &saphyr::MarkedYamlOwned,
 ) -> Vec<Difference> {
     match (&left.data, &right.data) {
-        (YamlDataOwned::Mapping(left), YamlDataOwned::Mapping(right)) => {
-            let left_keys: LinkedHashSet<_> = left.keys().collect();
-            let right_keys: LinkedHashSet<_> = right.keys().collect();
+        (YamlDataOwned::Mapping(left_mapping), YamlDataOwned::Mapping(right_mapping)) => {
+            let left_keys: LinkedHashSet<_> = left_mapping.keys().collect();
+            let right_keys: LinkedHashSet<_> = right_mapping.keys().collect();
 
             let all_keys: LinkedHashSet<_> = left_keys.union(&right_keys).collect();
             let mut diffs = Vec::new();
+            // I want to do this differently.
             for key in all_keys {
                 let inner_key = (*key).clone().data;
                 let key_segment = Segment::try_from(key.data.clone()).unwrap();
                 let path = ctx.path.push(key_segment);
-                match (left.get(key), right.get(key)) {
+                match (left_mapping.get(key), right_mapping.get(key)) {
                     (None, None) => unreachable!("the key must be from either left or right!"),
-                    (None, Some(addition)) => diffs.push(Difference::Added {
-                        path,
-                        value: addition.clone(),
-                    }),
-                    (Some(removal), None) => diffs.push(Difference::Removed {
-                        path,
-                        value: removal.clone(),
-                    }),
+                    (None, Some(_addition)) => {
+                        let mut right_copy = right.clone();
+                        let fileds = right_copy.data.as_mapping_mut().unwrap();
+                        fileds.retain_with_order(|k, _| k == *key);
+
+                        info!("Original span: {:?}", right.span);
+                        info!("Modified span: {:?}", right_copy.span);
+
+                        diffs.push(Difference::Added {
+                            path,
+                            value: right_copy,
+                        })
+                    }
+                    (Some(_), None) => {
+                        let mut left_copy = left.clone();
+                        let fields = left_copy.data.as_mapping_mut().unwrap();
+                        fields.retain_with_order(|k, _| k == *key);
+
+                        info!("Original span: {:?}", left.span);
+                        info!("Modified span: {:?}", left_copy.span);
+
+                        diffs.push(Difference::Removed {
+                            path,
+                            value: left_copy,
+                        })
+                    }
                     (Some(left), Some(right)) => {
                         let inner_key_segment = Segment::try_from(inner_key).unwrap();
                         diffs.append(&mut diff(ctx.for_key(inner_key_segment), left, right));
@@ -390,6 +410,177 @@ mod tests {
                 path: Path::from_unchecked(vec!["foo".into(), "bar".into(),])
             },]
         )
+    }
+
+    #[test]
+    fn object_removed() {
+        let left = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
+        foo:
+          before: true
+          thing:
+            a: 1
+            b: 2
+          bar: "12"
+        "#})
+        .unwrap();
+
+        let right = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
+        foo:
+          before: true
+          # thing:
+          #   a: 1
+          #   b: 2
+          bar: "12"
+        "#})
+        .unwrap();
+
+        let differences = diff(Context::new(), &left[0], &right[0]);
+
+        expect![[r#"
+            [
+                Removed {
+                    path: Path(
+                        [
+                            Field(
+                                "foo",
+                            ),
+                            Field(
+                                "thing",
+                            ),
+                        ],
+                    ),
+                    value: MarkedYamlOwned {
+                        span: Span {
+                            start: Marker {
+                                index: 7,
+                                line: 2,
+                                col: 2,
+                            },
+                            end: Marker {
+                                index: 59,
+                                line: 7,
+                                col: 0,
+                            },
+                        },
+                        data: Mapping(
+                            {
+                                MarkedYamlOwned {
+                                    span: Span {
+                                        start: Marker {
+                                            index: 22,
+                                            line: 3,
+                                            col: 2,
+                                        },
+                                        end: Marker {
+                                            index: 27,
+                                            line: 3,
+                                            col: 7,
+                                        },
+                                    },
+                                    data: Value(
+                                        String(
+                                            "thing",
+                                        ),
+                                    ),
+                                }: MarkedYamlOwned {
+                                    span: Span {
+                                        start: Marker {
+                                            index: 33,
+                                            line: 4,
+                                            col: 4,
+                                        },
+                                        end: Marker {
+                                            index: 49,
+                                            line: 6,
+                                            col: 2,
+                                        },
+                                    },
+                                    data: Mapping(
+                                        {
+                                            MarkedYamlOwned {
+                                                span: Span {
+                                                    start: Marker {
+                                                        index: 33,
+                                                        line: 4,
+                                                        col: 4,
+                                                    },
+                                                    end: Marker {
+                                                        index: 34,
+                                                        line: 4,
+                                                        col: 5,
+                                                    },
+                                                },
+                                                data: Value(
+                                                    String(
+                                                        "a",
+                                                    ),
+                                                ),
+                                            }: MarkedYamlOwned {
+                                                span: Span {
+                                                    start: Marker {
+                                                        index: 36,
+                                                        line: 4,
+                                                        col: 7,
+                                                    },
+                                                    end: Marker {
+                                                        index: 37,
+                                                        line: 4,
+                                                        col: 8,
+                                                    },
+                                                },
+                                                data: Value(
+                                                    Integer(
+                                                        1,
+                                                    ),
+                                                ),
+                                            },
+                                            MarkedYamlOwned {
+                                                span: Span {
+                                                    start: Marker {
+                                                        index: 42,
+                                                        line: 5,
+                                                        col: 4,
+                                                    },
+                                                    end: Marker {
+                                                        index: 43,
+                                                        line: 5,
+                                                        col: 5,
+                                                    },
+                                                },
+                                                data: Value(
+                                                    String(
+                                                        "b",
+                                                    ),
+                                                ),
+                                            }: MarkedYamlOwned {
+                                                span: Span {
+                                                    start: Marker {
+                                                        index: 45,
+                                                        line: 5,
+                                                        col: 7,
+                                                    },
+                                                    end: Marker {
+                                                        index: 46,
+                                                        line: 5,
+                                                        col: 8,
+                                                    },
+                                                },
+                                                data: Value(
+                                                    Integer(
+                                                        2,
+                                                    ),
+                                                ),
+                                            },
+                                        },
+                                    ),
+                                },
+                            },
+                        ),
+                    },
+                },
+            ]
+        "#]]
+        .assert_debug_eq(&differences);
     }
 
     #[test]

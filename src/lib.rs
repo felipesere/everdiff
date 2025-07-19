@@ -15,6 +15,7 @@ pub mod config;
 pub mod diff;
 pub mod identifier;
 pub mod multidoc;
+pub mod node;
 pub mod path;
 pub mod prepatch;
 pub mod snippet;
@@ -48,7 +49,11 @@ impl YamlSource {
     /// Turn the absolute, file-wide line number into one that
     /// is relative to the beginning of the document
     fn relative_line(&self, line: usize) -> Line {
-        let raw = max(1, line.saturating_sub(self.start - 1));
+        log::info!(
+            "the start of the document is on absolute line {}, and we are checking for line {line}",
+            self.start
+        );
+        let raw = max(1, line.saturating_sub(self.start));
 
         Line::new(raw).unwrap()
     }
@@ -83,7 +88,7 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
         .clone()
         .split("---")
         .filter(|doc| !doc.is_empty())
-        .map(|c| c.to_string())
+        .map(|doc| doc.trim_start().to_string())
         .collect();
 
     let parsed_docs = saphyr::MarkedYamlOwned::load_from_str(&content)?;
@@ -95,7 +100,7 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
         let first_line = Line::one();
         // the span ends when the indenation no longer matches, which is the line _after_ the the
         // last properly indented line
-        let last_line = Line::new(document.span.end.line() - start).unwrap();
+        let last_line = Line::new(end - start).unwrap();
 
         docs.push(YamlSource {
             file: path.clone(),

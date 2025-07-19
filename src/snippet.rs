@@ -9,9 +9,9 @@ use std::{
 
 use ansi_width::ansi_width;
 use owo_colors::{OwoColorize, Style};
-use saphyr::{Indexable, MarkedYamlOwned, YamlDataOwned};
+use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
-use crate::{YamlSource, path::Path};
+use crate::{YamlSource, node::node_in, path::Path};
 
 #[derive(Debug, Clone)]
 pub struct RenderContext {
@@ -514,9 +514,14 @@ fn render_secondary_side(
     gap_size: usize,
     unchanged: Style,
 ) -> Vec<String> {
+    log::info!("the secondary_doc is : {secondary_doc:#?}");
+    log::info!(
+        "gap_size: {gap_size}, align to element: {}",
+        align_to_element.jq_like(),
+    );
     let node_to_align = node_in(&secondary_doc.yaml, &align_to_element).unwrap();
 
-    let gap_start = secondary_doc.relative_line(node_to_align.span.start.line());
+    let gap_start = secondary_doc.relative_line(node_to_align.span.end.line());
     log::info!("The gap should be right after: {gap_start}");
     let start = gap_start
         - (ctx
@@ -1008,23 +1013,6 @@ impl fmt::Display for LineWidget {
     }
 }
 
-fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedYamlOwned> {
-    let mut n = Some(yaml);
-    for p in path.segments() {
-        match p {
-            crate::path::Segment::Field(f) => {
-                let v = n.and_then(|n| n.get(f.as_str()))?;
-                n = Some(v);
-            }
-            crate::path::Segment::Index(nr) => {
-                let v = n.and_then(|n| n.get(*nr))?;
-                n = Some(v);
-            }
-        }
-    }
-    n
-}
-
 // TODO: remove the `after node`
 fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path>, Option<Path>) {
     let parent_path = path.parent().unwrap();
@@ -1226,7 +1214,7 @@ mod test {
             ---
             people:
               - name: Robert Anderson
-                age: 30
+                age: 20
               - name: Sarah Foo
                 age: 31
         "#});
@@ -1236,7 +1224,7 @@ mod test {
             ---
             people:
               - name: Robert Anderson
-                age: 30
+                age: 20
               - name: Adam Bar
                 age: 32
               - name: Sarah Foo
@@ -1257,7 +1245,7 @@ mod test {
         expect![[r#"
             │  1 │ people:                          │   1 │ people:                         
             │  2 │   - name: Robert Anderson        │   2 │   - name: Robert Anderson       
-            │  3 │     age: 30                      │   3 │     age: 30                     
+            │  3 │     age: 20                      │   2 │     age: 20                     
             │    │                                  │   4 │   - name: Adam Bar              
             │    │                                  │   5 │     age: 32                     
             │  4 │   - name: Sarah Foo              │   6 │   - name: Sarah Foo             
@@ -1313,12 +1301,12 @@ mod test {
             │   3 │   age: 12                       │   6 │   age: 34                       
 
             Added: .person.location:
-            │                                       │   1 │ person:                         
-            │                                       │   2 │   name: Steven Anderson         
-            │   1 │ person:                         │   3 │   location:                     
-            │   2 │   name: Steve E. Anderson       │   4 │     street: 1 Kentish Street    
-            │     │                                 │   5 │     postcode: KS87JJ            
-            │     │                                 │   6 │   age: 34                       
+            │   1 │ person:                         │   1 │ person:                         
+            │   2 │   name: Steve E. Anderson       │   2 │   name: Steven Anderson         
+            │                                       │   3 │   location:                     
+            │                                       │   4 │     street: 1 Kentish Street    
+            │                                       │   5 │     postcode: KS87JJ            
+            │   3 │   age: 12                       │   6 │   age: 34                       
 
         "#]]
         .assert_eq(content.as_str());

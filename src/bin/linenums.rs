@@ -1,7 +1,7 @@
 use clap::Parser;
 use saphyr::{MarkedYamlOwned, Marker};
 
-use everdiff::read_and_patch;
+use everdiff::{YamlSource, read_and_patch};
 
 struct Span {
     start: Marker,
@@ -197,7 +197,24 @@ fn print_node_spans(
                 width = line_width
             );
         }
+        saphyr::YamlDataOwned::Tagged(_tag, _) => {
+            unimplemented!("Not sure what to do with a `tag`")
+        }
     }
+}
+
+fn print_source(source: &YamlSource) {
+    println!("File: {}: Index: {}", source.file, source.index);
+    println!("Start: {}, End: {}", source.start, source.end);
+    println!(
+        "First line: {}, Last Line: {}",
+        source.first_line, source.last_line
+    );
+    println!("Content:\n{}", source.content);
+    source.lines().iter().zip(1..).for_each(|(line, nr)| {
+        println!("{nr:3} |{line}");
+    });
+    println!();
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -206,12 +223,7 @@ fn main() -> Result<(), anyhow::Error> {
     let sources = read_and_patch(&[args.left], &[])?;
 
     for source in sources {
-        println!("File: {}", source.file);
-        println!("Document index: {}", source.index);
-        println!("YAML tree structure with spans:");
-
-        let max_line_width = calculate_max_line_width(&source.yaml);
-        print_node_spans(&source.yaml, 0, max_line_width, &source.content);
+        print_source(&source);
     }
 
     Ok(())
