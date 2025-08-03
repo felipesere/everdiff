@@ -1,4 +1,4 @@
-use std::{cmp::max, fmt::Write, io::Read};
+use std::{fmt::Write, io::Read};
 
 // TODO: Replace anyhow with structured error types for better error handling and user experience
 use camino::Utf8PathBuf;
@@ -10,6 +10,8 @@ use saphyr::LoadableYamlNode;
 use snippet::{
     Color, Line, LineWidget, RenderContext, render_added, render_difference, render_removal,
 };
+// used in the linenums binary
+pub use source::YamlSource;
 
 pub mod config;
 pub mod diff;
@@ -19,45 +21,7 @@ pub mod node;
 pub mod path;
 pub mod prepatch;
 pub mod snippet;
-
-// TODO: Should this live elsewhere?
-#[derive(Debug, Clone)]
-pub struct YamlSource {
-    pub file: camino::Utf8PathBuf,
-    pub yaml: saphyr::MarkedYamlOwned,
-    pub content: String,
-    pub index: usize,
-    // these numbers are based on the file itself.
-    // they do come from the parser, but carry on counting
-    // up across multiple docs within the same file
-    pub start: usize,
-    pub end: usize,
-    // these are relative numbers.
-    // Unless something is funky, first line should always be Line(1)
-    pub first_line: Line,
-    pub last_line: Line,
-}
-
-impl YamlSource {
-    pub fn lines(&self) -> Vec<&str> {
-        self.content
-            .lines()
-            .skip_while(|line| *line == "---" || line.is_empty())
-            .collect()
-    }
-
-    /// Turn the absolute, file-wide line number into one that
-    /// is relative to the beginning of the document
-    fn relative_line(&self, line: usize) -> Line {
-        log::info!(
-            "the start of the document is on absolute line {}, and we are checking for line {line}",
-            self.start
-        );
-        let raw = max(1, line.saturating_sub(self.start));
-
-        Line::new(raw).unwrap()
-    }
-}
+pub mod source;
 
 // TODO: Optimize memory usage for large files - consider streaming approach instead of loading all into memory
 pub fn read_and_patch(
@@ -100,6 +64,8 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
         let first_line = Line::one();
         // the span ends when the indenation no longer matches, which is the line _after_ the the
         // last properly indented line
+        dbg!(&end);
+        dbg!(&start);
         let last_line = Line::new(end - start).unwrap();
 
         docs.push(YamlSource {
@@ -283,92 +249,5 @@ fn render_string_diff(left: &str, right: &str) {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::{read_doc, snippet::Line};
-
-    #[test]
-    fn relave_line_numbers() {
-        let content = indoc::indoc! {r#"
-        ---
-        person:
-          name: Steve E. Anderson
-          age: 12
-        ---
-        pet:
-          kind: cat
-          age: 7
-          breed: American Shorthair
-        "#};
-
-        let mut yaml = read_doc(content, camino::Utf8PathBuf::new()).unwrap();
-
-        let first = yaml.remove(0);
-        let second = yaml.remove(0);
-
-        // Let's check that we are on the same page...
-        // ...the first line of the first document comes after the `---`
-        assert_eq!(first.start, 2);
-        assert_eq!(first.first_line, Line::unchecked(1));
-        // ...same for the first line of the second document.
-        // we just keep counting
-        assert_eq!(second.first_line, Line::unchecked(1));
-
-        // the last line is the first line where indentation "resets"
-        // this makes the range [first_line, last_line)
-        assert_eq!(first.last_line, Line::unchecked(3));
-        assert_eq!(second.last_line, Line::unchecked(4));
-
-        // .person starts on line 2 according to the debug output
-        assert_eq!(first.relative_line(2), Line::unchecked(1));
-
-        // .pet starts on 6
-        assert_eq!(second.relative_line(6), Line::unchecked(1));
-    }
-
-    #[test]
-    fn real_life_relative_numbers() {
-        let content = indoc::indoc! {
-            r#"
-          ---
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: flux-engine-steam
-            namespace: classification
-            labels:
-              helm.sh/chart: flux-engine-steam-2.28.12
-              app.kubernetes.io/name: flux-engine-steam
-              app: flux-engine-steam
-              app.kubernetes.io/version: 0.0.27-pre1
-              app.kubernetes.io/managed-by: batman
-            annotations:
-              github.com/repository_url: git@github.com:flux-engine-steam
-              this_is: new
-          spec:
-            ports:
-              - targetPort: 8502
-                port: 3000
-                name: https
-            selector:
-              app: flux-engine-steam
-          ---
-          foo: bar
-        "#,
-        };
-
-        let mut source = read_doc(content, camino::Utf8PathBuf::new()).unwrap();
-
-        dbg!(&source);
-        let source = source.remove(0);
-
-        assert_eq!(source.start, 2);
-        assert_eq!(source.first_line, Line::unchecked(1));
-        assert_eq!(source.last_line, Line::unchecked(21));
-
-        assert_eq!(source.relative_line(15), Line::unchecked(14));
     }
 }

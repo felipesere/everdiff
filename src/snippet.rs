@@ -623,7 +623,7 @@ pub fn gap_start(
 #[cfg(test)]
 mod test_node_height {
     use indoc::indoc;
-    use saphyr::{Indexable, LoadableYamlNode, MarkedYamlOwned};
+    use saphyr::{LoadableYamlNode, MarkedYamlOwned, SafelyIndex};
 
     use crate::snippet::node_height;
 

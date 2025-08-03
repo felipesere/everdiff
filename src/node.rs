@@ -1,4 +1,4 @@
-use saphyr::{AnnotatedMapping, Indexable, MarkedYamlOwned};
+use saphyr::{AnnotatedMapping, MarkedYamlOwned, SafelyIndex};
 use saphyr_parser::Span;
 
 use crate::path::Path;
