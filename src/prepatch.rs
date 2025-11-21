@@ -199,7 +199,7 @@ mod tests {
     use indoc::indoc;
     use saphyr::YamlEmitter;
 
-    use crate::{YamlSource, read_doc};
+    use crate::{YamlSource, node::to_value, read_doc};
 
     use super::PrePatch;
 
@@ -312,9 +312,12 @@ mod tests {
 
     pub fn serialize(docs: &[YamlSource]) -> String {
         let mut out_str = String::new();
-        let mut emitter = YamlEmitter::new(&mut out_str);
         for doc in docs {
-            emitter.dump(&doc.yaml).unwrap();
+            {
+                let mut emitter = YamlEmitter::new(&mut out_str);
+                emitter.dump(&to_value(&doc.yaml)).unwrap();
+            }
+            out_str.push('\n');
         }
         out_str
     }
