@@ -24,10 +24,10 @@ pub struct PrePatch {
 impl PrePatch {
     pub fn apply_to(&self, documents: &mut Vec<YamlSource>) -> Result<(), Error> {
         for doc in documents {
-            if let Some(doc_matcher) = &self.document_like {
-                if !document_matches(doc_matcher, &doc.yaml) {
-                    continue;
-                }
+            if let Some(doc_matcher) = &self.document_like
+                && !document_matches(doc_matcher, &doc.yaml)
+            {
+                continue;
             }
             apply_patch(&self.patches, &mut doc.yaml)?;
         }

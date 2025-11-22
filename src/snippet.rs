@@ -11,7 +11,7 @@ use ansi_width::ansi_width;
 use owo_colors::{OwoColorize, Style};
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
-use crate::{YamlSource, node::node_in, path::Path};
+use crate::{YamlSource, diff::Item, node::node_in, path::Path};
 
 #[derive(Debug, Clone)]
 pub struct RenderContext {
@@ -206,7 +206,7 @@ impl Snippet<'_> {
         Ok(Snippet { lines, from, to })
     }
 
-    pub fn iter(&self) -> SnippetLineIter {
+    pub fn iter<'s>(&'s self) -> SnippetLineIter<'s> {
         SnippetLineIter {
             snippet: self,
             current: self.from.get(),
@@ -343,7 +343,7 @@ struct Rendered {
 pub fn render_removal(
     ctx: &RenderContext,
     path_to_change: Path,
-    removal: MarkedYamlOwned,
+    removal: Item,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
 ) -> String {
@@ -360,7 +360,7 @@ pub fn render_removal(
 pub fn render_added(
     ctx: &RenderContext,
     path_to_change: Path,
-    addition: MarkedYamlOwned,
+    addition: Item,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
 ) -> String {
@@ -382,7 +382,7 @@ enum ChangeType {
 fn render_change(
     ctx: &RenderContext,
     path_to_change: Path,
-    changed_yaml: MarkedYamlOwned,
+    changed_yaml: Item,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     change_type: ChangeType,
@@ -413,7 +413,7 @@ fn render_change(
     let unchanged = colors.1;
 
     let primary = render_primary_side(ctx, primary_doc, &changed_yaml, colors);
-    let gap_size = node_height(&changed_yaml);
+    let gap_size = changed_yaml.height();
 
     let parent = path_to_change.parent().unwrap();
     let parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
@@ -468,14 +468,22 @@ fn render_change(
 fn render_primary_side(
     ctx: &RenderContext,
     primary_doc: &YamlSource,
-    changed_yaml: &MarkedYamlOwned,
+    item: &Item,
     (highlighting, unchanged): (Style, Style),
 ) -> Vec<String> {
     // Extract lines from primary document
     let primary_lines = primary_doc.lines();
 
-    let change_start = primary_doc.relative_line(changed_yaml.span.start.line());
-    let change_end = primary_doc.relative_line(changed_yaml.span.end.line());
+    let (change_start, change_end) = match item {
+        Item::KV { key, value } => (
+            primary_doc.relative_line(key.span.start.line()),
+            primary_doc.relative_line(value.span.end.line()),
+        ),
+        Item::ArrayElement { value, .. } => (
+            primary_doc.relative_line(value.span.start.line()),
+            primary_doc.relative_line(value.span.end.line()),
+        ),
+    };
 
     // Show a few more lines before and after the lines that have changed
     let start = change_start - ctx.visual_context;
@@ -575,9 +583,9 @@ fn render_secondary_side(
     filler.chain(pre_gap).chain(gap).chain(post_gap).collect()
 }
 
-fn node_height(changed_yaml: &MarkedYamlOwned) -> usize {
-    let start = changed_yaml.span.start.line();
-    let end = changed_yaml.span.end.line();
+fn node_height(value: &MarkedYamlOwned) -> usize {
+    let start = value.span.start.line();
+    let end = value.span.end.line();
     max(end - start, 1)
 }
 
@@ -625,7 +633,7 @@ mod test_node_height {
     use indoc::indoc;
     use saphyr::{LoadableYamlNode, MarkedYamlOwned, SafelyIndex};
 
-    use crate::snippet::node_height;
+    use crate::diff::Item;
 
     #[test]
     fn height_of_simple_string() {
@@ -635,9 +643,13 @@ mod test_node_height {
 
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
-        let element = yaml.get("element").unwrap();
+        let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
+        let item = Item::KV {
+            key: (*key).clone(),
+            value: (*value).clone(),
+        };
 
-        assert_eq!(1, node_height(element));
+        assert_eq!(1, item.height());
     }
 
     #[test]
@@ -651,9 +663,13 @@ mod test_node_height {
 
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
-        let element = yaml.get("element").unwrap();
+        let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
+        let item = Item::KV {
+            key: (*key).clone(),
+            value: (*value).clone(),
+        };
 
-        assert_eq!(3, node_height(element));
+        assert_eq!(4, item.height());
     }
 
     #[test]
@@ -664,9 +680,13 @@ mod test_node_height {
 
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
-        let element = yaml.get("element").unwrap();
+        let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
+        let item = Item::KV {
+            key: (*key).clone(),
+            value: (*value).clone(),
+        };
 
-        assert_eq!(1, node_height(element));
+        assert_eq!(1, item.height());
     }
 
     #[test]
@@ -677,9 +697,13 @@ mod test_node_height {
 
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
-        let element = yaml.get("element").unwrap();
+        let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
+        let item = Item::KV {
+            key: (*key).clone(),
+            value: (*value).clone(),
+        };
 
-        assert_eq!(1, node_height(element));
+        assert_eq!(1, item.height());
     }
 
     #[test]
@@ -690,9 +714,13 @@ mod test_node_height {
 
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
-        let element = yaml.get("element").unwrap();
+        let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
+        let item = Item::KV {
+            key: (*key).clone(),
+            value: (*value).clone(),
+        };
 
-        assert_eq!(1, node_height(element));
+        assert_eq!(1, item.height());
     }
 
     #[test]
@@ -707,9 +735,13 @@ mod test_node_height {
 
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
-        let element = yaml.get("element").unwrap();
+        let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
+        let item = Item::KV {
+            key: (*key).clone(),
+            value: (*value).clone(),
+        };
 
-        assert_eq!(4, node_height(element));
+        assert_eq!(5, item.height());
     }
 
     #[test]
@@ -726,9 +758,13 @@ mod test_node_height {
 
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
-        let element = yaml.get("thing").and_then(|thing| thing.get(1)).unwrap();
+        let value = yaml.get("thing").and_then(|thing| thing.get(1)).unwrap();
+        let item = Item::ArrayElement {
+            index: 1,
+            value: (*value).clone(),
+        };
 
-        assert_eq!(2, node_height(element));
+        assert_eq!(2, item.height());
     }
 
     #[test]
@@ -743,9 +779,13 @@ mod test_node_height {
 
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
-        let element = yaml.get("element").unwrap();
+        let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
+        let item = Item::KV {
+            key: (*key).clone(),
+            value: (*value).clone(),
+        };
 
-        assert_eq!(4, node_height(element));
+        assert_eq!(5, item.height());
     }
 }
 

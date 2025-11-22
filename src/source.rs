@@ -142,8 +142,5 @@ mod test {
         assert_eq!(second.end, 26);
         assert_eq!(second.first_line, Line::unchecked(1));
         assert_eq!(second.last_line, Line::unchecked(2));
-
-        // assert_eq!(first.relative_line(15), Line::unchecked(14));
-        panic!("???");
     }
 }
