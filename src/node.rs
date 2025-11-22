@@ -119,8 +119,7 @@ mod tests {
             ---
             target:
               name: Foo
-              value: bar
-        "#]]
+              value: bar"#]]
         .assert_eq(&buf);
     }
 }
