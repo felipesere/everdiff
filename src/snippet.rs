@@ -391,9 +391,9 @@ fn render_change(
     log::debug!("The changed yaml node looks like: {:#?}", changed_yaml);
 
     // Select primary and secondary documents based on change type
-    // The `primary_doc` has more content and the changed_yaml will be highlighted.
-    // The `secondary_doc` has the gap in it
-    let (primary_doc, secondary_doc) = match change_type {
+    // The `larger_document` has more content and the changed_yaml will be highlighted.
+    // The `gapped_document` has the gap in it
+    let (larger_document, gapped_document) = match change_type {
         ChangeType::Removal => (left_doc, right_doc),
         ChangeType::Addition => (right_doc, left_doc),
     };
@@ -409,14 +409,12 @@ fn render_change(
         ),
         Color::Disabled => (owo_colors::Style::new(), owo_colors::Style::new()),
     };
-    // Meh...
-    let unchanged = colors.1;
 
-    let primary = render_primary_side(ctx, primary_doc, &changed_yaml, colors);
+    let primary = render_primary_side(ctx, larger_document, &changed_yaml, colors);
     let gap_size = changed_yaml.height();
 
     let parent = path_to_change.parent().unwrap();
-    let parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
+    let parent_node = node_in(&larger_document.yaml, &parent).unwrap();
 
     let (align_to_element, _) = surrounding_paths(parent_node, &path_to_change);
     // TODO: Do this better...
@@ -430,11 +428,11 @@ fn render_change(
 
     let secondary = render_secondary_side(
         ctx,
-        secondary_doc,
+        gapped_document,
         align_to_element,
         primary.len(),
         gap_size,
-        unchanged,
+        colors.1,
     );
 
     // wtf is this +6
