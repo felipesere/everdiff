@@ -41,6 +41,7 @@ thiserror = "2"
 indoc = "2.0.5"
 pretty_assertions = "1.4.1"
 expect-test = "1.5.0"
+test-log = "0.2.18"
 
 # [patch.crates-io]
 # saphyr-parser = { path = "../saphyr/parser"}

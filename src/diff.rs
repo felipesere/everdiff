@@ -1,5 +1,5 @@
 use hashlink::LinkedHashSet;
-use log::info;
+use log::debug;
 use saphyr::YamlDataOwned;
 
 use crate::path::{Path, Segment};
@@ -119,8 +119,8 @@ pub fn diff(
                         let fileds = right_copy.data.as_mapping_mut().unwrap();
                         fileds.retain_with_order(|k, _| k == *key);
 
-                        info!("Original span: {:?}", right.span);
-                        info!("Modified span: {:?}", right_copy.span);
+                        debug!("Original span: {:?}", right.span);
+                        debug!("Modified span: {:?}", right_copy.span);
 
                         diffs.push(Difference::Added {
                             path,
@@ -135,8 +135,8 @@ pub fn diff(
                         let fields = left_copy.data.as_mapping_mut().unwrap();
                         fields.retain_with_order(|k, _| k == *key);
 
-                        info!("Original span: {:?}", left.span);
-                        info!("Modified span: {:?}", left_copy.span);
+                        debug!("Original span: {:?}", left.span);
+                        debug!("Modified span: {:?}", left_copy.span);
 
                         diffs.push(Difference::Removed {
                             path,

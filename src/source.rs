@@ -9,9 +9,10 @@ pub struct YamlSource {
     pub yaml: saphyr::MarkedYamlOwned,
     pub content: String,
     pub index: usize,
-    // these numbers are based on the file itself.
-    // they do come from the parser, but carry on counting
-    // up across multiple docs within the same file
+    /// these numbers are based on the file itself.
+    /// they do come from the parser, but carry on counting
+    /// up across multiple docs within the same file
+    /// and include leading empty lines
     pub start: usize,
     pub end: usize,
     // these are relative numbers.
@@ -31,11 +32,11 @@ impl YamlSource {
     /// Turn the absolute, file-wide line number into one that
     /// is relative to the beginning of the document
     pub fn relative_line(&self, line: usize) -> Line {
-        log::info!(
-            "the start of the document is on absolute line {}, and we are checking for line {line}",
-            self.start
+        let start = self.start;
+        log::debug!(
+            "the start of the document is on absolute line {start}, and we are checking for line {line}",
         );
-        let raw = max(1, line.saturating_sub(self.start));
+        let raw = max(1, line.saturating_sub(start));
 
         Line::new(raw).unwrap()
     }

@@ -178,9 +178,9 @@ impl Snippet<'_> {
         from: Line,
         to: Line,
     ) -> Result<Snippet<'source>, anyhow::Error> {
-        log::info!("Creating a new snippet");
-        log::info!("---from: {from} to {to}");
-        log::info!("{:#?}", lines);
+        log::debug!("Creating a new snippet");
+        log::debug!("---from: {from} to {to}");
+        log::debug!("{:#?}", lines);
         if to <= from {
             anyhow::bail!("'to' ({to}) was less than 'from' ({from})");
         }
@@ -440,7 +440,7 @@ fn render_change(
 
     let fixed_with_line = |(left, right)| format!("│ {left:<width$}│ {right:<width$}");
 
-    log::info!(
+    log::debug!(
         "Sizes:  primary {}, secondary {}",
         primary.len(),
         secondary.len()
@@ -486,13 +486,13 @@ fn render_primary_side(
     // Show a few more lines before and after the lines that have changed
     let start = change_start - ctx.visual_context;
     let end = min(change_end + ctx.visual_context, primary_doc.last_line);
-    log::info!("Snippet for primary document");
+    log::debug!("Snippet for primary document");
     let primary_snippet =
         Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
 
     // Format the primary side
     let changed_range = change_start..=change_end;
-    log::info!("We will highlight {change_start}..={change_end}");
+    log::debug!("We will highlight {change_start}..={change_end}");
     primary_snippet
         .iter()
         .map(move |(line_nr, line)| {
@@ -520,15 +520,17 @@ fn render_secondary_side(
     gap_size: usize,
     unchanged: Style,
 ) -> Vec<String> {
-    log::info!("the secondary_doc is : {secondary_doc:#?}");
-    log::info!(
+    log::trace!("the secondary_doc is : {secondary_doc:#?}");
+    log::debug!(
         "gap_size: {gap_size}, align to element: {}",
         align_to_element.jq_like(),
     );
-    let node_to_align = node_in(&secondary_doc.yaml, &align_to_element).unwrap();
+    // TODO: this might not be 100% intended as it gives the value, meaning the right hand side...
+    let node_to_align = node_in(&secondary_doc.yaml, &align_to_element)
+        .expect("node to align was not in secondary_doc");
 
     let gap_start = secondary_doc.relative_line(node_to_align.span.end.line());
-    log::info!("The gap should be right after: {gap_start}");
+    log::debug!("The gap should be right after: {gap_start}");
     let start = gap_start
         - (ctx
             .visual_context
@@ -538,16 +540,24 @@ fn render_secondary_side(
     let lines = secondary_doc.lines();
 
     let s = Snippet::new(&lines, start, end).unwrap();
+    log::debug!("Secondary snippet len: {}", s.lines.len());
+    log::debug!("{:?}", &s.lines);
     let (before_gap, after_gap) = s.split(gap_start);
+    log::debug!("after split:");
+    log::debug!("before_gap: {}->{}", before_gap.from, before_gap.to);
+    log::debug!("after_gap: {}->{}", after_gap.from, after_gap.to);
 
     let filler_len = if end.distance(&start) > primary_snippet_size {
-        log::warn!("Secondary snippet is bigger than the primary one?");
+        let secondary = end.distance(&start);
+        log::warn!(
+            "Secondary snippet is bigger than the primary one: {secondary} > {primary_snippet_size}"
+        );
         0
     } else {
         log::warn!("Primary is bigger, so we need a little bit of filler");
-        dbg!(end.distance(&start)).saturating_sub(dbg!(primary_snippet_size))
+        (end.distance(&start)).saturating_sub(primary_snippet_size)
     };
-    log::info!("Filler will be {filler_len}");
+    log::debug!("Filler will be {filler_len}");
 
     let filler = repeat_n("".to_string(), filler_len);
 
@@ -1054,8 +1064,8 @@ impl fmt::Display for LineWidget {
 // TODO: remove the `after node`
 fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path>, Option<Path>) {
     let parent_path = path.parent().unwrap();
-    log::debug!("the parent is: {}", parent_path.jq_like());
-    log::debug!("the parent node is: {:#?}", parent_node);
+    log::trace!("the parent is: {}", parent_path.jq_like());
+    log::trace!("the parent node is: {:#?}", parent_node);
     match &parent_node.data {
         YamlDataOwned::Sequence(children) => {
             let idx = path.head().and_then(|s| s.as_index()).unwrap();
@@ -1100,6 +1110,7 @@ fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path
 #[cfg(test)]
 mod test {
     use std::sync::Once;
+    use test_log::test;
 
     use expect_test::expect;
     use indoc::indoc;
@@ -1234,14 +1245,17 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences, true);
 
         expect![[r#"
-            │  1 │ person:                          │   1 │ person:                         
-            │  2 │   name: Robert Anderson          │   2 │   name: Robert Anderson         
-            │    │                                  │   3 │   address:                      
-            │    │                                  │   4 │     street: foo bar             
-            │    │                                  │   5 │     nr: 1                       
-            │    │                                  │   6 │     postcode: ABC123            
-            │  3 │   age: 12                        │   7 │   age: 12                       
-            │  4 │   foo: bar                       │   8 │   foo: bar                      "#]]
+            Added: .person.address:
+            │   1 │ person:                         │   1 │ person:                         
+            │   2 │   name: Robert Anderson         │   2 │   name: Robert Anderson         
+            │     │                                 │   3 │   address:                      
+            │     │                                 │   4 │     street: foo bar             
+            │     │                                 │   5 │     nr: 1                       
+            │     │                                 │   6 │     postcode: ABC123            
+            │   3 │   age: 12                       │   7 │   age: 12                       
+            │   4 │   foo: bar                      │   8 │   foo: bar                      
+
+        "#]]
         .assert_eq(content.as_str());
     }
 

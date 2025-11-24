@@ -61,11 +61,11 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
         let start = document.span.start.line();
         let end = document.span.end.line();
 
+        log::debug!("start: {start} and end {end}");
+
         let first_line = Line::one();
         // the span ends when the indenation no longer matches, which is the line _after_ the the
         // last properly indented line
-        dbg!(&end);
-        dbg!(&start);
         let last_line = Line::new(end - start).unwrap();
 
         docs.push(YamlSource {
