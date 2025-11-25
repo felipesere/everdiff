@@ -1,6 +1,6 @@
-use saphyr::{AnnotatedMapping, MarkedYamlOwned, SafelyIndex};
-
-use crate::path::Path;
+use crate::diff::{Item, string_value};
+use crate::path::{Path, Segment};
+use saphyr::{AnnotatedMapping, LoadableYamlNode, MarkedYamlOwned, SafelyIndex};
 
 pub fn sub_mapping(original: &MarkedYamlOwned, target: &Path) -> Option<MarkedYamlOwned> {
     let (key, value) = node_and_key(original, target)?;
@@ -34,6 +34,45 @@ pub fn node_and_key(
     n
 }
 
+pub fn node_in_2(yaml: &MarkedYamlOwned, path: &Path) -> Option<Item> {
+    let Some((last, rest)) = path.segments().split_last() else {
+        log::debug!("Very odd that the path was empty...");
+        return None;
+    };
+    let mut n = yaml;
+    for p in rest {
+        match p {
+            crate::path::Segment::Field(f) => {
+                n = n.get(f.as_str())?;
+            }
+            crate::path::Segment::Index(nr) => {
+                n = n.get(*nr)?;
+            }
+        }
+    }
+    match last {
+        Segment::Field(f) => {
+            let key = n
+                .data
+                .as_mapping()?
+                .keys()
+                .find(|key| key.data.as_str().is_some_and(|t| t == f))?;
+            Some(Item::KV {
+                key: key.clone(),
+                value: yaml.get(f.as_str()).cloned().unwrap(),
+            })
+        }
+        Segment::Index(index) => {
+            let value = n.data.as_sequence_get(*index)?;
+
+            Some(Item::ArrayElement {
+                index: (*index).try_into().ok()?,
+                value: value.clone(),
+            })
+        }
+    }
+}
+
 pub fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedYamlOwned> {
     let mut n = Some(yaml);
     for p in path.segments() {
@@ -51,7 +90,7 @@ pub fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedY
     n
 }
 
-pub fn to_value<'input>(marked_yaml: &'input MarkedYamlOwned) -> saphyr::Yaml<'input> {
+pub fn to_value(marked_yaml: &MarkedYamlOwned) -> saphyr::Yaml {
     use saphyr::{ScalarOwned, Yaml, YamlDataOwned};
 
     match &marked_yaml.data {

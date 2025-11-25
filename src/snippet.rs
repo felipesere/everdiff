@@ -193,19 +193,6 @@ impl Snippet<'_> {
         Ok(Snippet { lines, from, to })
     }
 
-    pub fn new<'source>(
-        lines: &'source [&'source str],
-        from: Line,
-        to: Line,
-    ) -> Result<Snippet<'source>, anyhow::Error> {
-        if to <= from {
-            anyhow::bail!("'to' ({to}) was less than 'from' ({from})");
-        }
-        let to = min(Line::new(lines.len() - 1).unwrap(), to);
-        let from = max(Line::one(), from);
-        Ok(Snippet { lines, from, to })
-    }
-
     pub fn iter<'s>(&'s self) -> SnippetLineIter<'s> {
         SnippetLineIter {
             snippet: self,
@@ -539,7 +526,7 @@ fn render_secondary_side(
 
     let lines = secondary_doc.lines();
 
-    let s = Snippet::new(&lines, start, end).unwrap();
+    let s = Snippet::try_new(&lines, start, end).unwrap();
     log::debug!("Secondary snippet len: {}", s.lines.len());
     log::debug!("{:?}", &s.lines);
     let (before_gap, after_gap) = s.split(gap_start);
@@ -615,13 +602,16 @@ pub fn gap_start(
     let parent = path_to_change.parent().unwrap();
     let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
 
-    let (before_path, _) = surrounding_paths(primary_parent_node, &path_to_change);
+    let (before_path, _ignored_after_path) =
+        surrounding_paths(primary_parent_node, &path_to_change);
 
     log::debug!(
         "The before node is {:?}",
         &before_path.as_ref().map(|p| p.jq_like())
     );
 
+    // TODO: I think this needs something similar to what I did with Item::KV and Item::ArrayElement
+    // where we are able to retrieve the proper bounding box of the node, not just its value.
     let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
 
     candidate_node_before_change
@@ -631,7 +621,8 @@ pub fn gap_start(
                 _ => 0,
             };
             log::debug!("weird adjustment factor: {n}");
-            primary_doc.relative_line(before.span.end.line() - n)
+            log::debug!("the span ends on {}", before.span.end.line());
+            secondary_doc.relative_line(before.span.end.line() - n)
         })
         .unwrap_or(Line::one())
 }
@@ -799,27 +790,14 @@ mod test_node_height {
 
 #[cfg(test)]
 mod test_gap_start {
-    use std::sync::Once;
+    use test_log::test;
 
     use crate::{path::Path, read_doc, snippet::Line};
 
     use super::gap_start;
 
-    static LOGGING: Once = Once::new();
-
-    fn init_logging() {
-        LOGGING.call_once(|| {
-            if std::env::var("LOG").is_ok() {
-                env_logger::Builder::new()
-                    .filter_level(log::LevelFilter::Debug)
-                    .init();
-            }
-        });
-    }
-
     #[test]
     pub fn clean_split_down_the_middle() {
-        init_logging();
         let primary = indoc::indoc! {r#"
             ---
             person:
@@ -858,7 +836,6 @@ mod test_gap_start {
 
     #[test]
     pub fn example() {
-        init_logging();
         let primary = indoc::indoc! {r#"
             ---
             apiVersion: v1

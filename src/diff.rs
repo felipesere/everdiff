@@ -1,6 +1,8 @@
+use std::borrow::Cow;
+use clap::builder::Str;
 use hashlink::LinkedHashSet;
 use log::debug;
-use saphyr::YamlDataOwned;
+use saphyr::{LoadableYamlNode, MarkedYamlOwned, Scalar, YamlDataOwned};
 
 use crate::path::{Path, Segment};
 
@@ -17,6 +19,10 @@ pub enum Item {
         index: u32,
         value: saphyr::MarkedYamlOwned,
     },
+}
+
+pub fn string_value(value: impl Into<String>) -> MarkedYamlOwned {
+    MarkedYamlOwned::scalar_from_string(value.into())
 }
 
 impl Item {
@@ -318,7 +324,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use saphyr::{LoadableYamlNode, MarkedYamlOwned, Scalar};
 
-    use crate::diff::{ArrayOrdering, Item};
+    use crate::diff::{string_value, ArrayOrdering, Item};
 
     use super::{Context, Difference, Path, diff};
 
@@ -652,16 +658,13 @@ mod tests {
                     "protocol".into()
                 ]),
                 value: Item::KV {
-                    key: s("protocol"),
-                    value: s("TCP")
+                    key: string_value("protocol"),
+                    value: string_value("TCP")
                 },
             }]
         )
     }
 
-    fn s(value: &'static str) -> MarkedYamlOwned {
-        saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(Scalar::String(value.into())))
-    }
 
     #[test]
     fn detect_when_some_elements_have_been_moved_and_others_have_been_added() {

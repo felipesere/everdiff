@@ -52,7 +52,7 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
         .clone()
         .split("---")
         .filter(|doc| !doc.is_empty())
-        .map(|doc| doc.trim_start().to_string())
+        .map(|doc| doc.trim().to_string())
         .collect();
 
     let parsed_docs = saphyr::MarkedYamlOwned::load_from_str(&content)?;
@@ -61,12 +61,15 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
         let start = document.span.start.line();
         let end = document.span.end.line();
 
+        let n : Vec<_> = content.lines().collect();
+        log::debug!("The last line is: {}", n[end-start]);
+
         log::debug!("start: {start} and end {end}");
 
         let first_line = Line::one();
         // the span ends when the indenation no longer matches, which is the line _after_ the the
         // last properly indented line
-        let last_line = Line::new(end - start).unwrap();
+        let last_line = Line::new(end - start - 1).unwrap();
 
         docs.push(YamlSource {
             file: path.clone(),
