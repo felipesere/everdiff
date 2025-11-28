@@ -1,17 +1,14 @@
 use std::{fmt::Write, io::Read};
 
 // TODO: Replace anyhow with structured error types for better error handling and user experience
-use camino::Utf8PathBuf;
 use diff::Difference;
 use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
 use owo_colors::{OwoColorize, Style};
 use path::IgnorePath;
-use saphyr::LoadableYamlNode;
-use snippet::{
-    Color, Line, LineWidget, RenderContext, render_added, render_difference, render_removal,
-};
-// used in the linenums binary
+use snippet::{Color, LineWidget, RenderContext, render_added, render_difference, render_removal};
 pub use source::YamlSource;
+
+use crate::source::read_doc;
 
 pub mod config;
 pub mod diff;
@@ -42,46 +39,6 @@ pub fn read_and_patch(
         let _err = patch.apply_to(&mut docs);
     }
 
-    Ok(docs)
-}
-
-pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result<Vec<YamlSource>> {
-    let content = content.into();
-    let mut docs = Vec::new();
-    let raw_docs: Vec<_> = content
-        .clone()
-        .split("---")
-        .filter(|doc| !doc.is_empty())
-        .map(|doc| doc.trim().to_string())
-        .collect();
-
-    let parsed_docs = saphyr::MarkedYamlOwned::load_from_str(&content)?;
-
-    for (index, (document, content)) in parsed_docs.into_iter().zip(raw_docs).enumerate() {
-        let start = document.span.start.line();
-        let end = document.span.end.line();
-
-        let n : Vec<_> = content.lines().collect();
-        log::debug!("The last line is: {}", n[end-start]);
-
-        log::debug!("start: {start} and end {end}");
-
-        let first_line = Line::one();
-        // the span ends when the indenation no longer matches, which is the line _after_ the the
-        // last properly indented line
-        let last_line = Line::new(end - start - 1).unwrap();
-
-        docs.push(YamlSource {
-            file: path.clone(),
-            yaml: document,
-            start,
-            end,
-            first_line,
-            last_line,
-            content,
-            index,
-        });
-    }
     Ok(docs)
 }
 
@@ -252,5 +209,43 @@ fn render_string_diff(left: &str, right: &str) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::read_doc;
+    #[test]
+    fn reading_diffent_documents() {
+        let primary = indoc::indoc! {r#"
+            ---
+            person:
+              name: Steve E. Anderson
+              location:
+                street: 1 Kentish Street
+                postcode: KS87JJ
+              age: 12
+            "#};
+
+        let primary = read_doc(primary, camino::Utf8PathBuf::default())
+            .unwrap()
+            .remove(0);
+
+        let secondary = indoc::indoc! {r#"
+            ---
+            person:
+              name: Steve E. Anderson
+              age: 12
+            "#};
+
+        let secondary = read_doc(secondary, camino::Utf8PathBuf::default())
+            .unwrap()
+            .remove(0);
+
+        assert_eq!(primary.first_line, secondary.first_line);
+        assert_eq!(primary.last_line, secondary.last_line + 3);
+
+        assert_eq!(primary.start, secondary.start);
+        assert_eq!(primary.end, secondary.end + 3);
     }
 }

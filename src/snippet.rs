@@ -193,6 +193,18 @@ impl Snippet<'_> {
         Ok(Snippet { lines, from, to })
     }
 
+    pub fn new_clamped<'source>(
+        lines: &'source [&'source str],
+        from: Line,
+        to: Line,
+    ) -> Snippet<'source> {
+        if to <= from {
+            panic!("'to' ({to}) was less than 'from' ({from})");
+        }
+        let to = min(Line::new(lines.len()).unwrap(), to);
+        Snippet { lines, from, to }
+    }
+
     pub fn iter<'s>(&'s self) -> SnippetLineIter<'s> {
         SnippetLineIter {
             snippet: self,
@@ -415,6 +427,7 @@ fn render_change(
 
     let secondary = render_secondary_side(
         ctx,
+        larger_document,
         gapped_document,
         align_to_element,
         primary.len(),
@@ -501,6 +514,7 @@ fn render_primary_side(
 
 fn render_secondary_side(
     ctx: &RenderContext,
+    primary_doc: &YamlSource,
     secondary_doc: &YamlSource,
     align_to_element: Path,
     primary_snippet_size: usize,
@@ -516,7 +530,7 @@ fn render_secondary_side(
     let node_to_align = node_in(&secondary_doc.yaml, &align_to_element)
         .expect("node to align was not in secondary_doc");
 
-    let gap_start = secondary_doc.relative_line(node_to_align.span.end.line());
+    let gap_start = gap_start(primary_doc, secondary_doc, align_to_element);
     log::debug!("The gap should be right after: {gap_start}");
     let start = gap_start
         - (ctx
@@ -526,7 +540,7 @@ fn render_secondary_side(
 
     let lines = secondary_doc.lines();
 
-    let s = Snippet::try_new(&lines, start, end).unwrap();
+    let s = Snippet::new_clamped(&lines, start, end);
     log::debug!("Secondary snippet len: {}", s.lines.len());
     log::debug!("{:?}", &s.lines);
     let (before_gap, after_gap) = s.split(gap_start);
@@ -831,7 +845,7 @@ mod test_gap_start {
         // [2]   name: Steve E. Anderson
         // <--- the gap --->
         // [3]   age: 12
-        assert_eq!(actual_start, Line::new(2).unwrap());
+        assert_eq!(actual_start, Line::unchecked(2));
     }
 
     #[test]
@@ -1418,15 +1432,15 @@ mod test {
             │  18 │       name: https                                                  │  19 │       name: https                                                  
 
             Changed: .spec.ports[0].targetPort:
-            │  11 │     app.kubernetes.io/managed-by: batman                           │  12 │   annotations:                                                     
-            │  12 │   annotations:                                                     │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
-            │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    │  14 │     this_is: new                                                   
-            │  14 │ spec:                                                              │  15 │ spec:                                                              
-            │  15 │   ports:                                                           │  16 │   ports:                                                           
-            │  16 │     - targetPort: 8501                                             │  17 │     - targetPort: 8502                                             
-            │  17 │       port: 3000                                                   │  18 │       port: 3000                                                   
-            │  18 │       name: https                                                  │  19 │       name: https                                                  
-            │  19 │   selector:                                                        │  20 │   selector:                                                        
+            │  11 │   annotations:                                                     │  12 │     github.com/repository_url: git@github.com:flux-engine-steam    
+            │  12 │     github.com/repository_url: git@github.com:flux-engine-steam    │  13 │     this_is: new                                                   
+            │  13 │ spec:                                                              │  14 │ spec:                                                              
+            │  14 │   ports:                                                           │  15 │   ports:                                                           
+            │  15 │     - targetPort: 8501                                             │  16 │     - targetPort: 8502                                             
+            │  16 │       port: 3000                                                   │  17 │       port: 3000                                                   
+            │  17 │       name: https                                                  │  18 │       name: https                                                  
+            │  18 │   selector:                                                        │  19 │   selector:                                                        
+            │  19 │     app: flux-engine-steam                                         │  20 │     app: flux-engine-steam                                         
 
         "#]].assert_eq(content.as_str());
     }

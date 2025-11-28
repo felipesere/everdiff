@@ -1,4 +1,5 @@
-use std::cmp::max;
+use camino::Utf8PathBuf;
+use saphyr::LoadableYamlNode;
 
 use crate::snippet::Line;
 
@@ -15,10 +16,53 @@ pub struct YamlSource {
     /// and include leading empty lines
     pub start: usize,
     pub end: usize,
-    // these are relative numbers.
+    // These are relative numbers of actual YAML conent. Trailing empty lines are not counted.
     // Unless something is funky, first line should always be Line(1)
     pub first_line: Line,
     pub last_line: Line,
+}
+
+pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result<Vec<YamlSource>> {
+    let content = content.into();
+    let mut docs = Vec::new();
+    let raw_docs: Vec<_> = content
+        .clone()
+        .split("---")
+        .filter(|doc| !doc.is_empty())
+        .map(|doc| doc.trim().to_string())
+        .collect();
+
+    let parsed_docs = saphyr::MarkedYamlOwned::load_from_str(&content)?;
+
+    for (index, (document, content)) in parsed_docs.into_iter().zip(raw_docs).enumerate() {
+        let start = document.span.start.line();
+        let end = document.span.end.line();
+        log::debug!("start: {start} and end {end}");
+
+        let n = content
+            .lines()
+            .rev()
+            // drop any trailing empty lines...
+            .skip_while(|line| line.is_empty())
+            .count();
+
+        let first_line = Line::one();
+        // the span ends when the indenation no longer matches, which is the line _after_ the the
+        // last properly indented line
+        let last_line = Line::new(n).unwrap();
+
+        docs.push(YamlSource {
+            file: path.clone(),
+            yaml: document,
+            start,
+            end,
+            first_line,
+            last_line,
+            content,
+            index,
+        });
+    }
+    Ok(docs)
 }
 
 impl YamlSource {
@@ -36,15 +80,35 @@ impl YamlSource {
         log::debug!(
             "the start of the document is on absolute line {start}, and we are checking for line {line}",
         );
-        let raw = max(1, line.saturating_sub(start));
-
-        Line::new(raw).unwrap()
+        // If the line we ask for is literally the start, this would be `start - start + 1` which is line 1  :)
+        Line::new(line.saturating_sub(start) + 1).unwrap()
     }
 }
 
 #[cfg(test)]
 mod test {
+
     use crate::{node::node_in, path::Path, read_doc, snippet::Line};
+
+    #[test]
+    fn strange_case() {
+        let secondary = indoc::indoc! {r#"
+            ---
+            person:
+              name: Steve E. Anderson
+              age: 12
+            "#};
+        let secondary = read_doc(secondary, camino::Utf8PathBuf::default())
+            .unwrap()
+            .remove(0);
+
+        assert_eq!(secondary.start, 2);
+        assert_eq!(secondary.first_line, Line::unchecked(1));
+
+        // the line after `age: 12` counts as there is a newline after the 2!
+        assert_eq!(secondary.end, 5);
+        assert_eq!(secondary.last_line, Line::unchecked(3));
+    }
 
     #[test]
     fn relave_line_numbers() {
@@ -126,8 +190,7 @@ mod test {
         let first = sources.remove(0);
         let spec = node_in(&first.yaml, &Path::parse_str(".spec")).unwrap();
 
-        dbg!(&spec);
-        assert_eq!(spec.span.start.line(), 17); // (???)
+        assert_eq!(spec.span.start.line(), 17);
 
         assert_eq!(first.start, 2);
         assert_eq!(first.end, 23);
@@ -135,7 +198,7 @@ mod test {
         assert_eq!(first.last_line, Line::unchecked(21));
 
         // NOTE: No idea if this is right,
-        assert_eq!(first.relative_line(15), Line::unchecked(13));
+        assert_eq!(first.relative_line(14), Line::unchecked(13));
 
         let second = sources.remove(0);
 
