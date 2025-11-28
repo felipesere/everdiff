@@ -522,10 +522,7 @@ fn render_secondary_side(
     unchanged: Style,
 ) -> Vec<String> {
     log::trace!("the secondary_doc is : {secondary_doc:#?}");
-    log::debug!(
-        "gap_size: {gap_size}, align to element: {}",
-        align_to_element.jq_like(),
-    );
+    log::debug!("align to element: {}", align_to_element.jq_like());
     // TODO: this might not be 100% intended as it gives the value, meaning the right hand side...
     let node_to_align = node_in(&secondary_doc.yaml, &align_to_element)
         .expect("node to align was not in secondary_doc");
@@ -1100,7 +1097,6 @@ fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path
 
 #[cfg(test)]
 mod test {
-    use std::sync::Once;
     use test_log::test;
 
     use expect_test::expect;
@@ -1113,18 +1109,6 @@ mod test {
     };
 
     use super::{RenderContext, render_added, render_difference};
-
-    static LOGGING: Once = Once::new();
-
-    fn init_logging() {
-        LOGGING.call_once(|| {
-            if std::env::var("LOG").is_ok() {
-                env_logger::Builder::new()
-                    .filter_level(log::LevelFilter::Debug)
-                    .init();
-            }
-        });
-    }
 
     fn ctx() -> RenderContext {
         RenderContext {
@@ -1209,7 +1193,6 @@ mod test {
 
     #[test]
     fn display_the_addition_of_a_node() {
-        init_logging();
         let left_doc = yaml_source(indoc! {r#"
             ---
             person:
@@ -1252,7 +1235,6 @@ mod test {
 
     #[test]
     fn display_addition_of_node_in_array() {
-        init_logging();
         let left_doc = yaml_source(indoc! {r#"
             ---
             people:
@@ -1298,7 +1280,6 @@ mod test {
 
     #[test]
     fn show_a_change_and_an_additon_at_the_same_time() {
-        init_logging();
         let left_doc = yaml_source(indoc! {r#"
             ---
             person:
@@ -1357,7 +1338,6 @@ mod test {
 
     #[test]
     fn real_life_example() {
-        init_logging();
         let left_doc = yaml_source(indoc! {r#"
             ---
             apiVersion: v1
