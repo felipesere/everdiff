@@ -1,6 +1,6 @@
 use core::option::Option::None;
 use std::{
-    cmp::{max, min},
+    cmp::min,
     fmt::{self},
     iter::{empty, repeat_n},
     num::NonZeroUsize,
@@ -71,14 +71,10 @@ impl Line {
     }
 
     pub fn distance(&self, other: &Line) -> usize {
-        assert!(
-            self.get() >= other.get(),
-            "self has to be bigger to get distance"
-        );
         let a = self.get();
         let b = other.get();
 
-        a - b
+        a.abs_diff(b)
     }
 }
 
@@ -193,6 +189,8 @@ impl Snippet<'_> {
         Ok(Snippet { lines, from, to })
     }
 
+    /// Creates a snippet that will safely clamp the `to` value
+    /// to not exceed the number of `lines`
     pub fn new_clamped<'source>(
         lines: &'source [&'source str],
         from: Line,
@@ -411,20 +409,6 @@ fn render_change(
 
     let primary = render_primary_side(ctx, larger_document, &changed_yaml, colors);
     let gap_size = changed_yaml.height();
-
-    // let parent = path_to_change.parent().unwrap();
-    // let parent_node = node_in(&larger_document.yaml, &parent).unwrap();
-
-    // let (align_to_element, _) = surrounding_paths(parent_node, &path_to_change);
-    // // TODO: Do this better...
-    // let Some(align_to_element) = align_to_element else {
-    //     log::error!(
-    //         "Failed to find surrounding nodes for {path} in primary doc",
-    //         path = path_to_change.jq_like()
-    //     );
-    //     panic!("no surround nodes to align");
-    // };
-
     let secondary = render_secondary_side(
         ctx,
         larger_document,
@@ -583,12 +567,6 @@ fn render_secondary_side(
     });
 
     filler.chain(pre_gap).chain(gap).chain(post_gap).collect()
-}
-
-fn node_height(value: &MarkedYamlOwned) -> usize {
-    let start = value.span.start.line();
-    let end = value.span.end.line();
-    max(end - start, 1)
 }
 
 /// Find corresponding nodes in secondary document
@@ -989,7 +967,7 @@ fn render_changed_snippet(
     let lines: Vec<_> = source.content.lines().map(|s| s.to_string()).collect();
 
     let changed_line = changed_yaml.span.start.line() - start_line_of_document;
-    let start = changed_line.saturating_sub(context) + 1;
+    let start = changed_line.saturating_sub(context);
     let end = min(changed_line + context, lines.len());
     let left_snippet = &lines[start..end];
 
@@ -1022,7 +1000,7 @@ fn render_changed_snippet(
             let extras = line.len() - ansi_width(&line);
             let width = usize::from(ctx.max_width);
 
-            let line_nr = LineWidget(Some(line_nr - 1));
+            let line_nr = LineWidget(Some(line_nr.saturating_sub(1)));
             format!("{line_nr}│ {line:<width$}", width = width + extras)
         })
         .collect::<Vec<_>>();
@@ -1143,6 +1121,7 @@ mod test {
 
         expect![[r#"
             Changed: .person.name:
+            │   1 │ person:                         │   1 │ person:                         
             │   1 │   name: Steve E. Anderson       │   1 │   name: Robert Anderson         
             │   2 │   age: 12                       │   2 │   age: 12                       "#]]
         .assert_eq(content.as_str());
@@ -1176,14 +1155,17 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences, true);
 
         expect![[r#"
-            │  1 │ person:                          │   1 │ person:                         
-            │  2 │   name: Robert Anderson          │   2 │   name: Robert Anderson         
-            │  3 │   address:                       │     │
-            │  4 │     street: foo bar              │     │
-            │  5 │     nr: 1                        │     │
-            │  6 │     postcode: ABC123             │     │
-            │  7 │   age: 12                        │   3 │   age: 12                       
-            │  8 │   foo: bar                       │   4 │   foo: bar                      "#]]
+            Removed: .person.address:
+            │   1 │ person:                         │   1 │ person:                         
+            │   2 │   name: Robert Anderson         │   2 │   name: Robert Anderson         
+            │   3 │   address:                      │     │                                 
+            │   4 │     street: foo bar             │     │                                 
+            │   5 │     nr: 1                       │     │                                 
+            │   6 │     postcode: ABC123            │     │                                 
+            │   7 │   age: 12                       │   3 │   age: 12                       
+            │   8 │   foo: bar                      │   4 │   foo: bar                      
+
+        "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1307,25 +1289,26 @@ mod test {
         expect![[r#"
             Changed: .person.name:
             │   1 │ person:                         │   1 │ person:                         
-            │   2 │   name: Steve E. Anderson       │   2 │   name: Steven Anderson         
-            │   3 │   age: 12                       │   3 │   location:                     
-            │                                       │   4 │     street: 1 Kentish Street    
-            │                                       │   5 │     postcode: KS87JJ            
+            │   1 │   name: Steve E. Anderson       │   1 │   name: Steven Anderson         
+            │   2 │   age: 12                       │   2 │   location:                     
+            │                                       │   3 │     street: 1 Kentish Street    
+            │                                       │   4 │     postcode: KS87JJ            
+            │                                       │   5 │   age: 34                       
 
             Changed: .person.age:
             │                                       │   1 │ person:                         
-            │                                       │   2 │   name: Steven Anderson         
-            │                                       │   3 │   location:                     
-            │   1 │ person:                         │   4 │     street: 1 Kentish Street    
-            │   2 │   name: Steve E. Anderson       │   5 │     postcode: KS87JJ            
-            │   3 │   age: 12                       │   6 │   age: 34                       
+            │                                       │   1 │   name: Steven Anderson         
+            │                                       │   2 │   location:                     
+            │   1 │ person:                         │   3 │     street: 1 Kentish Street    
+            │   1 │   name: Steve E. Anderson       │   4 │     postcode: KS87JJ            
+            │   2 │   age: 12                       │   5 │   age: 34                       
 
             Added: .person.location:
             │   1 │ person:                         │   1 │ person:                         
             │   2 │   name: Steve E. Anderson       │   2 │   name: Steven Anderson         
-            │                                       │   3 │   location:                     
-            │                                       │   4 │     street: 1 Kentish Street    
-            │                                       │   5 │     postcode: KS87JJ            
+            │     │                                 │   3 │   location:                     
+            │     │                                 │   4 │     street: 1 Kentish Street    
+            │     │                                 │   5 │     postcode: KS87JJ            
             │   3 │   age: 12                       │   6 │   age: 34                       
 
         "#]]
