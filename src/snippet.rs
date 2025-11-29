@@ -412,24 +412,24 @@ fn render_change(
     let primary = render_primary_side(ctx, larger_document, &changed_yaml, colors);
     let gap_size = changed_yaml.height();
 
-    let parent = path_to_change.parent().unwrap();
-    let parent_node = node_in(&larger_document.yaml, &parent).unwrap();
+    // let parent = path_to_change.parent().unwrap();
+    // let parent_node = node_in(&larger_document.yaml, &parent).unwrap();
 
-    let (align_to_element, _) = surrounding_paths(parent_node, &path_to_change);
-    // TODO: Do this better...
-    let Some(align_to_element) = align_to_element else {
-        log::error!(
-            "Failed to find surrounding nodes for {path} in primary doc",
-            path = path_to_change.jq_like()
-        );
-        panic!("no surround nodes to align");
-    };
+    // let (align_to_element, _) = surrounding_paths(parent_node, &path_to_change);
+    // // TODO: Do this better...
+    // let Some(align_to_element) = align_to_element else {
+    //     log::error!(
+    //         "Failed to find surrounding nodes for {path} in primary doc",
+    //         path = path_to_change.jq_like()
+    //     );
+    //     panic!("no surround nodes to align");
+    // };
 
     let secondary = render_secondary_side(
         ctx,
         larger_document,
         gapped_document,
-        align_to_element,
+        path_to_change,
         primary.len(),
         gap_size,
         colors.1,
@@ -516,23 +516,19 @@ fn render_secondary_side(
     ctx: &RenderContext,
     primary_doc: &YamlSource,
     secondary_doc: &YamlSource,
-    align_to_element: Path,
+    path_to_changed_node: Path,
     primary_snippet_size: usize,
     gap_size: usize,
     unchanged: Style,
 ) -> Vec<String> {
-    log::trace!("the secondary_doc is : {secondary_doc:#?}");
-    log::debug!("align to element: {}", align_to_element.jq_like());
+    log::debug!("changed_node: {}", path_to_changed_node.jq_like());
     // TODO: this might not be 100% intended as it gives the value, meaning the right hand side...
-    let node_to_align = node_in(&secondary_doc.yaml, &align_to_element)
-        .expect("node to align was not in secondary_doc");
+    // let node_to_align = node_in(&secondary_doc.yaml, &path_to_changed_node)
+    //     .expect("node to align was not in secondary_doc");
 
-    let gap_start = gap_start(primary_doc, secondary_doc, align_to_element);
+    let gap_start = gap_start(primary_doc, secondary_doc, path_to_changed_node);
     log::debug!("The gap should be right after: {gap_start}");
-    let start = gap_start
-        - (ctx
-            .visual_context
-            .saturating_sub(node_height(node_to_align)));
+    let start = gap_start - ctx.visual_context;
     let end: Line = gap_start + gap_size + ctx.visual_context + 1;
 
     let lines = secondary_doc.lines();
@@ -1268,13 +1264,13 @@ mod test {
         let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │  1 │ people:                          │   1 │ people:                         
-            │  2 │   - name: Robert Anderson        │   2 │   - name: Robert Anderson       
-            │  3 │     age: 20                      │   2 │     age: 20                     
-            │    │                                  │   4 │   - name: Adam Bar              
-            │    │                                  │   5 │     age: 32                     
-            │  4 │   - name: Sarah Foo              │   6 │   - name: Sarah Foo             
-            │  5 │     age: 31                      │   7 │     age: 31                     "#]]
+            │   1 │ people:                         │   1 │ people:                         
+            │   2 │   - name: Robert Anderson       │   2 │   - name: Robert Anderson       
+            │   3 │     age: 20                     │   3 │     age: 20                     
+            │     │                                 │   4 │   - name: Adam Bar              
+            │     │                                 │   5 │     age: 32                     
+            │   4 │   - name: Sarah Foo             │   6 │   - name: Sarah Foo             
+            │   5 │     age: 31                     │   7 │     age: 31                     "#]]
         .assert_eq(content.as_str());
     }
 
