@@ -1000,7 +1000,7 @@ fn render_changed_snippet(
             let extras = line.len() - ansi_width(&line);
             let width = usize::from(ctx.max_width);
 
-            let line_nr = LineWidget(Some(line_nr.saturating_sub(1)));
+            let line_nr = LineWidget(Some(line_nr));
             format!("{line_nr}│ {line:<width$}", width = width + extras)
         })
         .collect::<Vec<_>>();
@@ -1122,8 +1122,8 @@ mod test {
         expect![[r#"
             Changed: .person.name:
             │   1 │ person:                         │   1 │ person:                         
-            │   1 │   name: Steve E. Anderson       │   1 │   name: Robert Anderson         
-            │   2 │   age: 12                       │   2 │   age: 12                       "#]]
+            │   2 │   name: Steve E. Anderson       │   2 │   name: Robert Anderson         
+            │   3 │   age: 12                       │   3 │   age: 12                       "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1289,19 +1289,19 @@ mod test {
         expect![[r#"
             Changed: .person.name:
             │   1 │ person:                         │   1 │ person:                         
-            │   1 │   name: Steve E. Anderson       │   1 │   name: Steven Anderson         
-            │   2 │   age: 12                       │   2 │   location:                     
-            │                                       │   3 │     street: 1 Kentish Street    
-            │                                       │   4 │     postcode: KS87JJ            
-            │                                       │   5 │   age: 34                       
+            │   2 │   name: Steve E. Anderson       │   2 │   name: Steven Anderson         
+            │   3 │   age: 12                       │   3 │   location:                     
+            │                                       │   4 │     street: 1 Kentish Street    
+            │                                       │   5 │     postcode: KS87JJ            
+            │                                       │   6 │   age: 34                       
 
             Changed: .person.age:
             │                                       │   1 │ person:                         
-            │                                       │   1 │   name: Steven Anderson         
-            │                                       │   2 │   location:                     
-            │   1 │ person:                         │   3 │     street: 1 Kentish Street    
-            │   1 │   name: Steve E. Anderson       │   4 │     postcode: KS87JJ            
-            │   2 │   age: 12                       │   5 │   age: 34                       
+            │                                       │   2 │   name: Steven Anderson         
+            │                                       │   3 │   location:                     
+            │   1 │ person:                         │   4 │     street: 1 Kentish Street    
+            │   2 │   name: Steve E. Anderson       │   5 │     postcode: KS87JJ            
+            │   3 │   age: 12                       │   6 │   age: 34                       
 
             Added: .person.location:
             │   1 │ person:                         │   1 │ person:                         
@@ -1378,28 +1378,29 @@ mod test {
 
         expect![[r#"
             Added: .metadata.annotations.this_is:
-            │   9 │     app: flux-engine-steam                                         │   9 │     app: flux-engine-steam                                         
-            │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         
-            │  11 │     app.kubernetes.io/managed-by: batman                           │  11 │     app.kubernetes.io/managed-by: batman                           
-            │  12 │   annotations:                                                     │  12 │   annotations:                                                     
-            │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
-            │     │                                                                    │  14 │     this_is: new                                                   
+            │   8 │     app.kubernetes.io/name: flux-engine-steam                      │   9 │     app: flux-engine-steam                                         
+            │   9 │     app: flux-engine-steam                                         │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         
+            │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         │  11 │     app.kubernetes.io/managed-by: batman                           
+            │  11 │     app.kubernetes.io/managed-by: batman                           │  12 │   annotations:                                                     
+            │  12 │   annotations:                                                     │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
+            │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    │  14 │     this_is: new                                                   
+            │     │                                                                    │  15 │ spec:                                                              
+            │  14 │ spec:                                                              │  16 │   ports:                                                           
+            │  15 │   ports:                                                           │  17 │     - targetPort: 8502                                             
+            │  16 │     - targetPort: 8501                                             │  18 │       port: 3000                                                   
+            │  17 │       port: 3000                                                   │  19 │       name: https                                                  
+
+            Changed: .spec.ports[0].targetPort:
+            │  11 │     app.kubernetes.io/managed-by: batman                           │  12 │   annotations:                                                     
+            │  12 │   annotations:                                                     │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
+            │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    │  14 │     this_is: new                                                   
             │  14 │ spec:                                                              │  15 │ spec:                                                              
             │  15 │   ports:                                                           │  16 │   ports:                                                           
             │  16 │     - targetPort: 8501                                             │  17 │     - targetPort: 8502                                             
             │  17 │       port: 3000                                                   │  18 │       port: 3000                                                   
             │  18 │       name: https                                                  │  19 │       name: https                                                  
-
-            Changed: .spec.ports[0].targetPort:
-            │  11 │   annotations:                                                     │  12 │     github.com/repository_url: git@github.com:flux-engine-steam    
-            │  12 │     github.com/repository_url: git@github.com:flux-engine-steam    │  13 │     this_is: new                                                   
-            │  13 │ spec:                                                              │  14 │ spec:                                                              
-            │  14 │   ports:                                                           │  15 │   ports:                                                           
-            │  15 │     - targetPort: 8501                                             │  16 │     - targetPort: 8502                                             
-            │  16 │       port: 3000                                                   │  17 │       port: 3000                                                   
-            │  17 │       name: https                                                  │  18 │       name: https                                                  
-            │  18 │   selector:                                                        │  19 │   selector:                                                        
-            │  19 │     app: flux-engine-steam                                         │  20 │     app: flux-engine-steam                                         
+            │  19 │   selector:                                                        │  20 │   selector:                                                        
+            │  20 │     app: flux-engine-steam                                         │  21 │     app: flux-engine-steam                                         
 
         "#]].assert_eq(content.as_str());
     }
