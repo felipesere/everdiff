@@ -1,8 +1,6 @@
-use std::borrow::Cow;
-use clap::builder::Str;
 use hashlink::LinkedHashSet;
 use log::debug;
-use saphyr::{LoadableYamlNode, MarkedYamlOwned, Scalar, YamlDataOwned};
+use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
 use crate::path::{Path, Segment};
 
@@ -322,9 +320,9 @@ mod tests {
     use expect_test::expect;
     use indoc::indoc;
     use pretty_assertions::assert_eq;
-    use saphyr::{LoadableYamlNode, MarkedYamlOwned, Scalar};
+    use saphyr::{LoadableYamlNode, Scalar};
 
-    use crate::diff::{string_value, ArrayOrdering, Item};
+    use crate::diff::{ArrayOrdering, Item, string_value};
 
     use super::{Context, Difference, Path, diff};
 
@@ -664,7 +662,6 @@ mod tests {
             }]
         )
     }
-
 
     #[test]
     fn detect_when_some_elements_have_been_moved_and_others_have_been_added() {

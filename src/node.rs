@@ -1,6 +1,6 @@
-use crate::diff::{Item, string_value};
+use crate::diff::Item;
 use crate::path::{Path, Segment};
-use saphyr::{AnnotatedMapping, LoadableYamlNode, MarkedYamlOwned, SafelyIndex};
+use saphyr::{AnnotatedMapping, MarkedYamlOwned, SafelyIndex};
 
 pub fn sub_mapping(original: &MarkedYamlOwned, target: &Path) -> Option<MarkedYamlOwned> {
     let (key, value) = node_and_key(original, target)?;
@@ -90,7 +90,7 @@ pub fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedY
     n
 }
 
-pub fn to_value(marked_yaml: &MarkedYamlOwned) -> saphyr::Yaml {
+pub fn to_value(marked_yaml: &'_ MarkedYamlOwned) -> saphyr::Yaml<'_> {
     use saphyr::{ScalarOwned, Yaml, YamlDataOwned};
 
     match &marked_yaml.data {
