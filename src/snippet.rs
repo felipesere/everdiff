@@ -371,6 +371,7 @@ pub fn render_added(
     )
 }
 
+#[derive(Copy, Clone)]
 enum ChangeType {
     Removal,
     Addition,
@@ -417,6 +418,7 @@ fn render_change(
         primary.len(),
         gap_size,
         colors.1,
+        change_type,
     );
 
     // wtf is this +6
@@ -504,6 +506,7 @@ fn render_secondary_side(
     primary_snippet_size: usize,
     gap_size: usize,
     unchanged: Style,
+    change_type: ChangeType,
 ) -> Vec<String> {
     log::debug!("changed_node: {}", path_to_changed_node.jq_like());
     // TODO: this might not be 100% intended as it gives the value, meaning the right hand side...
@@ -512,8 +515,14 @@ fn render_secondary_side(
 
     let gap_start = gap_start(primary_doc, secondary_doc, path_to_changed_node);
     log::debug!("The gap should be right after: {gap_start}");
-    let start = gap_start - ctx.visual_context;
-    let end: Line = gap_start + gap_size + ctx.visual_context + 1;
+    // For additions, the gap comes after a line, so we need to start one line later
+    // to align with the primary side which starts at the added content.
+    // For removals, we start at the gap_start line itself.
+    let start = match change_type {
+        ChangeType::Addition => (gap_start + 1) - ctx.visual_context,
+        ChangeType::Removal => gap_start - ctx.visual_context,
+    };
+    let end: Line = gap_start + ctx.visual_context + 1;
 
     let lines = secondary_doc.lines();
 
@@ -1378,17 +1387,17 @@ mod test {
 
         expect![[r#"
             Added: .metadata.annotations.this_is:
-            │   8 │     app.kubernetes.io/name: flux-engine-steam                      │   9 │     app: flux-engine-steam                                         
-            │   9 │     app: flux-engine-steam                                         │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         
-            │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         │  11 │     app.kubernetes.io/managed-by: batman                           
-            │  11 │     app.kubernetes.io/managed-by: batman                           │  12 │   annotations:                                                     
-            │  12 │   annotations:                                                     │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
-            │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    │  14 │     this_is: new                                                   
-            │     │                                                                    │  15 │ spec:                                                              
-            │  14 │ spec:                                                              │  16 │   ports:                                                           
-            │  15 │   ports:                                                           │  17 │     - targetPort: 8502                                             
-            │  16 │     - targetPort: 8501                                             │  18 │       port: 3000                                                   
-            │  17 │       port: 3000                                                   │  19 │       name: https                                                  
+            │   9 │     app: flux-engine-steam                                         │   9 │     app: flux-engine-steam                                         
+            │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         │  10 │     app.kubernetes.io/version: 0.0.27-pre1                         
+            │  11 │     app.kubernetes.io/managed-by: batman                           │  11 │     app.kubernetes.io/managed-by: batman                           
+            │  12 │   annotations:                                                     │  12 │   annotations:                                                     
+            │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    │  13 │     github.com/repository_url: git@github.com:flux-engine-steam    
+            │     │                                                                    │  14 │     this_is: new                                                   
+            │  14 │ spec:                                                              │  15 │ spec:                                                              
+            │  15 │   ports:                                                           │  16 │   ports:                                                           
+            │  16 │     - targetPort: 8501                                             │  17 │     - targetPort: 8502                                             
+            │  17 │       port: 3000                                                   │  18 │       port: 3000                                                   
+            │  18 │       name: https                                                  │  19 │       name: https                                                  
 
             Changed: .spec.ports[0].targetPort:
             │  11 │     app.kubernetes.io/managed-by: batman                           │  12 │   annotations:                                                     
