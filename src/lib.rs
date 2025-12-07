@@ -100,7 +100,7 @@ pub fn render_multidoc_diff(
                 let actual_left_doc = &left[left_doc_idx];
                 let actual_right_doc = &right[right_doc_idx];
 
-                let max_width = termsize::get().unwrap().cols;
+                let max_width = termsize::get().map(|s| s.cols).unwrap_or(80);
                 let ctx = RenderContext::new(max_width, snippet::Color::Enabled);
                 print!(
                     "{}",

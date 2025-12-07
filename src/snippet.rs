@@ -986,7 +986,7 @@ fn render_changed_snippet(
         .iter()
         .zip(start..end)
         .map(|(line, line_nr)| {
-            let line = if line_nr == changed_line + 1 {
+            let line = if line_nr == changed_line {
                 line.style(added).to_string()
             } else {
                 line.style(unchaged).to_string()
