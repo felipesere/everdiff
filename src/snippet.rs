@@ -1152,7 +1152,7 @@ mod test {
         read_doc, render,
     };
 
-    use super::{RenderContext, render_added, render_difference};
+    use super::{RenderContext, render_added, render_difference, render_removal};
 
     fn ctx() -> RenderContext {
         RenderContext {
@@ -1589,5 +1589,344 @@ mod test {
             │  20 │     app: flux-engine-steam                                         │  21 │     app: flux-engine-steam                                         
 
         "#]].assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_removal_from_middle_of_array() {
+        // Removal of an element from the middle of an array
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            people:
+              - name: Alice
+                age: 25
+              - name: Bob
+                age: 30
+              - name: Charlie
+                age: 35
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            people:
+              - name: Alice
+                age: 25
+              - name: Charlie
+                age: 35
+        "#});
+
+        let mut diff_ctx = Context::default();
+        diff_ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let mut differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences.remove(0);
+        let Difference::Removed { path, value } = first else {
+            panic!("Should have gotten a Removal, got: {:?}", first);
+        };
+        let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
+
+        expect![[r#"
+            │   1 │ people:                         │   1 │ people:                         
+            │   2 │   - name: Alice                 │   2 │   - name: Alice                 
+            │   3 │     age: 25                     │   3 │     age: 25                     
+            │   4 │   - name: Bob                   │   4 │   - name: Charlie               
+            │   5 │     age: 30                     │   5 │     age: 35                     
+            │   6 │   - name: Charlie               │     │                                 
+            │   7 │     age: 35                     │     │                                 "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_removal_at_start_of_array() {
+        // Removal of the first element of an array (index 0)
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            people:
+              - name: First Person
+                age: 20
+              - name: Second Person
+                age: 30
+              - name: Third Person
+                age: 40
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            people:
+              - name: Second Person
+                age: 30
+              - name: Third Person
+                age: 40
+        "#});
+
+        let mut diff_ctx = Context::default();
+        diff_ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let mut differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences.remove(0);
+        let Difference::Removed { path, value } = first else {
+            panic!("Should have gotten a Removal, got: {:?}", first);
+        };
+
+        let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
+
+        expect![[r#"
+            │   1 │ people:                         │   1 │ people:                         
+            │   2 │   - name: First Person          │   2 │   - name: Second Person         
+            │   3 │     age: 20                     │   3 │     age: 30                     
+            │   4 │   - name: Second Person         │   4 │   - name: Third Person          
+            │   5 │     age: 30                     │   5 │     age: 40                     
+            │   6 │   - name: Third Person          │     │                                 
+            │   7 │     age: 40                     │     │                                 "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_removal_where_before_node_is_complex_mapping() {
+        // This tests the fix where "before" node is a complex mapping (not a scalar)
+        // and span.end.line() needs adjustment
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            metadata:
+              name: my-service
+              labels:
+                app: my-app
+                version: "1.0"
+                environment: production
+              annotations:
+                description: "My service description"
+            spec:
+              replicas: 3
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            metadata:
+              name: my-service
+              labels:
+                app: my-app
+                version: "1.0"
+                environment: production
+            spec:
+              replicas: 3
+        "#});
+
+        let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+
+        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+
+        // The gap on the right should align correctly with the removed annotations
+        // Both sides should start at the same line number
+        expect![[r#"
+            Removed: .metadata.annotations:
+            │   2 │   name: my-service              │   2 │   name: my-service              
+            │   3 │   labels:                       │   3 │   labels:                       
+            │   4 │     app: my-app                 │   4 │     app: my-app                 
+            │   5 │     version: "1.0"              │   5 │     version: "1.0"              
+            │   6 │     environment: production     │   6 │     environment: production     
+            │   7 │   annotations:                  │     │                                 
+            │   8 │     description: "My service description"│     │                                 
+            │   9 │ spec:                           │   7 │ spec:                           
+            │  10 │   replicas: 3                   │   8 │   replicas: 3                   
+
+        "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_change_within_array_element() {
+        // A scalar change inside an array element
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            servers:
+              - host: server1.example.com
+                port: 8080
+              - host: server2.example.com
+                port: 9090
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            servers:
+              - host: server1.example.com
+                port: 8080
+              - host: server2.example.com
+                port: 9091
+        "#});
+
+        let mut diff_ctx = Context::default();
+        diff_ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+
+        expect![[r#"
+            Changed: .servers[1].port:
+            │   1 │ servers:                        │   1 │ servers:                        
+            │   2 │   - host: server1.example.com   │   2 │   - host: server1.example.com   
+            │   3 │     port: 8080                  │   3 │     port: 8080                  
+            │   4 │   - host: server2.example.com   │   4 │   - host: server2.example.com   
+            │   5 │     port: 9090                  │   5 │     port: 9091                  
+
+        "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_removal_of_last_key_in_mapping() {
+        // Removal of the last key in a mapping
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            config:
+              database:
+                host: localhost
+                port: 5432
+              cache:
+                enabled: true
+                ttl: 3600
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            config:
+              database:
+                host: localhost
+                port: 5432
+        "#});
+
+        let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+
+        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+
+        expect![[r#"
+            Removed: .config.cache:
+            │   1 │ config:                         │   1 │ config:                         
+            │   2 │   database:                     │   2 │   database:                     
+            │   3 │     host: localhost             │   3 │     host: localhost             
+            │   4 │     port: 5432                  │   4 │     port: 5432                  
+            │   5 │   cache:                        │     │                                 
+            │   6 │     enabled: true               │     │                                 
+            │   7 │     ttl: 3600                   │     │                                 
+
+        "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_addition_of_last_key_in_mapping() {
+        // Addition at the end of a mapping (no "after" node)
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            config:
+              database:
+                host: localhost
+                port: 5432
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            config:
+              database:
+                host: localhost
+                port: 5432
+              cache:
+                enabled: true
+                ttl: 3600
+        "#});
+
+        let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+
+        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+
+        expect![[r#"
+            Added: .config.cache:
+            │   1 │ config:                         │   1 │ config:                         
+            │   2 │   database:                     │   2 │   database:                     
+            │   3 │     host: localhost             │   3 │     host: localhost             
+            │   4 │     port: 5432                  │   4 │     port: 5432                  
+            │     │                                 │   5 │   cache:                        
+            │     │                                 │   6 │     enabled: true               
+            │     │                                 │   7 │     ttl: 3600                   
+
+        "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_removal_of_last_element_in_array() {
+        // Removal of the last element in an array
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            items:
+              - first
+              - second
+              - third
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            items:
+              - first
+              - second
+        "#});
+
+        let mut diff_ctx = Context::default();
+        diff_ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let mut differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences.remove(0);
+        let Difference::Removed { path, value } = first else {
+            panic!("Should have gotten a Removal, got: {:?}", first);
+        };
+
+        let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
+
+        expect![[r#"
+            │   1 │ items:                          │   1 │ items:                          
+            │   2 │   - first                       │   2 │   - first                       
+            │   3 │   - second                      │   3 │   - second                      
+            │   4 │   - third                       │     │                                 "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_addition_of_element_at_end_of_array() {
+        // Addition at the end of an array
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            items:
+              - first
+              - second
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            items:
+              - first
+              - second
+              - third
+        "#});
+
+        let mut diff_ctx = Context::default();
+        diff_ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let mut differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences.remove(0);
+        let Difference::Added { path, value } = first else {
+            panic!("Should have gotten an Addition, got: {:?}", first);
+        };
+
+        let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
+
+        expect![[r#"
+            │   1 │ items:                          │   1 │ items:                          
+            │   2 │   - first                       │   2 │   - first                       
+            │   3 │   - second                      │   3 │   - second                      
+            │     │                                 │   4 │   - third                       "#]]
+        .assert_eq(content.as_str());
     }
 }
