@@ -3,7 +3,8 @@
     "allow": [
       "Bash(cargo check:*)",
       "Bash(cargo test:*)",
-      "Bash(RUST_LOG=debug cargo run:*)"
+      "Bash(RUST_LOG=debug cargo run:*)",
+      "Bash(cargo run:*)"
     ],
     "deny": []
   }

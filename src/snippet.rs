@@ -477,7 +477,11 @@ fn render_primary_side(
         Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
 
     // Format the primary side
-    let changed_range = change_start..=change_end;
+    let mut changed_range = change_start..change_end;
+    if changed_range.is_empty() {
+        // We need to at least highlight 1 line!
+        changed_range = change_start..(change_end + 1);
+    }
     log::debug!("We will highlight {change_start}..={change_end}");
     primary_snippet
         .iter()
@@ -578,6 +582,31 @@ fn render_secondary_side(
     filler.chain(pre_gap).chain(gap).chain(post_gap).collect()
 }
 
+/// Adjusts a path from primary document indexing to secondary document indexing.
+/// For sequences (arrays), when an element is added, the indices shift.
+/// e.g., if we added at index 0, then primary's index 1 corresponds to secondary's index 0.
+fn adjust_path_for_secondary(path: &Path, parent_data: &YamlDataOwned<MarkedYamlOwned>) -> Path {
+    match parent_data {
+        YamlDataOwned::Sequence(_) => {
+            // For sequences, decrement the last index by 1
+            let segments = path.segments();
+            if let Some((last, rest)) = segments.split_last()
+                && let Some(idx) = last.as_index()
+                && idx > 0
+            {
+                let mut new_path = Path::default();
+                for seg in rest {
+                    new_path = new_path.push(seg.clone());
+                }
+                new_path = new_path.push(idx - 1);
+                return new_path;
+            }
+            path.clone()
+        }
+        _ => path.clone(),
+    }
+}
+
 /// Find corresponding nodes in secondary document
 /// I think this is more complex than it initially seems.
 /// The goal is to get the spans of the nodes that need to surround the gap.
@@ -596,29 +625,63 @@ pub fn gap_start(
     let parent = path_to_change.parent().unwrap();
     let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
 
-    let (before_path, _ignored_after_path) =
-        surrounding_paths(primary_parent_node, &path_to_change);
+    let (before_path, after_path) = surrounding_paths(primary_parent_node, &path_to_change);
 
     log::debug!(
         "The before node is {:?}",
         &before_path.as_ref().map(|p| p.jq_like())
+    );
+    log::debug!(
+        "The after node is {:?}",
+        &after_path.as_ref().map(|p| p.jq_like())
     );
 
     // TODO: I think this needs something similar to what I did with Item::KV and Item::ArrayElement
     // where we are able to retrieve the proper bounding box of the node, not just its value.
     let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
 
-    candidate_node_before_change
-        .map(|before| {
-            let n = match primary_parent_node.data {
-                YamlDataOwned::Sequence(_) => 1,
-                _ => 0,
-            };
-            log::debug!("weird adjustment factor: {n}");
-            log::debug!("the span ends on {}", before.span.end.line());
-            secondary_doc.relative_line(before.span.end.line() - n)
-        })
-        .unwrap_or(Line::one())
+    if let Some(before) = candidate_node_before_change {
+        // Normal case: there's a node before the change, use its end line
+        let n = match primary_parent_node.data {
+            YamlDataOwned::Sequence(_) => 1,
+            _ => 0,
+        };
+        log::debug!("weird adjustment factor: {n}");
+        log::debug!("the span ends on {}", before.span.end.line());
+        secondary_doc.relative_line(before.span.end.line() - n)
+    } else if let Some(after) = after_path {
+        // No "before" node (e.g., adding at index 0 of an array).
+        // Use the "after" node to find where the gap should go.
+        // For sequences, the after_path index needs to be decremented by 1
+        // because secondary doesn't have the new element.
+        let adjusted_path = adjust_path_for_secondary(&after, &primary_parent_node.data);
+        log::debug!(
+            "Adjusted after_path for secondary: {:?}",
+            adjusted_path.jq_like()
+        );
+
+        if let Some(after_node) = node_in(&secondary_doc.yaml, &adjusted_path) {
+            // Gap should appear just before this element
+            let start_line = after_node.span.start.line();
+            log::debug!(
+                "After node starts at line {}, gap_start will be {}",
+                start_line,
+                start_line - 1
+            );
+            secondary_doc.relative_line(start_line - 1)
+        } else {
+            // Fallback: use parent node's start
+            log::debug!("Could not find after node in secondary, falling back to parent");
+            let secondary_parent = node_in(&secondary_doc.yaml, &parent);
+            secondary_parent
+                .map(|p| secondary_doc.relative_line(p.span.start.line()))
+                .unwrap_or(Line::one())
+        }
+    } else {
+        // No before or after path, fall back to line 1
+        log::debug!("No before or after path, falling back to Line::one()");
+        Line::one()
+    }
 }
 
 #[cfg(test)]
@@ -1262,6 +1325,122 @@ mod test {
             │     │                                 │   5 │     age: 32                     
             │   4 │   - name: Sarah Foo             │   6 │   - name: Sarah Foo             
             │   5 │     age: 31                     │   7 │     age: 31                     "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_addition_at_start_of_array() {
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            people:
+              - name: Robert Anderson
+                age: 20
+              - name: Sarah Foo
+                age: 31
+        "#});
+
+        // A new person is added at the START of the array
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            people:
+              - name: New First Person
+                age: 25
+              - name: Robert Anderson
+                age: 20
+              - name: Sarah Foo
+                age: 31
+        "#});
+
+        let mut diff_ctx = Context::default();
+        diff_ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let mut differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences.remove(0);
+        let Difference::Added { path, value } = first else {
+            panic!("Should have gotten an Addition, got: {:?}", first);
+        };
+        let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
+
+        // The gap on the left should align with the new element on the right
+        // Both sides should show the `people:` array context
+        expect![[r#"
+            │   1 │ people:                         │   1 │ people:                         
+            │     │                                 │   2 │   - name: New First Person      
+            │     │                                 │   3 │     age: 25                     
+            │   2 │   - name: Robert Anderson       │   4 │   - name: Robert Anderson       
+            │   3 │     age: 20                     │   5 │     age: 20                     
+            │   4 │   - name: Sarah Foo             │   6 │   - name: Sarah Foo             
+            │   5 │     age: 31                     │   7 │     age: 31                     "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_addition_at_start_of_deeply_nested_array() {
+        // This test reproduces the bug where adding at index 0 of a deeply nested
+        // array causes gap_start to fall back to Line::one(), showing the wrong
+        // part of the document on the left side.
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: my-app
+            spec:
+              template:
+                spec:
+                  containers:
+                  - name: app
+                    env:
+                    - name: EXISTING_VAR
+                      value: "existing"
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: my-app
+            spec:
+              template:
+                spec:
+                  containers:
+                  - name: app
+                    env:
+                    - name: NEW_FIRST_VAR
+                      value: "new"
+                    - name: EXISTING_VAR
+                      value: "existing"
+        "#});
+
+        let mut diff_ctx = Context::default();
+        diff_ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let mut differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let first = differences.remove(0);
+        let Difference::Added { path, value } = first else {
+            panic!("Should have gotten an Addition, got: {:?}", first);
+        };
+
+        // Verify the path is what we expect
+        assert_eq!(path.jq_like(), ".spec.template.spec.containers[0].env[0]");
+
+        let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
+
+        // The left side should show the area around the `env:` array,
+        // NOT the beginning of the file (line 1)
+        expect![[r#"
+            │   6 │   template:                     │   6 │   template:                     
+            │   7 │     spec:                       │   7 │     spec:                       
+            │   8 │       containers:               │   8 │       containers:               
+            │   9 │       - name: app               │   9 │       - name: app               
+            │  10 │         env:                    │  10 │         env:                    
+            │     │                                 │  11 │         - name: NEW_FIRST_VAR   
+            │     │                                 │  12 │           value: "new"          
+            │  11 │         - name: EXISTING_VAR    │  13 │         - name: EXISTING_VAR    
+            │  12 │           value: "existing"     │  14 │           value: "existing"     "#]]
         .assert_eq(content.as_str());
     }
 
