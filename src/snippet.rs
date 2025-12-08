@@ -418,7 +418,6 @@ fn render_change(
         primary.len(),
         gap_size,
         colors.1,
-        change_type,
     );
 
     // wtf is this +6
@@ -510,7 +509,6 @@ fn render_secondary_side(
     primary_snippet_size: usize,
     gap_size: usize,
     unchanged: Style,
-    change_type: ChangeType,
 ) -> Vec<String> {
     log::debug!("changed_node: {}", path_to_changed_node.jq_like());
     // TODO: this might not be 100% intended as it gives the value, meaning the right hand side...
@@ -519,13 +517,10 @@ fn render_secondary_side(
 
     let gap_start = gap_start(primary_doc, secondary_doc, path_to_changed_node);
     log::debug!("The gap should be right after: {gap_start}");
-    // For additions, the gap comes after a line, so we need to start one line later
-    // to align with the primary side which starts at the added content.
-    // For removals, we start at the gap_start line itself.
-    let start = match change_type {
-        ChangeType::Addition => (gap_start + 1) - ctx.visual_context,
-        ChangeType::Removal => gap_start - ctx.visual_context,
-    };
+    // The gap comes after gap_start, so we need to start at gap_start + 1
+    // to align with the primary side which starts at the changed content.
+    // This applies to both additions and removals.
+    let start = (gap_start + 1) - ctx.visual_context;
     let end: Line = gap_start + ctx.visual_context + 1;
 
     let lines = secondary_doc.lines();
@@ -641,14 +636,17 @@ pub fn gap_start(
     let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
 
     if let Some(before) = candidate_node_before_change {
-        // Normal case: there's a node before the change, use its end line
-        let n = match primary_parent_node.data {
-            YamlDataOwned::Sequence(_) => 1,
+        // Normal case: there's a node before the change, use its end line.
+        // For complex nodes (mappings/sequences), span.end.line() is exclusive
+        // (points to line after content), so we subtract 1.
+        // For scalars, span.end.line() equals span.start.line() (inclusive).
+        let adjustment = match &before.data {
+            YamlDataOwned::Sequence(_) | YamlDataOwned::Mapping(_) => 1,
             _ => 0,
         };
-        log::debug!("weird adjustment factor: {n}");
+        log::debug!("before node adjustment factor: {adjustment}");
         log::debug!("the span ends on {}", before.span.end.line());
-        secondary_doc.relative_line(before.span.end.line() - n)
+        secondary_doc.relative_line(before.span.end.line() - adjustment)
     } else if let Some(after) = after_path {
         // No "before" node (e.g., adding at index 0 of an array).
         // Use the "after" node to find where the gap should go.
