@@ -20,6 +20,16 @@ impl Segment {
             Segment::Index(idx) => Some(*idx),
         }
     }
+
+    pub fn as_yaml(&self) -> MarkedYamlOwned {
+        match self {
+            Segment::Field(f) => MarkedYamlOwned::value_from_str(f.as_str()),
+            Segment::Index(i) => MarkedYamlOwned {
+                span: Default::default(),
+                data: saphyr::YamlDataOwned::Value(saphyr::ScalarOwned::Integer(*i as i64)),
+            },
+        }
+    }
 }
 
 impl From<&str> for Segment {

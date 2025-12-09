@@ -18,7 +18,7 @@ pub fn by_index() -> IdentifierFn {
 }
 
 pub mod kubernetes {
-    use saphyr::{Indexable, MarkedYamlOwned};
+    use saphyr::{MarkedYamlOwned, SafelyIndex};
 
     use super::*;
     use std::collections::BTreeMap;
