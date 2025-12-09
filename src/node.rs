@@ -1,77 +1,5 @@
-use crate::diff::Item;
-use crate::path::{Path, Segment};
-use saphyr::{AnnotatedMapping, MarkedYamlOwned, SafelyIndex};
-
-pub fn sub_mapping(original: &MarkedYamlOwned, target: &Path) -> Option<MarkedYamlOwned> {
-    let (key, value) = node_and_key(original, target)?;
-    let mut span = key.span;
-    span.end = value.span.end;
-
-    let mut m = AnnotatedMapping::new();
-    m.insert(key, value);
-
-    Some(MarkedYamlOwned {
-        span,
-        data: saphyr::YamlDataOwned::Mapping(m),
-    })
-}
-
-pub fn node_and_key(
-    yaml: &MarkedYamlOwned,
-    path: &Path,
-) -> Option<(MarkedYamlOwned, MarkedYamlOwned)> {
-    let f = path.segments().first();
-
-    let mut n = f.map(|f| f.as_yaml()).zip(Some(yaml.clone()));
-    for p in path.segments() {
-        n = n.and_then(|(_old_key, n)| {
-            let mapping = n.data.as_mapping()?;
-            mapping
-                .get_key_value(&p.as_yaml())
-                .map(|(a, b)| (a.clone(), b.clone()))
-        });
-    }
-    n
-}
-
-pub fn node_in_2(yaml: &MarkedYamlOwned, path: &Path) -> Option<Item> {
-    let Some((last, rest)) = path.segments().split_last() else {
-        log::debug!("Very odd that the path was empty...");
-        return None;
-    };
-    let mut n = yaml;
-    for p in rest {
-        match p {
-            crate::path::Segment::Field(f) => {
-                n = n.get(f.as_str())?;
-            }
-            crate::path::Segment::Index(nr) => {
-                n = n.get(*nr)?;
-            }
-        }
-    }
-    match last {
-        Segment::Field(f) => {
-            let key = n
-                .data
-                .as_mapping()?
-                .keys()
-                .find(|key| key.data.as_str().is_some_and(|t| t == f))?;
-            Some(Item::KV {
-                key: key.clone(),
-                value: yaml.get(f.as_str()).cloned().unwrap(),
-            })
-        }
-        Segment::Index(index) => {
-            let value = n.data.as_sequence_get(*index)?;
-
-            Some(Item::ArrayElement {
-                index: (*index).try_into().ok()?,
-                value: value.clone(),
-            })
-        }
-    }
-}
+use crate::path::Path;
+use saphyr::{MarkedYamlOwned, SafelyIndex};
 
 pub fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedYamlOwned> {
     let mut n = Some(yaml);
@@ -126,11 +54,41 @@ pub fn to_value(marked_yaml: &'_ MarkedYamlOwned) -> saphyr::Yaml<'_> {
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
-    use saphyr::{LoadableYamlNode, MarkedYamlOwned};
+    use saphyr::{AnnotatedMapping, LoadableYamlNode, MarkedYamlOwned};
 
     use crate::{node::to_value, path::Path};
 
-    use super::sub_mapping;
+    pub fn node_and_key(
+        yaml: &MarkedYamlOwned,
+        path: &Path,
+    ) -> Option<(MarkedYamlOwned, MarkedYamlOwned)> {
+        let f = path.segments().first();
+
+        let mut n = f.map(|f| f.as_yaml()).zip(Some(yaml.clone()));
+        for p in path.segments() {
+            n = n.and_then(|(_old_key, n)| {
+                let mapping = n.data.as_mapping()?;
+                mapping
+                    .get_key_value(&p.as_yaml())
+                    .map(|(a, b)| (a.clone(), b.clone()))
+            });
+        }
+        n
+    }
+
+    pub fn sub_mapping(original: &MarkedYamlOwned, target: &Path) -> Option<MarkedYamlOwned> {
+        let (key, value) = node_and_key(original, target)?;
+        let mut span = key.span;
+        span.end = value.span.end;
+
+        let mut m = AnnotatedMapping::new();
+        m.insert(key, value);
+
+        Some(MarkedYamlOwned {
+            span,
+            data: saphyr::YamlDataOwned::Mapping(m),
+        })
+    }
 
     #[test]
     fn extract_mapping_from_another_mapping() {
