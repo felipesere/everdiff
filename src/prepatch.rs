@@ -45,6 +45,7 @@ fn resolve_mut<'a>(
     mut ptr: &jsonptr::Pointer,
 ) -> Result<&'a mut MarkedYamlOwned, anyhow::Error> {
     let mut offset = 0;
+    let mut position = 0;
     while let Some((token, rem)) = ptr.split_front() {
         let tok_len = token.encoded().len();
         ptr = rem;
@@ -53,9 +54,17 @@ fn resolve_mut<'a>(
             let items = value.data.as_sequence_mut().unwrap();
             let idx = token
                 .to_index()
-                .map_err(|source| ResolveError::FailedToParseIndex { offset, source })?
+                .map_err(|source| ResolveError::FailedToParseIndex {
+                    offset,
+                    source,
+                    position,
+                })?
                 .for_len(items.len())
-                .map_err(|source| ResolveError::OutOfBounds { offset, source })?;
+                .map_err(|source| ResolveError::OutOfBounds {
+                    offset,
+                    source,
+                    position,
+                })?;
             &mut items[idx]
         } else if value.is_mapping() {
             let items = value.data.as_mapping_mut().unwrap();
@@ -67,6 +76,7 @@ fn resolve_mut<'a>(
             bail!("This totally failed!");
         };
         offset += 1 + tok_len;
+        position += 1;
     }
     Ok(value)
 }
