@@ -1,57 +1,96 @@
-use clap::{Parser, ValueEnum};
-use clap_verbosity_flag::Verbosity;
+use bpaf::{construct, short, Parser};
 use everdiff::{
     config::config_from_env, identifier, multidoc, path::IgnorePath, read_and_patch,
     render_multidoc_diff,
 };
+use log::LevelFilter;
 use notify::{RecursiveMode, Watcher};
 
-#[derive(Default, ValueEnum, Clone, Debug)]
-enum Comparison {
-    #[default]
-    Index,
-    Kubernetes,
-}
-
-/// Difference between YAML documents
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[derive(Debug)]
 struct Args {
-    /// Render differences side-by-side
-    #[arg(short = 's', long, default_value = "false")]
     side_by_side: bool,
-
-    /// Use Kubernetes comparison
-    #[arg(short = 'k', long, default_value = "false")]
     kubernetes: bool,
-
-    /// Don't show changes for moved elements
-    #[arg(short = 'm', long, default_value = "false")]
     ignore_moved: bool,
-
-    /// Don't show changes for moved elements
-    #[arg(short, long, value_parser = clap::value_parser!(IgnorePath), value_delimiter = ' ', num_args = 0..)]
     ignore_changes: Vec<IgnorePath>,
-
-    /// Watch the `left` and `right` files for changes and re-run
-    #[arg(short = 'w', long, default_value = "false")]
     watch: bool,
-
-    /// Enable verbose logging
-    #[command(flatten)]
-    verbosity: Verbosity,
-
-    #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
+    verbosity: usize,
     left: Vec<camino::Utf8PathBuf>,
-    #[clap(short, long, value_delimiter = ' ', num_args = 1..)]
     right: Vec<camino::Utf8PathBuf>,
 }
 
+fn args() -> impl Parser<Args> {
+    let side_by_side = short('s')
+        .long("side-by-side")
+        .help("Render differences side-by-side")
+        .switch();
+
+    let kubernetes = short('k')
+        .long("kubernetes")
+        .help("Use Kubernetes comparison")
+        .switch();
+
+    let ignore_moved = short('m')
+        .long("ignore-moved")
+        .help("Don't show changes for moved elements")
+        .switch();
+
+    let ignore_changes = short('i')
+        .long("ignore-changes")
+        .help("Paths to ignore when comparing")
+        .argument::<IgnorePath>("PATH")
+        .many();
+
+    let watch = short('w')
+        .long("watch")
+        .help("Watch the `left` and `right` files for changes and re-run")
+        .switch();
+
+    let verbosity = short('v')
+        .long("verbose")
+        .help("Increase verbosity level (can be repeated)")
+        .req_flag(())
+        .many()
+        .map(|v| v.len());
+
+    let left = short('l')
+        .long("left")
+        .help("Left file(s) to compare")
+        .argument::<camino::Utf8PathBuf>("PATH")
+        .some("need at least one left path");
+
+    let right = short('r')
+        .long("right")
+        .help("Right file(s) to compare")
+        .argument::<camino::Utf8PathBuf>("PATH")
+        .some("need at least one right path");
+
+    construct!(Args {
+        side_by_side,
+        kubernetes,
+        ignore_moved,
+        ignore_changes,
+        watch,
+        verbosity,
+        left,
+        right,
+    })
+}
+
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let args = args()
+        .to_options()
+        .descr("Difference between YAML documents")
+        .run();
+
+    let level = match args.verbosity {
+        0 => LevelFilter::Warn,
+        1 => LevelFilter::Info,
+        2 => LevelFilter::Debug,
+        _ => LevelFilter::Trace,
+    };
 
     env_logger::Builder::new()
-        .filter_level(args.verbosity.into())
+        .filter_level(level)
         .format_timestamp(None)
         .init();
 
@@ -63,15 +102,10 @@ fn main() -> anyhow::Result<()> {
     let left = read_and_patch(&args.left, &patches)?;
     let right = read_and_patch(&args.right, &patches)?;
 
-    let comparator = if args.kubernetes {
-        Comparison::Kubernetes
+    let id = if args.kubernetes {
+        identifier::kubernetes::gvk()
     } else {
-        Comparison::Index
-    };
-
-    let id = match comparator {
-        Comparison::Index => identifier::by_index(),
-        Comparison::Kubernetes => identifier::kubernetes::gvk(),
+        identifier::by_index()
     };
 
     let ctx = multidoc::Context::new_with_doc_identifier(id);
