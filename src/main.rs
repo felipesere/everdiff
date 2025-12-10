@@ -3,8 +3,8 @@ use everdiff::{
     config::config_from_env, identifier, multidoc, path::IgnorePath, read_and_patch,
     render_multidoc_diff,
 };
-use log::LevelFilter;
 use notify::{RecursiveMode, Watcher};
+use owo_colors::OwoColorize;
 
 #[derive(Debug)]
 struct Args {
@@ -82,17 +82,7 @@ fn main() -> anyhow::Result<()> {
         .descr("Difference between YAML documents")
         .run();
 
-    let level = match args.verbosity {
-        0 => LevelFilter::Warn,
-        1 => LevelFilter::Info,
-        2 => LevelFilter::Debug,
-        _ => LevelFilter::Trace,
-    };
-
-    env_logger::Builder::new()
-        .filter_level(level)
-        .format_timestamp(None)
-        .init();
+    setup_logging(args.verbosity)?;
 
     log::debug!("Starting everdiff with args: {:?}", args);
 
@@ -143,6 +133,38 @@ fn main() -> anyhow::Result<()> {
             );
         }
     }
+
+    Ok(())
+}
+
+fn setup_logging(verbosity: usize) -> Result<(), anyhow::Error> {
+    let mut base_config = fern::Dispatch::new().format(move |out, message, record| {
+        let level = match record.level() {
+            log::Level::Error => "ERROR".red().to_string(),
+            log::Level::Warn => "WARN".yellow().to_string(),
+            log::Level::Info => "INFO".blue().to_string(),
+            log::Level::Debug => "DEBUG".green().to_string(),
+            log::Level::Trace => "TRACE".magenta().to_string(),
+        };
+
+        let module = record.module_path().unwrap_or("unknown");
+
+        out.finish(format_args!("{level}:{module}: {message}",))
+    });
+
+    // Adjust log levels for moudles as needed
+    //    1 => base_config
+    //        .level(log::LevelFilter::Debug)
+    //        .level_for("rustls", log::LevelFilter::Warn)
+    //        .level_for("ureq", log::LevelFilter::Warn)
+    //        .level_for("ureq_proto", log::LevelFilter::Warn),
+    base_config = match verbosity {
+        0 => base_config.level(log::LevelFilter::Warn),
+        1 => base_config.level(log::LevelFilter::Debug),
+        2 => base_config.level(log::LevelFilter::Trace),
+        _ => unreachable!("verbosity > 3"),
+    };
+    base_config.chain(std::io::stderr()).apply()?;
 
     Ok(())
 }

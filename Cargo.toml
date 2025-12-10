@@ -17,10 +17,10 @@ ansi-width = "0.1.0"
 anyhow = "1.0.94"
 camino = "1.1.9"
 bpaf = "0.9"
-env_logger = "0.11.6"
 either = "1.15.0"
 hashlink = "0.10.0"
-log = "0.4.22"
+log = "0.4"
+fern = { version = "0.7", default-features = false }
 nom = "8"
 notify = { version = "8.2.0", default-features = false, features = ["macos_fsevent"] }
 owo-colors = "4.1.0"
