@@ -195,30 +195,30 @@ impl FromStr for IgnorePath {
 }
 
 use anyhow::bail;
-use nom::IResult;
 use nom::branch::alt;
 use nom::bytes::complete::take_while1;
 use nom::character::complete::char;
 use nom::combinator::{map, opt};
 use nom::multi::many0;
 use nom::sequence::{delimited, preceded};
+use nom::{IResult, Parser};
 use saphyr::MarkedYamlOwned;
 
 fn ignore_path(input: &str) -> IResult<&str, IgnorePath> {
     let mut segments = Vec::new();
-    let (rest, root) = opt(char('.'))(input)?;
+    let (rest, root) = opt(char('.')).parse(input)?;
     if root.is_some() {
         segments.push(MatchElement::Root);
     }
     // the `.` is not required here as we've already consumed it for the Root.
-    let (rest, first) = alt((text_field, escaped_field))(rest)?;
+    let (rest, first) = alt((text_field, escaped_field)).parse(rest)?;
     segments.push(first);
 
     let dot_field = preceded(char('.'), text_field);
     let field = alt((dot_field, escaped_field));
 
     // remaining fields...
-    let (rest, mut elements) = many0(field)(rest)?;
+    let (rest, mut elements) = many0(field).parse(rest)?;
     segments.append(&mut elements);
     Ok((rest, IgnorePath(segments)))
 }
@@ -246,7 +246,8 @@ fn escaped_field(input: &str) -> IResult<&str, MatchElement> {
         char('['),
         alt((dotted_field_name, array_index, any_array_index)),
         char(']'),
-    )(input)?;
+    )
+    .parse(input)?;
 
     Ok((rest, p))
 }
