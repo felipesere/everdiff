@@ -332,7 +332,7 @@ mod path_ignoring {
             matches: bool,
         }
 
-        let cases = vec![
+        let cases = [
             Case {
                 path_match: ".spec.annotations",
                 path: Path::default()
