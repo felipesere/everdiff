@@ -8,6 +8,7 @@ use std::{
 };
 
 use ansi_width::ansi_width;
+use either::Either;
 use owo_colors::{OwoColorize, Style};
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
@@ -975,25 +976,25 @@ pub fn render_difference(
 
     let (left_top_filler, right_top_filler) = if left.lines_above < right.lines_above {
         (
-            itertools::Either::Left(filler().take(above_filler)),
-            itertools::Either::Right(empty::<String>()),
+            Either::Left(filler().take(above_filler)),
+            Either::Right(empty::<String>()),
         )
     } else {
         (
-            itertools::Either::Right(empty::<String>()),
-            itertools::Either::Left(filler().take(above_filler)),
+            Either::Right(empty::<String>()),
+            Either::Left(filler().take(above_filler)),
         )
     };
 
     let (left_bottom_filler, right_bottom_filler) = if left.lines_below < right.lines_below {
         (
-            itertools::Either::Left(filler().take(below_filler)),
-            itertools::Either::Right(empty::<String>()),
+            Either::Left(filler().take(below_filler)),
+            Either::Right(empty::<String>()),
         )
     } else {
         (
-            itertools::Either::Right(empty::<String>()),
-            itertools::Either::Left(filler().take(below_filler)),
+            Either::Right(empty::<String>()),
+            Either::Left(filler().take(below_filler)),
         )
     };
 
