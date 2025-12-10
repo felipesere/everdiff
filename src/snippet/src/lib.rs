@@ -1,39 +1,14 @@
-use std::{fmt::Write, io::Read};
+use std::fmt::Write;
 
-// TODO: Replace anyhow with structured error types for better error handling and user experience
-use diff::Difference;
-use multidoc::{AdditionalDoc, DocDifference, MissingDoc};
-use owo_colors::{OwoColorize, Style};
-use path::IgnorePath;
-use snippet::{Color, LineWidget, RenderContext, render_added, render_difference, render_removal};
-pub use source::YamlSource;
+use everdiff_diff::{Difference, IgnorePath, YamlSource};
+use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc};
+use owo_colors::OwoColorize;
 
-use crate::source::read_doc;
+mod snippet;
 
-pub mod config;
-pub mod diff;
-pub mod identifier;
-pub mod multidoc;
-pub mod node;
-pub mod path;
-pub mod snippet;
-pub mod source;
-
-// TODO: Optimize memory usage for large files - consider streaming approach instead of loading all into memory
-pub fn read_and_patch(paths: &[camino::Utf8PathBuf]) -> anyhow::Result<Vec<YamlSource>> {
-    let mut docs = Vec::new();
-    for p in paths {
-        let mut f = std::fs::File::open(p)?;
-        let mut content = String::new();
-        f.read_to_string(&mut content)?;
-
-        let n = read_doc(content, p.clone())?;
-
-        docs.extend(n.into_iter());
-    }
-
-    Ok(docs)
-}
+pub use snippet::{
+    Color, LineWidget, RenderContext, gap_start, render_added, render_difference, render_removal,
+};
 
 // TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
 pub fn render_multidoc_diff(
@@ -43,8 +18,6 @@ pub fn render_multidoc_diff(
     ignore: &[IgnorePath],
     side_by_side: bool,
 ) {
-    use owo_colors::OwoColorize;
-
     if differences.is_empty() {
         println!("No differences found")
     }
@@ -92,7 +65,7 @@ pub fn render_multidoc_diff(
                 let actual_right_doc = &right[right_doc_idx];
 
                 let max_width = termsize::get().map(|s| s.cols).unwrap_or(80);
-                let ctx = RenderContext::new(max_width, snippet::Color::Enabled);
+                let ctx = RenderContext::new(max_width, Color::Enabled);
                 print!(
                     "{}",
                     render(
@@ -108,16 +81,6 @@ pub fn render_multidoc_diff(
     }
 }
 
-//fn stringify(yaml: &MarkedYamlOwned) -> String {
-//    let mut out_str = String::new();
-//    let mut emitter = saphyr::YamlEmitter::new(&mut out_str);
-//    emitter.dump(&yaml).expect("failed to write YAML to buffer");
-//    match out_str.find('\n') {
-//        Some(pos) => out_str[pos + 1..].to_string(),
-//        None => out_str,
-//    }
-//}
-
 pub fn render(
     ctx: RenderContext,
     left_doc: &YamlSource,
@@ -125,7 +88,6 @@ pub fn render(
     differences: Vec<Difference>,
     _side_by_side: bool,
 ) -> String {
-    use owo_colors::OwoColorize;
     let mut buf = String::new();
     for d in differences {
         match d {
@@ -165,78 +127,4 @@ pub fn render(
         writeln!(&mut buf).unwrap()
     }
     buf
-}
-
-#[allow(dead_code)]
-fn render_string_diff(left: &str, right: &str) {
-    let diff = similar::TextDiff::from_lines(left, right);
-
-    for (idx, group) in diff.grouped_ops(2).iter().enumerate() {
-        if idx > 0 {
-            println!("{:┈^1$}", "┈", 80);
-        }
-        for op in group {
-            for change in diff.iter_inline_changes(op) {
-                let (sign, emphasis_style) = match change.tag() {
-                    similar::ChangeTag::Delete => ("-", Style::new().red()),
-                    similar::ChangeTag::Insert => ("+", Style::new().green()),
-                    similar::ChangeTag::Equal => (" ", Style::new().dimmed()),
-                };
-                print!(
-                    "{}{} {}│  ",
-                    LineWidget(change.old_index()).to_string().dimmed(),
-                    LineWidget(change.new_index()).to_string().dimmed(),
-                    sign.style(emphasis_style).bold(),
-                );
-                for (emphasized, value) in change.iter_strings_lossy() {
-                    if emphasized {
-                        print!("{}", value.style(emphasis_style.underline()));
-                    } else {
-                        print!("{value}");
-                    }
-                }
-                if change.missing_newline() {
-                    println!();
-                }
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::read_doc;
-    #[test]
-    fn reading_diffent_documents() {
-        let primary = indoc::indoc! {r#"
-            ---
-            person:
-              name: Steve E. Anderson
-              location:
-                street: 1 Kentish Street
-                postcode: KS87JJ
-              age: 12
-            "#};
-
-        let primary = read_doc(primary, camino::Utf8PathBuf::default())
-            .unwrap()
-            .remove(0);
-
-        let secondary = indoc::indoc! {r#"
-            ---
-            person:
-              name: Steve E. Anderson
-              age: 12
-            "#};
-
-        let secondary = read_doc(secondary, camino::Utf8PathBuf::default())
-            .unwrap()
-            .remove(0);
-
-        assert_eq!(primary.first_line, secondary.first_line);
-        assert_eq!(primary.last_line, secondary.last_line + 3);
-
-        assert_eq!(primary.start, secondary.start);
-        assert_eq!(primary.end, secondary.end + 3);
-    }
 }

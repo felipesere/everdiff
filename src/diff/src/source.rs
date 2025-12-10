@@ -1,7 +1,7 @@
 use camino::Utf8PathBuf;
 use saphyr::LoadableYamlNode;
 
-use crate::snippet::Line;
+use crate::line::Line;
 
 // TODO: Should this live elsewhere?
 #[derive(Debug, Clone)]
@@ -88,7 +88,7 @@ impl YamlSource {
 #[cfg(test)]
 mod test {
 
-    use crate::{node::node_in, path::Path, read_doc, snippet::Line};
+    use crate::{node::node_in, path::Path, source::read_doc, line::Line};
 
     #[test]
     fn strange_case() {

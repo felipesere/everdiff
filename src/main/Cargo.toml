@@ -1,0 +1,29 @@
+[package]
+name = "everdiff"
+version.workspace = true
+edition.workspace = true
+default-run = "everdiff"
+
+[[bin]]
+name = "everdiff"
+path = "src/main.rs"
+
+[dependencies]
+everdiff-diff.workspace = true
+everdiff-multidoc.workspace = true
+everdiff-snippet.workspace = true
+anyhow.workspace = true
+saphyr.workspace = true
+bpaf.workspace = true
+camino.workspace = true
+fern.workspace = true
+log.workspace = true
+notify.workspace = true
+owo-colors.workspace = true
+serde.workspace = true
+serde-saphyr.workspace = true
+similar.workspace = true
+termsize.workspace = true
+
+[dev-dependencies]
+indoc.workspace = true

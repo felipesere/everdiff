@@ -1,0 +1,14 @@
+[package]
+name = "everdiff-multidoc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+everdiff-diff.workspace = true
+camino.workspace = true
+saphyr.workspace = true
+
+[dev-dependencies]
+indoc.workspace = true
+pretty_assertions.workspace = true
+expect-test.workspace = true

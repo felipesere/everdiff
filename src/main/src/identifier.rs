@@ -1,9 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::{YamlSource, multidoc::DocKey};
-
-/// Fn that identifies a document by inspecting keys
-pub type IdentifierFn = Box<dyn Fn(usize, &YamlSource) -> Option<DocKey>>;
+use everdiff_multidoc::{DocKey, IdentifierFn};
 
 /// Naively assume that a document is identified by its index in the document.
 /// This effectively means that documents are diffed pair-wise in the

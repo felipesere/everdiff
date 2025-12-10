@@ -4,7 +4,9 @@
       "Bash(cargo check:*)",
       "Bash(cargo test:*)",
       "Bash(RUST_LOG=debug cargo run:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Bash(mkdir:*)",
+      "Bash(cargo build:*)"
     ],
     "deny": []
   }

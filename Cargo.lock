@@ -204,24 +204,68 @@ dependencies = [
 name = "everdiff"
 version = "0.1.0"
 dependencies = [
- "ansi-width",
  "anyhow",
  "bpaf",
  "camino",
- "either",
- "expect-test",
+ "everdiff-diff",
+ "everdiff-multidoc",
+ "everdiff-snippet",
  "fern",
- "hashlink",
  "indoc",
  "log",
- "nom",
  "notify",
  "owo-colors",
- "pretty_assertions",
  "saphyr",
  "serde",
  "serde-saphyr",
  "similar",
+ "termsize",
+]
+
+[[package]]
+name = "everdiff-diff"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "camino",
+ "expect-test",
+ "hashlink",
+ "indoc",
+ "log",
+ "nom",
+ "pretty_assertions",
+ "saphyr",
+ "test-log",
+]
+
+[[package]]
+name = "everdiff-multidoc"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "everdiff-diff",
+ "expect-test",
+ "indoc",
+ "pretty_assertions",
+ "saphyr",
+]
+
+[[package]]
+name = "everdiff-snippet"
+version = "0.1.0"
+dependencies = [
+ "ansi-width",
+ "anyhow",
+ "camino",
+ "either",
+ "everdiff-diff",
+ "everdiff-multidoc",
+ "expect-test",
+ "indoc",
+ "log",
+ "owo-colors",
+ "pretty_assertions",
+ "saphyr",
  "termsize",
  "test-log",
 ]

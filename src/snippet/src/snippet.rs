@@ -3,16 +3,13 @@ use std::{
     cmp::min,
     fmt::{self},
     iter::{empty, repeat_n},
-    num::NonZeroUsize,
-    ops::{Add, Sub},
 };
 
 use ansi_width::ansi_width;
 use either::Either;
+use everdiff_diff::{YamlSource, Item, node::node_in, Path, Line};
 use owo_colors::{OwoColorize, Style};
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
-
-use crate::{YamlSource, diff::Item, node::node_in, path::Path};
 
 #[derive(Debug, Clone)]
 pub struct RenderContext {
@@ -44,101 +41,11 @@ pub enum Color {
     Disabled,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
-pub struct Line(NonZeroUsize);
-
-impl fmt::Debug for Line {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("Line({})", &self.0))
-    }
-}
-
-impl Line {
-    pub(crate) fn get(&self) -> usize {
-        self.0.get()
-    }
-
-    pub fn new(raw: usize) -> Option<Self> {
-        Some(Line(NonZeroUsize::try_from(raw).ok()?))
-    }
-
-    #[cfg(test)]
-    pub fn unchecked(n: usize) -> Self {
-        Self(NonZeroUsize::try_from(n).unwrap())
-    }
-
-    pub fn one() -> Self {
-        Self::new(1).unwrap()
-    }
-
-    pub fn distance(&self, other: &Line) -> usize {
-        let a = self.get();
-        let b = other.get();
-
-        a.abs_diff(b)
-    }
-}
-
-impl fmt::Display for Line {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl Add<usize> for Line {
-    type Output = Line;
-
-    fn add(self, rhs: usize) -> Self::Output {
-        Line(self.0.saturating_add(rhs))
-    }
-}
-
-impl Add<i32> for Line {
-    type Output = Line;
-
-    fn add(self, rhs: i32) -> Self::Output {
-        if rhs > 0 {
-            let rhs = usize::try_from(rhs).expect("a small enough addition to line");
-            Line::new(self.get().saturating_add(rhs)).unwrap()
-        } else {
-            // let rhs = usize::try_from(rhs.abs()).expect("a small enough addition to line");
-            // Line::new(self.get().saturating_sub(rhs)).unwrap();
-            unimplemented!("Are we really adding a negative number?");
-        }
-    }
-}
-
-impl Sub<usize> for Line {
-    type Output = Line;
-
-    fn sub(self, rhs: usize) -> Self::Output {
-        let val = self.0.get();
-        if val <= rhs {
-            Line::one()
-        } else {
-            let val = val - rhs;
-            Line::new(val).unwrap()
-        }
-    }
-}
-
-impl PartialOrd<usize> for Line {
-    fn partial_cmp(&self, other: &usize) -> Option<std::cmp::Ordering> {
-        self.0.get().partial_cmp(other)
-    }
-}
-
-impl PartialEq<usize> for Line {
-    fn eq(&self, other: &usize) -> bool {
-        self.0.get().eq(other)
-    }
-}
-
 impl From<Line> for LineWidget {
     fn from(value: Line) -> Self {
         // TODO: We still do gross `±1` math in here
         // if the `Line` concept pans out we can clear it
-        Self(Some(value.0.get() - 1))
+        Self(Some(value.get() - 1))
     }
 }
 
@@ -683,7 +590,7 @@ mod test_node_height {
     use indoc::indoc;
     use saphyr::{LoadableYamlNode, MarkedYamlOwned, SafelyIndex};
 
-    use crate::diff::Item;
+    use everdiff_diff::Item;
 
     #[test]
     fn height_of_simple_string() {
@@ -843,7 +750,7 @@ mod test_node_height {
 mod test_gap_start {
     use test_log::test;
 
-    use crate::{path::Path, read_doc, snippet::Line};
+    use everdiff_diff::{Path, read_doc, Line};
 
     use super::gap_start;
 
@@ -1142,11 +1049,12 @@ mod test {
     use expect_test::expect;
     use indoc::indoc;
 
-    use crate::{
+    use everdiff_diff::{
         YamlSource,
-        diff::{ArrayOrdering, Context, Difference, diff},
-        read_doc, render,
+        ArrayOrdering, Context, Difference, diff,
+        read_doc,
     };
+    use crate::render;
 
     use super::{RenderContext, render_added, render_difference, render_removal};
 

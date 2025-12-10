@@ -1,10 +1,12 @@
 use bpaf::{Parser, construct, short};
-use everdiff::{
-    config::config_from_env, identifier, multidoc, path::IgnorePath, read_and_patch,
-    render_multidoc_diff,
-};
+use everdiff_diff::{IgnorePath, read_and_patch};
+use everdiff_multidoc as multidoc;
+use everdiff_snippet::render_multidoc_diff;
 use notify::{RecursiveMode, Watcher};
 use owo_colors::OwoColorize;
+
+mod config;
+mod identifier;
 
 #[derive(Debug)]
 struct Args {
@@ -86,7 +88,7 @@ fn main() -> anyhow::Result<()> {
 
     log::debug!("Starting everdiff with args: {:?}", args);
 
-    let _config = config_from_env();
+    let _config = config::config_from_env();
     let left = read_and_patch(&args.left)?;
     let right = read_and_patch(&args.right)?;
 

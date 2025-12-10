@@ -1,44 +1,37 @@
-[package]
-name = "everdiff"
+[workspace]
+resolver = "3"
+members = ["src/diff", "src/multidoc", "src/snippet", "src/main"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-default-run = "everdiff"
 
-[lib]
-name = "everdiff"
-path = "src/lib.rs"
+[workspace.dependencies]
+# Internal crates
+everdiff-diff = { path = "src/diff" }
+everdiff-multidoc = { path = "src/multidoc" }
+everdiff-snippet = { path = "src/snippet" }
 
-[[bin]]
-name = "everdiff"
-path = "src/main.rs"
-
-[dependencies]
+# External dependencies
 ansi-width = "0.1.0"
 anyhow = "1.0.94"
-camino = "1.1.9"
 bpaf = "0.9"
+camino = "1.1.9"
 either = "1.15.0"
+fern = { version = "0.7", default-features = false }
 hashlink = "0.10.0"
 log = "0.4"
-fern = { version = "0.7", default-features = false }
 nom = "8"
 notify = { version = "8.2.0", default-features = false, features = ["macos_fsevent"] }
 owo-colors = "4.1.0"
-
-# saphyr and serde-saphyr are the underlying libraries that we use for parsing YAML
 saphyr = { git = "https://github.com/saphyr-rs/saphyr", version = "0.0.6" }
-serde-saphyr = "0.0.10"
-# serde is still needed for places where we deserialize into structs
 serde = { version = "1.0.228" }
-
+serde-saphyr = "0.0.10"
 similar = { version = "2.6.0", features = ["inline"] }
 termsize = "0.1.9"
 
-[dev-dependencies]
+# Dev dependencies
 indoc = "2.0.5"
 pretty_assertions = "1.4.1"
 expect-test = "1.5.0"
 test-log = "0.2.18"
-
-# [patch.crates-io]
-# saphyr-parser = { path = "../saphyr/parser"}

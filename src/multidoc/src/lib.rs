@@ -2,9 +2,10 @@ use std::cmp::{Ordering, max};
 use std::fmt::Write;
 use std::{collections::BTreeMap, fmt::Display};
 
-use crate::YamlSource;
-use crate::diff::{ArrayOrdering, Difference as Diff};
-use crate::identifier::IdentifierFn;
+use everdiff_diff::{YamlSource, ArrayOrdering, Difference as Diff, diff as diff_yaml, Context as DiffContext};
+
+/// Fn that identifies a document by inspecting keys
+pub type IdentifierFn = Box<dyn Fn(usize, &YamlSource) -> Option<DocKey>>;
 
 #[derive(Debug)]
 pub struct MatchingDocs {
@@ -204,10 +205,10 @@ pub fn diff(ctx: &Context, lefts: &[YamlSource], rights: &[YamlSource]) -> Vec<D
     for MatchingDocs { key, left, right } in matches {
         let left_doc = &lefts[left].yaml;
         let right_doc = &rights[right].yaml;
-        let mut diff_context = crate::diff::Context::new();
+        let mut diff_context = DiffContext::new();
         diff_context.array_ordering = ArrayOrdering::Dynamic;
 
-        let diffs = crate::diff::diff(diff_context, left_doc, right_doc);
+        let diffs = diff_yaml(diff_context, left_doc, right_doc);
         if !diffs.is_empty() {
             differences.push(DocDifference::Changed {
                 key,
@@ -233,11 +234,8 @@ mod tests {
     use expect_test::expect;
     use pretty_assertions::assert_eq;
 
-    use crate::{
-        YamlSource,
-        multidoc::{Context, DocKey, diff},
-        read_doc,
-    };
+    use everdiff_diff::{YamlSource, read_doc};
+    use crate::{Context, DocKey, diff};
     use indoc::indoc;
 
     pub fn docs(raw: &str) -> Vec<YamlSource> {
@@ -246,6 +244,27 @@ mod tests {
             camino::Utf8PathBuf::from_str("/foo/bar/baz.yaml").unwrap(),
         )
         .unwrap()
+    }
+
+    fn kubernetes_names() -> super::IdentifierFn {
+        use saphyr::{MarkedYamlOwned, SafelyIndex};
+
+        fn string_of(node: Option<&MarkedYamlOwned>) -> Option<String> {
+            node?.data.as_str().map(String::from)
+        }
+
+        Box::new(|_, source| {
+            let doc = &source.yaml;
+            let name = string_of(doc.get("metadata")?.get("name"));
+            let namespace = string_of(doc.get("metadata")?.get("namespace"));
+            Some(DocKey::new(
+                source.file.clone(),
+                BTreeMap::from([
+                    ("metadata.name".to_string(), name),
+                    ("metadata.namespace".to_string(), namespace),
+                ]),
+            ))
+        })
     }
 
     #[test]
@@ -294,7 +313,7 @@ mod tests {
         ...
         "#});
 
-        let ctx = Context::new_with_doc_identifier(crate::identifier::kubernetes::names());
+        let ctx = Context::new_with_doc_identifier(kubernetes_names());
         let differences = diff(&ctx, &left, &right);
 
         expect![[r#"

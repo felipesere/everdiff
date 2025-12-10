@@ -1,0 +1,21 @@
+[package]
+name = "everdiff-diff"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+camino.workspace = true
+hashlink.workspace = true
+log.workspace = true
+nom.workspace = true
+saphyr.workspace = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(test)'] }
+
+[dev-dependencies]
+indoc.workspace = true
+pretty_assertions.workspace = true
+expect-test.workspace = true
+test-log.workspace = true

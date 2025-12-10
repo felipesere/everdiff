@@ -97,13 +97,14 @@ impl Path {
         copy
     }
 
-    #[cfg(test)]
+    /// Create a Path from a vector of segments without validation.
     pub fn from_unchecked(path: Vec<Segment>) -> Self {
         Path(path)
     }
 
-    #[cfg(test)]
-    pub fn parse_str(val: &'static str) -> Self {
+    /// Parse a jq-like path string into a Path.
+    /// Paths start with a `.` and use `.field` for field access and `[n]` for array indices.
+    pub fn parse_str(val: &str) -> Self {
         let segments = val
             .split(".")
             .skip(1) // paths start with a `.` at their root

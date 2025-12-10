@@ -1,0 +1,96 @@
+use std::{
+    fmt::{self},
+    num::NonZeroUsize,
+    ops::{Add, Sub},
+};
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+pub struct Line(NonZeroUsize);
+
+impl fmt::Debug for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("Line({})", &self.0))
+    }
+}
+
+impl Line {
+    pub fn get(&self) -> usize {
+        self.0.get()
+    }
+
+    pub fn new(raw: usize) -> Option<Self> {
+        Some(Line(NonZeroUsize::try_from(raw).ok()?))
+    }
+
+    /// Create a Line without checking if the value is valid.
+    /// This will panic if n is 0.
+    pub fn unchecked(n: usize) -> Self {
+        Self(NonZeroUsize::try_from(n).unwrap())
+    }
+
+    pub fn one() -> Self {
+        Self::new(1).unwrap()
+    }
+
+    pub fn distance(&self, other: &Line) -> usize {
+        let a = self.get();
+        let b = other.get();
+
+        a.abs_diff(b)
+    }
+}
+
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl Add<usize> for Line {
+    type Output = Line;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Line(self.0.saturating_add(rhs))
+    }
+}
+
+impl Add<i32> for Line {
+    type Output = Line;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        if rhs > 0 {
+            let rhs = usize::try_from(rhs).expect("a small enough addition to line");
+            Line::new(self.get().saturating_add(rhs)).unwrap()
+        } else {
+            // let rhs = usize::try_from(rhs.abs()).expect("a small enough addition to line");
+            // Line::new(self.get().saturating_sub(rhs)).unwrap();
+            unimplemented!("Are we really adding a negative number?");
+        }
+    }
+}
+
+impl Sub<usize> for Line {
+    type Output = Line;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        let val = self.0.get();
+        if val <= rhs {
+            Line::one()
+        } else {
+            let val = val - rhs;
+            Line::new(val).unwrap()
+        }
+    }
+}
+
+impl PartialOrd<usize> for Line {
+    fn partial_cmp(&self, other: &usize) -> Option<std::cmp::Ordering> {
+        self.0.get().partial_cmp(other)
+    }
+}
+
+impl PartialEq<usize> for Line {
+    fn eq(&self, other: &usize) -> bool {
+        self.0.get().eq(other)
+    }
+}

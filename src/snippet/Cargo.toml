@@ -1,0 +1,22 @@
+[package]
+name = "everdiff-snippet"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+everdiff-diff.workspace = true
+everdiff-multidoc.workspace = true
+ansi-width.workspace = true
+anyhow.workspace = true
+camino.workspace = true
+either.workspace = true
+log.workspace = true
+owo-colors.workspace = true
+saphyr.workspace = true
+termsize.workspace = true
+
+[dev-dependencies]
+indoc.workspace = true
+pretty_assertions.workspace = true
+expect-test.workspace = true
+test-log.workspace = true
