@@ -1,4 +1,5 @@
-use std::cmp::Ordering;
+use std::cmp::{Ordering, max};
+use std::fmt::Write;
 use std::{collections::BTreeMap, fmt::Display};
 
 use crate::YamlSource;
@@ -112,21 +113,6 @@ pub struct DocKey {
     fields: BTreeMap<String, Option<String>>,
 }
 
-impl DocKey {
-    pub fn pretty_print(&self) -> String {
-        use comfy_table::modifiers::UTF8_ROUND_CORNERS;
-        use comfy_table::presets::UTF8_FULL;
-
-        let mut t = comfy_table::Table::new();
-        t.load_preset(UTF8_FULL).apply_modifier(UTF8_ROUND_CORNERS);
-        for (k, v) in self.fields.clone() {
-            t.add_row(vec![k, v.unwrap_or_else(|| "∅".to_string())]);
-        }
-
-        format!("{t}")
-    }
-}
-
 impl PartialOrd for DocKey {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -160,9 +146,11 @@ impl DocKey {
 impl Display for DocKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("file: {}\n", &self.src_file))?;
+        let max_width = self.fields.keys().fold(0, |acc, f| max(acc, f.len()));
+        f.write_char('\n')?;
         for (k, optval) in &self.fields {
             if let Some(v) = &optval {
-                f.write_fmt(format_args!("{k} → {v}\n"))?;
+                f.write_fmt(format_args!("{k:width$} → {v}\n", width = max_width))?;
             }
         }
         Ok(())
@@ -489,7 +477,8 @@ mod tests {
             key.to_string(),
             indoc! {r#"
             file: /foo/bar/baz.yaml
-            api_version → bar
+
+            api_version   → bar
             metadata.name → foo
         "#}
         );

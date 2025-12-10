@@ -534,13 +534,8 @@ fn render_secondary_side(
     log::debug!("after_gap: {}->{}", after_gap.from, after_gap.to);
 
     let filler_len = if end.distance(&start) > primary_snippet_size {
-        let secondary = end.distance(&start);
-        log::warn!(
-            "Secondary snippet is bigger than the primary one: {secondary} > {primary_snippet_size}"
-        );
         0
     } else {
-        log::warn!("Primary is bigger, so we need a little bit of filler");
         (end.distance(&start)).saturating_sub(primary_snippet_size)
     };
     log::debug!("Filler will be {filler_len}");
