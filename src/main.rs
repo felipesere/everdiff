@@ -1,4 +1,4 @@
-use bpaf::{construct, short, Parser};
+use bpaf::{Parser, construct, short};
 use everdiff::{
     config::config_from_env, identifier, multidoc, path::IgnorePath, read_and_patch,
     render_multidoc_diff,
@@ -96,11 +96,9 @@ fn main() -> anyhow::Result<()> {
 
     log::debug!("Starting everdiff with args: {:?}", args);
 
-    let maybe_config = config_from_env();
-    let patches = maybe_config.map(|c| c.prepatches).unwrap_or_default();
-
-    let left = read_and_patch(&args.left, &patches)?;
-    let right = read_and_patch(&args.right, &patches)?;
+    let _config = config_from_env();
+    let left = read_and_patch(&args.left)?;
+    let right = read_and_patch(&args.right)?;
 
     let id = if args.kubernetes {
         identifier::kubernetes::gvk()
@@ -131,8 +129,8 @@ fn main() -> anyhow::Result<()> {
         for event in rx {
             let _event = event?;
             print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
-            let left = read_and_patch(&args.left, &patches)?;
-            let right = read_and_patch(&args.right, &patches)?;
+            let left = read_and_patch(&args.left)?;
+            let right = read_and_patch(&args.right)?;
 
             let diffs = multidoc::diff(&ctx, &left, &right);
 

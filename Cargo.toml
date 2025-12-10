@@ -21,8 +21,6 @@ comfy-table = { version = "7.1.3", default-features = false }
 env_logger = "0.11.6"
 indent = "0.1.1"
 itertools = "0.14.0"
-json-patch = { version = "4.1.0", default-features = false }
-jsonptr = { version = "0.7.1", default-features = false }
 hashlink = "0.10.0"
 log = "0.4.22"
 nom = "7.1.3"
@@ -34,12 +32,9 @@ saphyr = { git = "https://github.com/saphyr-rs/saphyr", version = "0.0.6" }
 serde-saphyr = "0.0.10"
 # serde is still needed for places where we deserialize into structs
 serde = { version = "1.0.228", features = ["derive"] }
-# for one kind of struct, we can't deserialize into saphyr::YAML :(
-serde_json = { version = "1.0.145", default-features = false }
 
 similar = { version = "2.6.0", features = ["inline"] }
 termsize = "0.1.9"
-thiserror = "2"
 
 [dev-dependencies]
 indoc = "2.0.5"

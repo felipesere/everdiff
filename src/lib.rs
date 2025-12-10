@@ -16,15 +16,11 @@ pub mod identifier;
 pub mod multidoc;
 pub mod node;
 pub mod path;
-pub mod prepatch;
 pub mod snippet;
 pub mod source;
 
 // TODO: Optimize memory usage for large files - consider streaming approach instead of loading all into memory
-pub fn read_and_patch(
-    paths: &[camino::Utf8PathBuf],
-    patches: &[prepatch::PrePatch],
-) -> anyhow::Result<Vec<YamlSource>> {
+pub fn read_and_patch(paths: &[camino::Utf8PathBuf]) -> anyhow::Result<Vec<YamlSource>> {
     let mut docs = Vec::new();
     for p in paths {
         let mut f = std::fs::File::open(p)?;
@@ -34,9 +30,6 @@ pub fn read_and_patch(
         let n = read_doc(content, p.clone())?;
 
         docs.extend(n.into_iter());
-    }
-    for patch in patches {
-        let _err = patch.apply_to(&mut docs);
     }
 
     Ok(docs)
