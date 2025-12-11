@@ -1,15 +1,15 @@
-use crate::path::Path;
+use everdiff_diff::path::{Path, Segment};
 use saphyr::{MarkedYamlOwned, SafelyIndex};
 
 pub fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedYamlOwned> {
     let mut n = Some(yaml);
     for p in path.segments() {
         match p {
-            crate::path::Segment::Field(f) => {
+            Segment::Field(f) => {
                 let v = n.and_then(|n| n.get(f.as_str()))?;
                 n = Some(v);
             }
-            crate::path::Segment::Index(nr) => {
+            Segment::Index(nr) => {
                 let v = n.and_then(|n| n.get(*nr))?;
                 n = Some(v);
             }
@@ -53,10 +53,11 @@ pub fn to_value(marked_yaml: &'_ MarkedYamlOwned) -> saphyr::Yaml<'_> {
 
 #[cfg(test)]
 mod tests {
+    use everdiff_diff::path::Path;
     use expect_test::expect;
     use saphyr::{AnnotatedMapping, LoadableYamlNode, MarkedYamlOwned};
 
-    use crate::{node::to_value, path::Path};
+    use crate::node::to_value;
 
     pub fn node_and_key(
         yaml: &MarkedYamlOwned,

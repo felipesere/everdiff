@@ -12,6 +12,7 @@ path = "src/main.rs"
 everdiff-diff.workspace = true
 everdiff-multidoc.workspace = true
 everdiff-snippet.workspace = true
+everdiff-line.workspace = true
 anyhow.workspace = true
 saphyr.workspace = true
 bpaf.workspace = true

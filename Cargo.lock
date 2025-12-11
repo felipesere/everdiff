@@ -208,6 +208,7 @@ dependencies = [
  "bpaf",
  "camino",
  "everdiff-diff",
+ "everdiff-line",
  "everdiff-multidoc",
  "everdiff-snippet",
  "fern",
@@ -239,13 +240,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "everdiff-line"
+version = "0.1.0"
+
+[[package]]
 name = "everdiff-multidoc"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "camino",
  "everdiff-diff",
+ "everdiff-line",
  "expect-test",
  "indoc",
+ "log",
  "pretty_assertions",
  "saphyr",
 ]
@@ -259,6 +267,7 @@ dependencies = [
  "camino",
  "either",
  "everdiff-diff",
+ "everdiff-line",
  "everdiff-multidoc",
  "expect-test",
  "indoc",

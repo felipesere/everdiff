@@ -1,9 +1,10 @@
 use std::fmt::Write;
 
-use everdiff_diff::{Difference, IgnorePath, YamlSource};
-use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc};
+use everdiff_diff::{Difference, path::IgnorePath};
+use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
 use owo_colors::OwoColorize;
 
+mod node;
 mod snippet;
 
 pub use snippet::{

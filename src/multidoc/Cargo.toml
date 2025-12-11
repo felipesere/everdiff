@@ -5,8 +5,11 @@ edition.workspace = true
 
 [dependencies]
 everdiff-diff.workspace = true
+everdiff-line.workspace = true
 camino.workspace = true
 saphyr.workspace = true
+log.workspace = true
+anyhow.workspace = true
 
 [dev-dependencies]
 indoc.workspace = true

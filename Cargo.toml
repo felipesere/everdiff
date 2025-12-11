@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src/diff", "src/multidoc", "src/snippet", "src/main"]
+members = ["src/diff", "src/multidoc", "src/snippet", "src/main", "src/line"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,6 +11,7 @@ edition = "2024"
 everdiff-diff = { path = "src/diff" }
 everdiff-multidoc = { path = "src/multidoc" }
 everdiff-snippet = { path = "src/snippet" }
+everdiff-line = { path = "src/line" }
 
 # External dependencies
 ansi-width = "0.1.0"

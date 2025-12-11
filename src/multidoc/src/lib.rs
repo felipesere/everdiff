@@ -2,7 +2,11 @@ use std::cmp::{Ordering, max};
 use std::fmt::Write;
 use std::{collections::BTreeMap, fmt::Display};
 
-use everdiff_diff::{YamlSource, ArrayOrdering, Difference as Diff, diff as diff_yaml, Context as DiffContext};
+use everdiff_diff::{ArrayOrdering, Context as DiffContext, Difference as Diff, diff as diff_yaml};
+
+use crate::source::YamlSource;
+
+pub mod source;
 
 /// Fn that identifies a document by inspecting keys
 pub type IdentifierFn = Box<dyn Fn(usize, &YamlSource) -> Option<DocKey>>;
@@ -234,8 +238,10 @@ mod tests {
     use expect_test::expect;
     use pretty_assertions::assert_eq;
 
-    use everdiff_diff::{YamlSource, read_doc};
-    use crate::{Context, DocKey, diff};
+    use crate::{
+        Context, DocKey, diff,
+        source::{YamlSource, read_doc},
+    };
     use indoc::indoc;
 
     pub fn docs(raw: &str) -> Vec<YamlSource> {

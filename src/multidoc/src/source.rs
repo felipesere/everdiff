@@ -1,7 +1,6 @@
 use camino::Utf8PathBuf;
+use everdiff_line::Line;
 use saphyr::LoadableYamlNode;
-
-use crate::line::Line;
 
 // TODO: Should this live elsewhere?
 #[derive(Debug, Clone)]
@@ -87,8 +86,10 @@ impl YamlSource {
 
 #[cfg(test)]
 mod test {
+    use everdiff_line::Line;
+    use saphyr::SafelyIndex;
 
-    use crate::{node::node_in, path::Path, source::read_doc, line::Line};
+    use crate::source::read_doc;
 
     #[test]
     fn strange_case() {
@@ -188,7 +189,7 @@ mod test {
         let mut sources = read_doc(content, camino::Utf8PathBuf::new()).unwrap();
 
         let first = sources.remove(0);
-        let spec = node_in(&first.yaml, &Path::parse_str(".spec")).unwrap();
+        let spec = first.yaml.data.get("spec").unwrap();
 
         assert_eq!(spec.span.start.line(), 17);
 

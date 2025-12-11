@@ -7,9 +7,13 @@ use std::{
 
 use ansi_width::ansi_width;
 use either::Either;
-use everdiff_diff::{YamlSource, Item, node::node_in, Path, Line};
+use everdiff_diff::{Item, path::Path};
+use everdiff_line::Line;
+use everdiff_multidoc::source::YamlSource;
 use owo_colors::{OwoColorize, Style};
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
+
+use crate::node::node_in;
 
 #[derive(Debug, Clone)]
 pub struct RenderContext {
@@ -748,9 +752,10 @@ mod test_node_height {
 
 #[cfg(test)]
 mod test_gap_start {
+    use everdiff_diff::path::Path;
+    use everdiff_line::Line;
+    use everdiff_multidoc::source::read_doc;
     use test_log::test;
-
-    use everdiff_diff::{Path, read_doc, Line};
 
     use super::gap_start;
 
@@ -1044,17 +1049,14 @@ fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path
 
 #[cfg(test)]
 mod test {
+    use everdiff_multidoc::source::{YamlSource, read_doc};
     use test_log::test;
 
     use expect_test::expect;
     use indoc::indoc;
 
-    use everdiff_diff::{
-        YamlSource,
-        ArrayOrdering, Context, Difference, diff,
-        read_doc,
-    };
     use crate::render;
+    use everdiff_diff::{ArrayOrdering, Context, Difference, diff};
 
     use super::{RenderContext, render_added, render_difference, render_removal};
 

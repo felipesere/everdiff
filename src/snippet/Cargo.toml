@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 everdiff-diff.workspace = true
 everdiff-multidoc.workspace = true
+everdiff-line.workspace = true
 ansi-width.workspace = true
 anyhow.workspace = true
 camino.workspace = true
