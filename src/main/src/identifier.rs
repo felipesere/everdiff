@@ -43,21 +43,4 @@ pub mod kubernetes {
             ))
         })
     }
-
-    /// Keys used to find renamed kinds
-    pub fn names() -> IdentifierFn {
-        Box::new(|_, source| {
-            let doc = &source.yaml;
-            // TODO: don't bail on missing metadata
-            let name = string_of(doc.get("metadata")?.get("name"));
-            let namespace = string_of(doc.get("metadata")?.get("namespace"));
-            Some(DocKey::new(
-                source.file.clone(),
-                BTreeMap::from([
-                    ("metadata.name".to_string(), name),
-                    ("metadata.namespace".to_string(), namespace),
-                ]),
-            ))
-        })
-    }
 }

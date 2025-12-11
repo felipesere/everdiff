@@ -1,6 +1,6 @@
 use hashlink::LinkedHashSet;
 use log::debug;
-use saphyr::{MarkedYamlOwned, YamlDataOwned};
+use saphyr::YamlDataOwned;
 
 use crate::path::{Path, Segment};
 
@@ -17,10 +17,6 @@ pub enum Item {
         index: u32,
         value: saphyr::MarkedYamlOwned,
     },
-}
-
-pub fn string_value(value: impl Into<String>) -> MarkedYamlOwned {
-    MarkedYamlOwned::scalar_from_string(value.into())
 }
 
 impl Item {
@@ -320,11 +316,15 @@ mod tests {
     use expect_test::expect;
     use indoc::indoc;
     use pretty_assertions::assert_eq;
-    use saphyr::{LoadableYamlNode, Scalar};
+    use saphyr::{LoadableYamlNode, MarkedYamlOwned, Scalar};
 
-    use crate::diff::{ArrayOrdering, Item, string_value};
+    use crate::diff::{ArrayOrdering, Item};
 
     use super::{Context, Difference, Path, diff};
+
+    pub fn string_value(value: impl Into<String>) -> MarkedYamlOwned {
+        MarkedYamlOwned::scalar_from_string(value.into())
+    }
 
     #[test]
     fn simple_values_changes() {

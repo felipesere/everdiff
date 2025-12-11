@@ -18,46 +18,48 @@ pub fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedY
     n
 }
 
-pub fn to_value(marked_yaml: &'_ MarkedYamlOwned) -> saphyr::Yaml<'_> {
-    use saphyr::{ScalarOwned, Yaml, YamlDataOwned};
-
-    match &marked_yaml.data {
-        YamlDataOwned::Representation(s, scalar_style, tag) => Yaml::Representation(
-            std::borrow::Cow::Borrowed(s),
-            *scalar_style,
-            tag.as_ref().map(|t| std::borrow::Cow::Owned(t.clone())),
-        ),
-        YamlDataOwned::Value(ScalarOwned::Null) => Yaml::Value(saphyr::Scalar::Null),
-        YamlDataOwned::Value(ScalarOwned::Boolean(b)) => Yaml::Value(saphyr::Scalar::Boolean(*b)),
-        YamlDataOwned::Value(ScalarOwned::Integer(i)) => Yaml::Value(saphyr::Scalar::Integer(*i)),
-        YamlDataOwned::Value(ScalarOwned::FloatingPoint(fp)) => {
-            Yaml::Value(saphyr::Scalar::FloatingPoint(*fp))
-        }
-        YamlDataOwned::Value(ScalarOwned::String(s)) => Yaml::Value(saphyr::Scalar::String(
-            std::borrow::Cow::Borrowed(s.as_str()),
-        )),
-        YamlDataOwned::Sequence(items) => Yaml::Sequence(items.iter().map(to_value).collect()),
-        YamlDataOwned::Mapping(linked_hash_map) => Yaml::Mapping(
-            linked_hash_map
-                .iter()
-                .map(|(key, value)| (to_value(key), to_value(value)))
-                .collect(),
-        ),
-        YamlDataOwned::Tagged(tag, v) => {
-            Yaml::Tagged(std::borrow::Cow::Owned(tag.clone()), Box::new(to_value(v)))
-        }
-        YamlDataOwned::Alias(a) => Yaml::Alias(*a),
-        YamlDataOwned::BadValue => Yaml::BadValue,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use everdiff_diff::path::Path;
     use expect_test::expect;
     use saphyr::{AnnotatedMapping, LoadableYamlNode, MarkedYamlOwned};
 
-    use crate::node::to_value;
+    pub fn to_value(marked_yaml: &'_ MarkedYamlOwned) -> saphyr::Yaml<'_> {
+        use saphyr::{ScalarOwned, Yaml, YamlDataOwned};
+
+        match &marked_yaml.data {
+            YamlDataOwned::Representation(s, scalar_style, tag) => Yaml::Representation(
+                std::borrow::Cow::Borrowed(s),
+                *scalar_style,
+                tag.as_ref().map(|t| std::borrow::Cow::Owned(t.clone())),
+            ),
+            YamlDataOwned::Value(ScalarOwned::Null) => Yaml::Value(saphyr::Scalar::Null),
+            YamlDataOwned::Value(ScalarOwned::Boolean(b)) => {
+                Yaml::Value(saphyr::Scalar::Boolean(*b))
+            }
+            YamlDataOwned::Value(ScalarOwned::Integer(i)) => {
+                Yaml::Value(saphyr::Scalar::Integer(*i))
+            }
+            YamlDataOwned::Value(ScalarOwned::FloatingPoint(fp)) => {
+                Yaml::Value(saphyr::Scalar::FloatingPoint(*fp))
+            }
+            YamlDataOwned::Value(ScalarOwned::String(s)) => Yaml::Value(saphyr::Scalar::String(
+                std::borrow::Cow::Borrowed(s.as_str()),
+            )),
+            YamlDataOwned::Sequence(items) => Yaml::Sequence(items.iter().map(to_value).collect()),
+            YamlDataOwned::Mapping(linked_hash_map) => Yaml::Mapping(
+                linked_hash_map
+                    .iter()
+                    .map(|(key, value)| (to_value(key), to_value(value)))
+                    .collect(),
+            ),
+            YamlDataOwned::Tagged(tag, v) => {
+                Yaml::Tagged(std::borrow::Cow::Owned(tag.clone()), Box::new(to_value(v)))
+            }
+            YamlDataOwned::Alias(a) => Yaml::Alias(*a),
+            YamlDataOwned::BadValue => Yaml::BadValue,
+        }
+    }
 
     pub fn node_and_key(
         yaml: &MarkedYamlOwned,
