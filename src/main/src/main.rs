@@ -1,5 +1,5 @@
 use bpaf::{Parser, construct, short};
-use everdiff_diff::{IgnorePath, read_and_patch};
+use everdiff_diff::{IgnorePath, read};
 use everdiff_multidoc as multidoc;
 use everdiff_snippet::render_multidoc_diff;
 use notify::{RecursiveMode, Watcher};
@@ -89,8 +89,8 @@ fn main() -> anyhow::Result<()> {
     log::debug!("Starting everdiff with args: {:?}", args);
 
     let _config = config::config_from_env();
-    let left = read_and_patch(&args.left)?;
-    let right = read_and_patch(&args.right)?;
+    let left = read(&args.left)?;
+    let right = read(&args.right)?;
 
     let id = if args.kubernetes {
         identifier::kubernetes::gvk()
@@ -121,8 +121,8 @@ fn main() -> anyhow::Result<()> {
         for event in rx {
             let _event = event?;
             print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
-            let left = read_and_patch(&args.left)?;
-            let right = read_and_patch(&args.right)?;
+            let left = read(&args.left)?;
+            let right = read(&args.right)?;
 
             let diffs = multidoc::diff(&ctx, &left, &right);
 

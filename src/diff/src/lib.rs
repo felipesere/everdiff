@@ -12,7 +12,7 @@ pub use path::{IgnorePath, Path, Segment};
 pub use source::{YamlSource, read_doc};
 
 // TODO: Optimize memory usage for large files - consider streaming approach instead of loading all into memory
-pub fn read_and_patch(paths: &[camino::Utf8PathBuf]) -> anyhow::Result<Vec<YamlSource>> {
+pub fn read(paths: &[camino::Utf8PathBuf]) -> anyhow::Result<Vec<YamlSource>> {
     let mut docs = Vec::new();
     for p in paths {
         let mut f = std::fs::File::open(p)?;
