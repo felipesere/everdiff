@@ -54,20 +54,6 @@ impl Add<usize> for Line {
     }
 }
 
-impl Add<i32> for Line {
-    type Output = Line;
-
-    fn add(self, rhs: i32) -> Self::Output {
-        if rhs > 0 {
-            let rhs = usize::try_from(rhs).expect("a small enough addition to line");
-            Line::new(self.get().saturating_add(rhs)).unwrap()
-        } else {
-            // let rhs = usize::try_from(rhs.abs()).expect("a small enough addition to line");
-            // Line::new(self.get().saturating_sub(rhs)).unwrap();
-            unimplemented!("Are we really adding a negative number?");
-        }
-    }
-}
 
 impl Sub<usize> for Line {
     type Output = Line;
