@@ -6,7 +6,8 @@
       "Bash(RUST_LOG=debug cargo run:*)",
       "Bash(cargo run:*)",
       "Bash(mkdir:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(jj commit:*)"
     ],
     "deny": []
   }

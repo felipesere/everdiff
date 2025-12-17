@@ -10,7 +10,6 @@ use notify::{RecursiveMode, Watcher};
 use owo_colors::OwoColorize;
 use saphyr::LoadableYamlNode;
 
-mod config;
 mod identifier;
 
 #[derive(Debug)]
@@ -93,7 +92,6 @@ fn main() -> anyhow::Result<()> {
 
     log::debug!("Starting everdiff with args: {:?}", args);
 
-    let _config = config::config_from_env();
     let left = read(&args.left)?;
     let right = read(&args.right)?;
 
