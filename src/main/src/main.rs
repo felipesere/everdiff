@@ -1,14 +1,11 @@
 use std::io::Read;
 
 use bpaf::{Parser, construct, short};
-use camino::Utf8PathBuf;
 use everdiff_diff::path::IgnorePath;
-use everdiff_line::Line;
-use everdiff_multidoc::{self as multidoc, source::YamlSource};
+use everdiff_multidoc::{self as multidoc, source::{YamlSource, read_doc}};
 use everdiff_snippet::render_multidoc_diff;
 use notify::{RecursiveMode, Watcher};
 use owo_colors::OwoColorize;
-use saphyr::LoadableYamlNode;
 
 mod identifier;
 
@@ -189,45 +186,3 @@ pub fn read(paths: &[camino::Utf8PathBuf]) -> anyhow::Result<Vec<YamlSource>> {
     Ok(docs)
 }
 
-pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result<Vec<YamlSource>> {
-    let content = content.into();
-    let mut docs = Vec::new();
-    let raw_docs: Vec<_> = content
-        .clone()
-        .split("---")
-        .filter(|doc| !doc.is_empty())
-        .map(|doc| doc.trim().to_string())
-        .collect();
-
-    let parsed_docs = saphyr::MarkedYamlOwned::load_from_str(&content)?;
-
-    for (index, (document, content)) in parsed_docs.into_iter().zip(raw_docs).enumerate() {
-        let start = document.span.start.line();
-        let end = document.span.end.line();
-        log::debug!("start: {start} and end {end}");
-
-        let n = content
-            .lines()
-            .rev()
-            // drop any trailing empty lines...
-            .skip_while(|line| line.is_empty())
-            .count();
-
-        let first_line = Line::one();
-        // the span ends when the indenation no longer matches, which is the line _after_ the the
-        // last properly indented line
-        let last_line = Line::new(n).unwrap();
-
-        docs.push(YamlSource {
-            file: path.clone(),
-            yaml: document,
-            start,
-            end,
-            first_line,
-            last_line,
-            content,
-            index,
-        });
-    }
-    Ok(docs)
-}
