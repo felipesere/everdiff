@@ -381,7 +381,7 @@ fn render_primary_side(
     };
 
     // Show a few more lines before and after the lines that have changed
-    let start = change_start - ctx.visual_context;
+    let start = change_start.saturating_sub(ctx.visual_context);
     let end = min(change_end + ctx.visual_context, primary_doc.last_line);
     log::debug!("Snippet for primary document");
     let primary_snippet =
@@ -432,7 +432,7 @@ fn render_secondary_side(
     // The gap comes after gap_start, so we need to start at gap_start + 1
     // to align with the primary side which starts at the changed content.
     // This applies to both additions and removals.
-    let start = (gap_start + 1) - ctx.visual_context;
+    let start = (gap_start + 1).saturating_sub(ctx.visual_context);
     let end: Line = gap_start + ctx.visual_context + 1;
 
     let lines = secondary_doc.lines();

@@ -38,6 +38,16 @@ impl Line {
 
         a.abs_diff(b)
     }
+
+    /// Subtract with saturation - returns Line(1) if the result would be zero or negative.
+    pub fn saturating_sub(self, rhs: usize) -> Line {
+        let val = self.0.get();
+        if val <= rhs {
+            Line::one()
+        } else {
+            Line::new(val - rhs).unwrap()
+        }
+    }
 }
 
 impl fmt::Display for Line {
@@ -56,15 +66,14 @@ impl Add<usize> for Line {
 
 
 impl Sub<usize> for Line {
-    type Output = Line;
+    type Output = Option<Line>;
 
     fn sub(self, rhs: usize) -> Self::Output {
         let val = self.0.get();
         if val <= rhs {
-            Line::one()
+            None
         } else {
-            let val = val - rhs;
-            Line::new(val).unwrap()
+            Line::new(val - rhs)
         }
     }
 }
