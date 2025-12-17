@@ -1,0 +1,114 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.1)'
+        required: true
+        type: string
+jobs:
+  update-formula:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Get release version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+            echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download release assets
+        run: |
+          mkdir -p downloads
+          cd downloads
+
+          # Download all tarballs
+          gh release download "v${{ steps.version.outputs.version }}" \
+            --pattern "*.tar.gz" \
+            --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calculate SHA256 checksums
+        id: checksums
+        run: |
+          cd downloads
+
+          macos_arm64_sha=$(sha256sum everdiff-macos-aarch64.tar.gz | awk '{print $1}')
+          macos_x86_sha=$(sha256sum everdiff-macos-x86_64.tar.gz | awk '{print $1}')
+          linux_arm64_sha=$(sha256sum everdiff-linux-aarch64.tar.gz | awk '{print $1}')
+          linux_x86_sha=$(sha256sum everdiff-linux-x86_64.tar.gz | awk '{print $1}')
+
+          echo "macos_arm64_sha=$macos_arm64_sha" >> $GITHUB_OUTPUT
+          echo "macos_x86_sha=$macos_x86_sha" >> $GITHUB_OUTPUT
+          echo "linux_arm64_sha=$linux_arm64_sha" >> $GITHUB_OUTPUT
+          echo "linux_x86_sha=$linux_x86_sha" >> $GITHUB_OUTPUT
+
+      - name: Update formula
+        run: |
+          git clone https://${{ secrets.COMMITTER_TOKEN }}@github.com/felipesere/homebrew-tap.git
+          cd homebrew-tap
+          REPO_NAME="everdiff"
+          BRANCH_NAME=update-$REPO_NAME-v${{ steps.version.outputs.version }}
+          git switch -c $BRANCH_NAME
+          cat > Formula/everdiff.rb << 'EOF'
+          class Everdiff < Formula
+            desc "Fancy YAML diffing"
+            homepage "https://github.com/felipesere/everdiff"
+            version "${{ steps.version.outputs.version }}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/felipesere/everdiff/releases/download/v#{version}/everdiff-macos-aarch64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.macos_arm64_sha }}"
+              else
+                url "https://github.com/felipesere/everdiff/releases/download/v#{version}/everdiff-macos-x86_64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.macos_x86_sha }}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/felipesere/everdiff/releases/download/v#{version}/everdiff-linux-aarch64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_arm64_sha }}"
+              else
+                url "https://github.com/felipesere/everdiff/releases/download/v#{version}/everdiff-linux-x86_64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_x86_sha }}"
+              end
+            end
+
+            def install
+              bin.install "everdiff"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/everdiff --version 2>&1", 2)
+            end
+          end
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/everdiff.rb
+          git commit -m "Update formula to version ${{ steps.version.outputs.version }}"
+          git push origin $BRANCH_NAME
+          gh pr create --repo felipesere/homebrew-tap \
+            --title "Update everdiff to v${{ steps.version.outputs.version }}" \
+            --body "Automated update of everdiff formula to version ${{ steps.version.outputs.version }}" \
+            --head $BRANCH_NAME
+        env:
+          GH_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
