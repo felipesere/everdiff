@@ -2,13 +2,12 @@ name: Update Homebrew Formula
 
 on:
   release:
-    types: [released]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag (e.g., v0.1.1)'
-        required: true
-        type: string
+    types: [published]
+
+# on:
+#   release:
+#     types: [released]
+
 jobs:
   update-formula:
     runs-on: ubuntu-latest
