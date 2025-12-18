@@ -64,7 +64,6 @@ impl Add<usize> for Line {
     }
 }
 
-
 impl Sub<usize> for Line {
     type Output = Option<Line>;
 

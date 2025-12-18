@@ -2,7 +2,10 @@ use std::io::Read;
 
 use bpaf::{Parser, construct, short};
 use everdiff_diff::path::IgnorePath;
-use everdiff_multidoc::{self as multidoc, source::{YamlSource, read_doc}};
+use everdiff_multidoc::{
+    self as multidoc,
+    source::{YamlSource, read_doc},
+};
 use everdiff_snippet::render_multidoc_diff;
 use notify::{RecursiveMode, Watcher};
 use owo_colors::OwoColorize;
@@ -80,9 +83,11 @@ fn args() -> impl Parser<Args> {
 }
 
 fn main() -> anyhow::Result<()> {
+    let version = option_env!("TAG").unwrap_or_else(|| "unknwon");
     let args = args()
         .to_options()
         .descr("Difference between YAML documents")
+        .version(version)
         .run();
 
     setup_logging(args.verbosity)?;
@@ -185,4 +190,3 @@ pub fn read(paths: &[camino::Utf8PathBuf]) -> anyhow::Result<Vec<YamlSource>> {
 
     Ok(docs)
 }
-
