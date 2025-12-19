@@ -50,7 +50,7 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
         env:
-          TAG=${GITHUB_REF#refs/tags/v}
+          TAG: ${GITHUB_REF#refs/tags/v}
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
       - name: Strip binary (Linux)
@@ -86,141 +86,15 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Make the Github release
+        uses: felipesere/actions/actions/release@main
         with:
-          path: artifacts
-
-      - name: Generate checksums
-        run: |
-          cd artifacts
-          for dir in */; do
-            cd "$dir"
-            sha256sum *.tar.gz >> ../../SHA256SUMS
-            cd ..
-          done
-          cd ..
-          cat SHA256SUMS
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+          owner: felipesere
+          application: everdiff
+      - name: Make the Homebrew Tap release
+        uses: felipesere/actions/actions/update-homebrew@main
         with:
-          files: |
-            artifacts/*/*.tar.gz
-            SHA256SUMS
-          body: |
-            ## Installation
-
-            ### Homebrew (macOS and Linux)
-            ```bash
-            brew install felipesere/everdiff/everdiff
-            ```
-
-            ### Manual Installation
-            Download the appropriate binary for your system:
-            - **macOS (Apple Silicon)**: everdiff-macos-aarch64.tar.gz
-            - **macOS (Intel)**: everdiff-macos-x86_64.tar.gz
-            - **Linux (x86_64)**: everdiff-linux-x86_64.tar.gz
-            - **Linux (ARM64)**: everdiff-linux-aarch64.tar.gz
-
-            Extract and install:
-            ```bash
-            tar xzf everdiff-*.tar.gz
-            sudo mv everdiff /usr/local/bin/
-            ```
-
-            Verify checksums with SHA256SUMS file.
-          draft: false
-          prerelease: ${{ contains(github.ref, 'pre') || contains(github.ref, 'rc') || contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get release version
-        id: version
-        run: |
-          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Download release assets
-        run: |
-          mkdir -p downloads
-          cd downloads
-
-          # Download all tarballs
-          gh release download "v${{ steps.version.outputs.version }}" \
-            --pattern "*.tar.gz" \
-            --repo ${{ github.repository }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Calculate SHA256 checksums
-        id: checksums
-        run: |
-          cd downloads
-
-          macos_arm64_sha=$(sha256sum everdiff-macos-aarch64.tar.gz | awk '{print $1}')
-          macos_x86_sha=$(sha256sum everdiff-macos-x86_64.tar.gz | awk '{print $1}')
-          linux_arm64_sha=$(sha256sum everdiff-linux-aarch64.tar.gz | awk '{print $1}')
-          linux_x86_sha=$(sha256sum everdiff-linux-x86_64.tar.gz | awk '{print $1}')
-
-          echo "macos_arm64_sha=$macos_arm64_sha" >> $GITHUB_OUTPUT
-          echo "macos_x86_sha=$macos_x86_sha" >> $GITHUB_OUTPUT
-          echo "linux_arm64_sha=$linux_arm64_sha" >> $GITHUB_OUTPUT
-          echo "linux_x86_sha=$linux_x86_sha" >> $GITHUB_OUTPUT
-
-      - name: Update formula
-        run: |
-          git clone https://${{ secrets.COMMITTER_TOKEN }}@github.com/felipesere/homebrew-tap.git
-          cd homebrew-tap
-          REPO_NAME="everdiff"
-          BRANCH_NAME=update-$REPO_NAME-v${{ steps.version.outputs.version }}
-          git switch -c $BRANCH_NAME
-          cat > Formula/everdiff.rb << 'EOF'
-          class Everdiff < Formula
-            desc "Fancy YAML diffing"
-            homepage "https://github.com/felipesere/everdiff"
-            version "${{ steps.version.outputs.version }}"
-            license "MIT"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/felipesere/everdiff/releases/download/v#{version}/everdiff-macos-aarch64.tar.gz"
-                sha256 "${{ steps.checksums.outputs.macos_arm64_sha }}"
-              else
-                url "https://github.com/felipesere/everdiff/releases/download/v#{version}/everdiff-macos-x86_64.tar.gz"
-                sha256 "${{ steps.checksums.outputs.macos_x86_sha }}"
-              end
-            end
-
-            on_linux do
-              if Hardware::CPU.arm?
-                url "https://github.com/felipesere/everdiff/releases/download/v#{version}/everdiff-linux-aarch64.tar.gz"
-                sha256 "${{ steps.checksums.outputs.linux_arm64_sha }}"
-              else
-                url "https://github.com/felipesere/everdiff/releases/download/v#{version}/everdiff-linux-x86_64.tar.gz"
-                sha256 "${{ steps.checksums.outputs.linux_x86_sha }}"
-              end
-            end
-
-            def install
-              bin.install "everdiff"
-            end
-
-            test do
-              assert_match version.to_s, shell_output("#{bin}/everdiff --version 2>&1", 2)
-            end
-          end
-          EOF
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/everdiff.rb
-          git commit -m "Update formula to version ${{ steps.version.outputs.version }}"
-          git push origin $BRANCH_NAME
-          gh pr create --repo felipesere/homebrew-tap \
-            --title "Update everdiff to v${{ steps.version.outputs.version }}" \
-            --body "Automated update of everdiff formula to version ${{ steps.version.outputs.version }}" \
-            --head $BRANCH_NAME
-        env:
-          GH_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
+          owner: felipesere
+          application: everdiff
+          homebrew_tap: felipesere/homebrew-tap
+          homebrew_tap_token: ${{ secrets.COMMITTER_TOKEN }}
