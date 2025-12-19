@@ -97,6 +97,7 @@ jobs:
         with:
           owner: felipesere
           application: everdiff
+          formula: Everdiff
           application_token: ${{ secrets.GITHUB_TOKEN }}
           homebrew_tap: felipesere/homebrew-tap
           homebrew_tap_token: ${{ secrets.COMMITTER_TOKEN }}
