@@ -87,12 +87,12 @@ jobs:
 
     steps:
       - name: Make the Github release
-        uses: felipesere/actions/actions/release@main
+        uses: felipesere/actions/release@main
         with:
           owner: felipesere
           application: everdiff
       - name: Make the Homebrew Tap release
-        uses: felipesere/actions/actions/update-homebrew@main
+        uses: felipesere/actions/update-homebrew@main
         with:
           owner: felipesere
           application: everdiff
