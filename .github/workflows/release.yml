@@ -50,7 +50,7 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
         env:
-          TAG: ${GITHUB_REF#refs/tags/v}
+          TAG=${{ github,ref_name}}
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
       - name: Strip binary (Linux)
