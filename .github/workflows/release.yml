@@ -91,10 +91,12 @@ jobs:
         with:
           owner: felipesere
           application: everdiff
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Make the Homebrew Tap release
         uses: felipesere/actions/update-homebrew@main
         with:
           owner: felipesere
           application: everdiff
+          application_token: ${{ secrets.GITHUB_TOKEN }}
           homebrew_tap: felipesere/homebrew-tap
           homebrew_tap_token: ${{ secrets.COMMITTER_TOKEN }}
