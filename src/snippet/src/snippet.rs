@@ -2,15 +2,13 @@ use core::option::Option::None;
 use std::{
     cmp::min,
     fmt::{self},
-    iter::{empty, repeat_n},
 };
 
-use ansi_width::ansi_width;
-use either::Either;
+use crate::wrapping::Column;
 use everdiff_diff::{Item, path::Path};
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
-use owo_colors::{OwoColorize, Style};
+use owo_colors::Style;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
 use crate::node::node_in;
@@ -49,7 +47,7 @@ impl From<Line> for LineWidget {
     fn from(value: Line) -> Self {
         // TODO: We still do gross `±1` math in here
         // if the `Line` concept pans out we can clear it
-        Self(Some(value.get() - 1))
+        Self::Nr(value.get() - 1)
     }
 }
 
@@ -237,7 +235,7 @@ mod snippet_tests {
 }
 
 struct Rendered {
-    content: Vec<String>,
+    content: crate::wrapping::Column,
     lines_above: usize,
     lines_below: usize,
 }
@@ -322,42 +320,30 @@ fn render_change(
 
     let primary = render_primary_side(ctx, larger_document, &changed_yaml, colors);
     let gap_size = changed_yaml.height();
+    let primary_row_count = primary.row_count();
     let secondary = render_secondary_side(
         ctx,
         larger_document,
         gapped_document,
         path_to_change,
-        primary.len(),
+        primary_row_count,
         gap_size,
         colors.1,
     );
 
-    // wtf is this +6
-    let width = ctx.half_width() + 6;
-
-    let fixed_with_line = |(left, right)| format!("│ {left:<width$}│ {right:<width$}");
-
     log::debug!(
         "Sizes:  primary {}, secondary {}",
-        primary.len(),
-        secondary.len()
+        primary.row_count(),
+        secondary.row_count()
     );
 
     // Combine the two sides based on change type
-    match change_type {
-        ChangeType::Removal => primary
-            .iter()
-            .zip(secondary)
-            .map(fixed_with_line)
-            .collect::<Vec<_>>()
-            .join("\n"),
-        ChangeType::Addition => secondary
-            .iter()
-            .zip(primary)
-            .map(fixed_with_line)
-            .collect::<Vec<_>>()
-            .join("\n"),
-    }
+    let lines = match change_type {
+        ChangeType::Removal => primary.zip_with(secondary, ctx.half_width()),
+        ChangeType::Addition => secondary.zip_with(primary, ctx.half_width()),
+    };
+
+    lines.join("\n")
 }
 
 fn render_primary_side(
@@ -365,7 +351,9 @@ fn render_primary_side(
     primary_doc: &YamlSource,
     item: &Item,
     (highlighting, unchanged): (Style, Style),
-) -> Vec<String> {
+) -> Column {
+    use crate::wrapping::{SourceLineGroup, WrappedLine};
+
     // Extract lines from primary document
     let primary_lines = primary_doc.lines();
 
@@ -394,23 +382,21 @@ fn render_primary_side(
         changed_range = change_start..(change_end + 1);
     }
     log::debug!("We will highlight {change_start}..={change_end}");
-    primary_snippet
+    let groups: Vec<SourceLineGroup> = primary_snippet
         .iter()
         .map(move |(line_nr, line)| {
-            let line = if changed_range.contains(&line_nr) {
-                line.style(highlighting).to_string()
+            let style = if changed_range.contains(&line_nr) {
+                highlighting
             } else {
-                line.style(unchanged).to_string()
+                unchanged
             };
 
-            let extras = line.len() - ansi_width(&line);
-            let line_nr = LineWidget::from(line_nr);
-            format!(
-                "{line_nr}│ {line:<width$}",
-                width = ctx.half_width() + extras
-            )
+            let wrapped = WrappedLine::new(line_nr, line, ctx.half_width());
+            wrapped.format(style, ctx.half_width())
         })
-        .collect()
+        .collect();
+
+    Column(groups)
 }
 
 fn render_secondary_side(
@@ -418,20 +404,16 @@ fn render_secondary_side(
     primary_doc: &YamlSource,
     secondary_doc: &YamlSource,
     path_to_changed_node: Path,
-    primary_snippet_size: usize,
+    primary_row_count: usize,
     gap_size: usize,
     unchanged: Style,
-) -> Vec<String> {
+) -> Column {
+    use crate::wrapping::{FormattedRow, SourceLineGroup, WrappedLine};
+
     log::debug!("changed_node: {}", path_to_changed_node.jq_like());
-    // TODO: this might not be 100% intended as it gives the value, meaning the right hand side...
-    // let node_to_align = node_in(&secondary_doc.yaml, &path_to_changed_node)
-    //     .expect("node to align was not in secondary_doc");
 
     let gap_start = gap_start(primary_doc, secondary_doc, path_to_changed_node);
     log::debug!("The gap should be right after: {gap_start}");
-    // The gap comes after gap_start, so we need to start at gap_start + 1
-    // to align with the primary side which starts at the changed content.
-    // This applies to both additions and removals.
     let start = (gap_start + 1).saturating_sub(ctx.visual_context);
     let end: Line = gap_start + ctx.visual_context + 1;
 
@@ -445,43 +427,38 @@ fn render_secondary_side(
     log::debug!("before_gap: {}->{}", before_gap.from, before_gap.to);
     log::debug!("after_gap: {}->{}", after_gap.from, after_gap.to);
 
-    let filler_len = if end.distance(&start) > primary_snippet_size {
+    let filler_len = if end.distance(&start) > primary_row_count {
         0
     } else {
-        (end.distance(&start)).saturating_sub(primary_snippet_size)
+        (end.distance(&start)).saturating_sub(primary_row_count)
     };
     log::debug!("Filler will be {filler_len}");
 
-    let filler = repeat_n("".to_string(), filler_len);
+    let mut groups: Vec<SourceLineGroup> = Vec::new();
 
-    let pre_gap = before_gap.iter().map(|(line_nr, line)| {
-        let line = line.style(unchanged).to_string();
-        let extras = line.len() - ansi_width(&line);
+    // Filler lines (single-row groups)
+    for _ in 0..filler_len {
+        groups.push(SourceLineGroup(vec![FormattedRow::blank(ctx.half_width())]));
+    }
 
-        let line_nr = LineWidget::from(line_nr);
-        format!(
-            "{line_nr}│ {line:<width$}",
-            width = ctx.half_width() + extras
-        )
-    });
+    // Pre-gap lines
+    for (line_nr, line) in before_gap.iter() {
+        let wrapped = WrappedLine::new(line_nr, line, ctx.half_width());
+        groups.push(wrapped.format(unchanged, ctx.half_width()));
+    }
 
-    let gap = (0..gap_size).map(|_| {
-        let l = LineWidget(None);
-        format!("{l}│ {line:<width$}", line = "", width = ctx.half_width())
-    });
+    // Gap lines (blank rows)
+    for _ in 0..gap_size {
+        groups.push(SourceLineGroup(vec![FormattedRow::blank(ctx.half_width())]));
+    }
 
-    let post_gap = after_gap.iter().map(|(line_nr, line)| {
-        let line = line.style(unchanged).to_string();
-        let extras = line.len() - ansi_width(&line);
+    // Post-gap lines
+    for (line_nr, line) in after_gap.iter() {
+        let wrapped = WrappedLine::new(line_nr, line, ctx.half_width());
+        groups.push(wrapped.format(unchanged, ctx.half_width()));
+    }
 
-        let line_nr = LineWidget::from(line_nr);
-        format!(
-            "{line_nr}│ {line:<width$}",
-            width = ctx.half_width() + extras
-        )
-    });
-
-    filler.chain(pre_gap).chain(gap).chain(post_gap).collect()
+    Column(groups)
 }
 
 /// Adjusts a path from primary document indexing to secondary document indexing.
@@ -879,56 +856,39 @@ pub fn render_difference(
     let left = render_changed_snippet(&smaller_context, left_doc, left);
     let right = render_changed_snippet(&smaller_context, right_doc, right);
 
-    // TODO: this `6` is horrid... I'll have to find a way around this...
-    let n = usize::from(max_left + 6);
-    let filler = || std::iter::repeat(format!("{:>n$}", ""));
+    use crate::wrapping::{FormattedRow, SourceLineGroup};
 
     let above_filler = left.lines_above.abs_diff(right.lines_above);
     let below_filler = left.lines_below.abs_diff(right.lines_below);
 
-    let (left_top_filler, right_top_filler) = if left.lines_above < right.lines_above {
-        (
-            Either::Left(filler().take(above_filler)),
-            Either::Right(empty::<String>()),
-        )
+    let half_width = usize::from(max_left);
+    let filler_group = || SourceLineGroup(vec![FormattedRow::blank(half_width)]);
+
+    let mut left_groups = left.content.0;
+    let mut right_groups = right.content.0;
+
+    // Prepend top filler to the side with fewer lines above
+    if left.lines_above < right.lines_above {
+        let mut filler: Vec<_> = (0..above_filler).map(|_| filler_group()).collect();
+        filler.append(&mut left_groups);
+        left_groups = filler;
     } else {
-        (
-            Either::Right(empty::<String>()),
-            Either::Left(filler().take(above_filler)),
-        )
-    };
+        let mut filler: Vec<_> = (0..above_filler).map(|_| filler_group()).collect();
+        filler.append(&mut right_groups);
+        right_groups = filler;
+    }
 
-    let (left_bottom_filler, right_bottom_filler) = if left.lines_below < right.lines_below {
-        (
-            Either::Left(filler().take(below_filler)),
-            Either::Right(empty::<String>()),
-        )
+    // Append bottom filler to the side with fewer lines below
+    if left.lines_below < right.lines_below {
+        left_groups.extend((0..below_filler).map(|_| filler_group()));
     } else {
-        (
-            Either::Right(empty::<String>()),
-            Either::Left(filler().take(below_filler)),
-        )
-    };
+        right_groups.extend((0..below_filler).map(|_| filler_group()));
+    }
 
-    let left = left_top_filler
-        .into_iter()
-        .chain(left.content)
-        .chain(left_bottom_filler);
+    let left_col = Column(left_groups);
+    let right_col = Column(right_groups);
 
-    let right = right_top_filler
-        .into_iter()
-        .chain(right.content)
-        .chain(right_bottom_filler);
-
-    let width = ctx.half_width() + 6;
-
-    let fixed_with_line = |(left, right)| format!("│ {left:<width$}│ {right:<width$}");
-
-    let body = left
-        .zip(right)
-        .map(fixed_with_line)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let body = left_col.zip_with(right_col, ctx.half_width()).join("\n");
 
     format!("{title}\n{body}")
 }
@@ -938,6 +898,8 @@ fn render_changed_snippet(
     source: &YamlSource,
     changed_yaml: MarkedYamlOwned,
 ) -> Rendered {
+    use crate::wrapping::{SourceLineGroup, WrappedLineUsize};
+
     // lines to render above and below if available...
     let context = 5;
     let start_line_of_document = source.yaml.span.start.line();
@@ -960,43 +922,46 @@ fn render_changed_snippet(
     let lines_above = changed_line - start;
     let lines_below = end - changed_line;
 
-    let content = left_snippet
+    let width = usize::from(ctx.max_width);
+
+    let groups: Vec<SourceLineGroup> = left_snippet
         .iter()
         .zip(start..end)
         .map(|(line, line_nr)| {
-            let line = if line_nr == changed_line {
-                line.style(added).to_string()
+            let style = if line_nr == changed_line {
+                added
             } else {
-                line.style(unchaged).to_string()
+                unchaged
             };
 
-            // Why are we adding "extras"?
-            // The line may contain non-printable color codes which count for the padding
-            // in format!(...) but don't add to the width on the terminal.
-            // To accomodate, we pretend to make the padding wider again
-            // because we know some of the width won't be visible.
-            let extras = line.len() - ansi_width(&line);
-            let width = usize::from(ctx.max_width);
-
-            let line_nr = LineWidget(Some(line_nr));
-            format!("{line_nr}│ {line:<width$}", width = width + extras)
+            let wrapped = WrappedLineUsize {
+                line_nr,
+                segments: crate::wrapping::wrap_text(line, width),
+            };
+            wrapped.format_with_usize(style, width)
         })
-        .collect::<Vec<_>>();
+        .collect();
 
     Rendered {
-        content,
+        content: Column(groups),
         lines_above,
         lines_below,
     }
 }
 
-pub struct LineWidget(pub Option<usize>);
+// pub struct LineWidget(pub Option<usize>);
+pub enum LineWidget {
+    Nr(usize),
+    Continuation,
+    Filler,
+}
 
 impl fmt::Display for LineWidget {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.0 {
-            Some(idx) => write!(f, "{:>3} ", idx + 1),
-            None => write!(f, "    "),
+        match self {
+            Self::Nr(idx) => write!(f, "{:>3} ", idx + 1),
+            Self::Continuation => write!(f, "  ┆ "),
+            Self::Filler => write!(f, "    "),
         }
     }
 }
@@ -1383,14 +1348,14 @@ mod test {
             │   1 │ person:                         │   1 │ person:                         
             │   2 │   name: Steve E. Anderson       │   2 │   name: Steven Anderson         
             │   3 │   age: 12                       │   3 │   location:                     
-            │                                       │   4 │     street: 1 Kentish Street    
-            │                                       │   5 │     postcode: KS87JJ            
-            │                                       │   6 │   age: 34                       
+            │     │                                 │   4 │     street: 1 Kentish Street    
+            │     │                                 │   5 │     postcode: KS87JJ            
+            │     │                                 │   6 │   age: 34                       
 
             Changed: .person.age:
-            │                                       │   1 │ person:                         
-            │                                       │   2 │   name: Steven Anderson         
-            │                                       │   3 │   location:                     
+            │     │                                 │   1 │ person:                         
+            │     │                                 │   2 │   name: Steven Anderson         
+            │     │                                 │   3 │   location:                     
             │   1 │ person:                         │   4 │     street: 1 Kentish Street    
             │   2 │   name: Steve E. Anderson       │   5 │     postcode: KS87JJ            
             │   3 │   age: 12                       │   6 │   age: 34                       
@@ -1632,7 +1597,8 @@ mod test {
             │   5 │     version: "1.0"              │   5 │     version: "1.0"              
             │   6 │     environment: production     │   6 │     environment: production     
             │   7 │   annotations:                  │     │                                 
-            │   8 │     description: "My service description"│     │                                 
+            │   8 │     description: "My service des│     │                                 
+            │   ┆ │ cription"                       │     │                                 
             │   9 │ spec:                           │   7 │ spec:                           
             │  10 │   replicas: 3                   │   8 │   replicas: 3                   
 

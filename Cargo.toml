@@ -30,6 +30,7 @@ serde = { version = "1.0.228" }
 serde-saphyr = "0.0.10"
 similar = { version = "2.6.0", features = ["inline"] }
 termsize = "0.1.9"
+unicode-width = "0.2"
 
 # Dev dependencies
 indoc = "2.0.5"

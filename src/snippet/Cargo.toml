@@ -15,6 +15,7 @@ log.workspace = true
 owo-colors.workspace = true
 saphyr.workspace = true
 termsize.workspace = true
+unicode-width.workspace = true
 
 [dev-dependencies]
 indoc.workspace = true

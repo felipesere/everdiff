@@ -6,6 +6,7 @@ use owo_colors::OwoColorize;
 
 mod node;
 mod snippet;
+pub mod wrapping;
 
 pub use snippet::{
     Color, LineWidget, RenderContext, gap_start, render_added, render_difference, render_removal,
