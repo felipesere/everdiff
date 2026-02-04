@@ -348,11 +348,23 @@ mod tests {
         let blank = FormattedRow::blank(20);
 
         // line number row:  "  7 │ ..."
-        assert!(group.0[0].0.starts_with("  7 │"), "expected line number, got: {:?}", group.0[0].0);
+        assert!(
+            group.0[0].0.starts_with("  7 │"),
+            "expected line number, got: {:?}",
+            group.0[0].0
+        );
         // continuation row: "  ┆ │ ..."
-        assert!(group.0[1].0.starts_with("  ┆ │"), "expected continuation, got: {:?}", group.0[1].0);
+        assert!(
+            group.0[1].0.starts_with("  ┆ │"),
+            "expected continuation, got: {:?}",
+            group.0[1].0
+        );
         // filler/blank row: "    │ ..."
-        assert!(blank.0.starts_with("    │"), "expected filler, got: {:?}", blank.0);
+        assert!(
+            blank.0.starts_with("    │"),
+            "expected filler, got: {:?}",
+            blank.0
+        );
     }
 
     #[test]
