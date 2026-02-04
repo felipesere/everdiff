@@ -284,6 +284,7 @@ dependencies = [
  "owo-colors",
  "pretty_assertions",
  "saphyr",
+ "similar",
  "terminal_size",
  "test-log",
  "unicode-width 0.2.2",

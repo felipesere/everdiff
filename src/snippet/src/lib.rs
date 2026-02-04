@@ -4,6 +4,7 @@ use everdiff_diff::{Difference, path::IgnorePath};
 use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
 use owo_colors::OwoColorize;
 
+mod inline_diff;
 mod node;
 mod snippet;
 pub mod wrapping;
