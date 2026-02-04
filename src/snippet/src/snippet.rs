@@ -11,6 +11,7 @@ use everdiff_multidoc::source::YamlSource;
 use owo_colors::Style;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
+use crate::inline_diff::{InlinePart, compute_inline_diff, extract_yaml_prefix};
 use crate::node::node_in;
 
 #[derive(Debug, Clone)]
@@ -853,8 +854,20 @@ pub fn render_difference(
         color: ctx.color,
         visual_context: 5,
     };
-    let left = render_changed_snippet(&smaller_context, left_doc, left);
-    let right = render_changed_snippet(&smaller_context, right_doc, right);
+
+    // Check if both values are strings - if so, compute inline diff
+    let inline_diff = match (left.data.as_str(), right.data.as_str()) {
+        (Some(left_str), Some(right_str)) => Some(compute_inline_diff(left_str, right_str)),
+        _ => None,
+    };
+
+    let (left_parts, right_parts) = match &inline_diff {
+        Some((l, r)) => (Some(l.as_slice()), Some(r.as_slice())),
+        None => (None, None),
+    };
+
+    let left = render_changed_snippet(&smaller_context, left_doc, left, left_parts);
+    let right = render_changed_snippet(&smaller_context, right_doc, right, right_parts);
 
     use crate::wrapping::{FormattedRow, SourceLineGroup};
 
@@ -897,8 +910,9 @@ fn render_changed_snippet(
     ctx: &RenderContext,
     source: &YamlSource,
     changed_yaml: MarkedYamlOwned,
+    inline_parts: Option<&[InlinePart]>,
 ) -> Rendered {
-    use crate::wrapping::{SourceLineGroup, WrappedLineUsize};
+    use crate::wrapping::{SourceLineGroup, WrappedLineUsize, format_with_inline_highlights};
 
     // lines to render above and below if available...
     let context = 5;
@@ -911,7 +925,7 @@ fn render_changed_snippet(
     let end = min(changed_line + context, lines.len());
     let left_snippet = &lines[start..end];
 
-    let (added, unchaged) = match ctx.color {
+    let (emphasis, unchanged) = match ctx.color {
         Color::Enabled => (
             owo_colors::Style::new().yellow(),
             owo_colors::Style::new().dimmed(),
@@ -928,17 +942,29 @@ fn render_changed_snippet(
         .iter()
         .zip(start..end)
         .map(|(line, line_nr)| {
-            let style = if line_nr == changed_line {
-                added
+            if line_nr == changed_line {
+                // Check if we have inline parts for this changed line
+                if let Some(parts) = inline_parts {
+                    // Extract the prefix (everything before the value)
+                    // The line format is typically "  key: value" or "    - value"
+                    // We need to find where the changed value starts in the line
+                    let prefix = extract_yaml_prefix(line);
+                    format_with_inline_highlights(line_nr, prefix, parts, unchanged, emphasis, width)
+                } else {
+                    // No inline parts, style the whole line with emphasis
+                    let wrapped = WrappedLineUsize {
+                        line_nr,
+                        segments: crate::wrapping::wrap_text(line, width),
+                    };
+                    wrapped.format_with_usize(emphasis, width)
+                }
             } else {
-                unchaged
-            };
-
-            let wrapped = WrappedLineUsize {
-                line_nr,
-                segments: crate::wrapping::wrap_text(line, width),
-            };
-            wrapped.format_with_usize(style, width)
+                let wrapped = WrappedLineUsize {
+                    line_nr,
+                    segments: crate::wrapping::wrap_text(line, width),
+                };
+                wrapped.format_with_usize(unchanged, width)
+            }
         })
         .collect();
 
