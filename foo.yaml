@@ -1,9 +1,0 @@
----
-person:
-  name: Robert Anderson
-  address:
-    street: foo bar
-    nr: 1
-    postcode: ABC123
-  age: 12
-  foo: bar
