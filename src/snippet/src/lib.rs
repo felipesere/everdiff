@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{fmt::Write, io::IsTerminal};
 
 use everdiff_diff::{Difference, path::IgnorePath};
 use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
@@ -65,8 +65,18 @@ pub fn render_multidoc_diff(
                 println!("{key}");
                 let actual_left_doc = &left[left_doc_idx];
                 let actual_right_doc = &right[right_doc_idx];
+                let max_width = if std::io::stdout().is_terminal() {
+                    // Format for terminal
+                    terminal_size::terminal_size()
+                        .map(|(terminal_size::Width(n), _)| n)
+                        .unwrap_or(80)
+                } else {
+                    // When piped, assume wider or no limit
+                    terminal_size::terminal_size_of(std::io::stderr())
+                        .map(|(terminal_size::Width(n), _)| n)
+                        .unwrap_or(80)
+                };
 
-                let max_width = termsize::get().map(|s| s.cols).unwrap_or(80);
                 let ctx = RenderContext::new(max_width, Color::Enabled);
                 print!(
                     "{}",
