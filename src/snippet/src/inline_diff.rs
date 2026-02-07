@@ -120,18 +120,21 @@ mod tests {
         let (left_parts, right_parts) = compute_inline_diff("v1.33.1", "v1.35.0");
 
         // Verify the common prefix is unchanged
-        let left_unchanged: String = left_parts.iter()
+        let left_unchanged: String = left_parts
+            .iter()
             .filter(|p| !p.emphasized)
             .map(|p| p.text.as_str())
             .collect();
         assert!(left_unchanged.contains("v1.3"));
 
         // Verify emphasized parts exist and are smaller than the full string
-        let left_emphasized: String = left_parts.iter()
+        let left_emphasized: String = left_parts
+            .iter()
             .filter(|p| p.emphasized)
             .map(|p| p.text.as_str())
             .collect();
-        let right_emphasized: String = right_parts.iter()
+        let right_emphasized: String = right_parts
+            .iter()
             .filter(|p| p.emphasized)
             .map(|p| p.text.as_str())
             .collect();
@@ -163,7 +166,8 @@ mod tests {
         assert!(!right_emphasized.is_empty());
 
         // The unchanged parts should include "Hello "
-        let left_unchanged_text: String = left_parts.iter()
+        let left_unchanged_text: String = left_parts
+            .iter()
             .filter(|p| !p.emphasized)
             .map(|p| p.text.as_str())
             .collect();
@@ -207,7 +211,8 @@ mod tests {
         let (left_parts, right_parts) = compute_inline_diff(left, right);
 
         // The common prefix "registry.k8s.io/kube-proxy:v1." should be unchanged
-        let left_unchanged_text: String = left_parts.iter()
+        let left_unchanged_text: String = left_parts
+            .iter()
             .filter(|p| !p.emphasized)
             .map(|p| p.text.as_str())
             .collect();
@@ -215,11 +220,13 @@ mod tests {
         assert!(left_unchanged_text.contains("registry.k8s.io/kube-proxy:v1."));
 
         // Only the version-specific parts should be emphasized
-        let left_emphasized_text: String = left_parts.iter()
+        let left_emphasized_text: String = left_parts
+            .iter()
             .filter(|p| p.emphasized)
             .map(|p| p.text.as_str())
             .collect();
-        let right_emphasized_text: String = right_parts.iter()
+        let right_emphasized_text: String = right_parts
+            .iter()
             .filter(|p| p.emphasized)
             .map(|p| p.text.as_str())
             .collect();

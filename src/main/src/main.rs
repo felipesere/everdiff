@@ -1,5 +1,6 @@
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 
+use anyhow::Context;
 use bpaf::{Parser, construct, short};
 use everdiff_diff::path::IgnorePath;
 use everdiff_multidoc::{
@@ -85,6 +86,8 @@ fn main() -> anyhow::Result<()> {
         .version(version)
         .run();
 
+    let mut out = std::io::stdout().lock();
+
     setup_logging(args.verbosity)?;
 
     log::debug!("Starting everdiff with args: {:?}", args);
@@ -102,12 +105,21 @@ fn main() -> anyhow::Result<()> {
 
     let diffs = multidoc::diff(&ctx, &left, &right);
 
-    render_multidoc_diff(
+    let r = render_multidoc_diff(
         (left, right),
         diffs,
         args.ignore_moved,
         &args.ignore_changes,
+        &mut out,
     );
+
+    if let Err(e) = &r {
+        if e.kind() == ErrorKind::BrokenPipe {
+            return Ok(());
+        } else {
+            return r.context("failed to render diff");
+        }
+    }
 
     if args.watch {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -125,12 +137,21 @@ fn main() -> anyhow::Result<()> {
 
             let diffs = multidoc::diff(&ctx, &left, &right);
 
-            render_multidoc_diff(
+            let r = render_multidoc_diff(
                 (left, right),
                 diffs,
                 args.ignore_moved,
                 &args.ignore_changes,
+                &mut out,
             );
+
+            if let Err(e) = &r {
+                if e.kind() == ErrorKind::BrokenPipe {
+                    return Ok(());
+                } else {
+                    return r.context("failed to render diff");
+                }
+            }
         }
     }
 
