@@ -19,7 +19,6 @@ pub fn render_multidoc_diff(
     mut differences: Vec<DocDifference>,
     ignore_moved: bool,
     ignore: &[IgnorePath],
-    side_by_side: bool,
 ) {
     if differences.is_empty() {
         println!("No differences found")
@@ -81,13 +80,7 @@ pub fn render_multidoc_diff(
                 let ctx = RenderContext::new(max_width, Color::Enabled);
                 print!(
                     "{}",
-                    render(
-                        ctx,
-                        actual_left_doc,
-                        actual_right_doc,
-                        differences,
-                        side_by_side
-                    )
+                    render(ctx, actual_left_doc, actual_right_doc, differences)
                 );
             }
         }
@@ -99,7 +92,6 @@ pub fn render(
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     differences: Vec<Difference>,
-    _side_by_side: bool,
 ) -> String {
     let mut buf = String::new();
     for d in differences {

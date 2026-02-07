@@ -949,7 +949,9 @@ fn render_changed_snippet(
                     // The line format is typically "  key: value" or "    - value"
                     // We need to find where the changed value starts in the line
                     let prefix = extract_yaml_prefix(line);
-                    format_with_inline_highlights(line_nr, prefix, parts, unchanged, emphasis, width)
+                    format_with_inline_highlights(
+                        line_nr, prefix, parts, unchanged, emphasis, width,
+                    )
                 } else {
                     // No inline parts, style the whole line with emphasis
                     let wrapped = WrappedLineUsize {
@@ -1119,7 +1121,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Removed: .person.address:
@@ -1161,7 +1163,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: .person.address:
@@ -1366,7 +1368,6 @@ mod test {
             &left_doc,
             &right_doc,
             differences,
-            true,
         );
 
         expect![[r#"
@@ -1456,7 +1457,6 @@ mod test {
             &left_doc,
             &right_doc,
             differences,
-            true,
         );
 
         expect![[r#"
@@ -1611,7 +1611,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         // The gap on the right should align correctly with the removed annotations
         // Both sides should start at the same line number
@@ -1658,7 +1658,7 @@ mod test {
 
         let differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Changed: .servers[1].port:
@@ -1696,7 +1696,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Removed: .config.cache:
@@ -1736,7 +1736,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: .config.cache:

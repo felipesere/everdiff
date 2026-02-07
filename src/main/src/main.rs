@@ -14,7 +14,6 @@ mod identifier;
 
 #[derive(Debug)]
 struct Args {
-    side_by_side: bool,
     kubernetes: bool,
     ignore_moved: bool,
     ignore_changes: Vec<IgnorePath>,
@@ -25,11 +24,6 @@ struct Args {
 }
 
 fn args() -> impl Parser<Args> {
-    let side_by_side = short('s')
-        .long("side-by-side")
-        .help("Render differences side-by-side")
-        .switch();
-
     let kubernetes = short('k')
         .long("kubernetes")
         .help("Use Kubernetes comparison")
@@ -71,7 +65,6 @@ fn args() -> impl Parser<Args> {
         .some("need at least one right path");
 
     construct!(Args {
-        side_by_side,
         kubernetes,
         ignore_moved,
         ignore_changes,
@@ -114,7 +107,6 @@ fn main() -> anyhow::Result<()> {
         diffs,
         args.ignore_moved,
         &args.ignore_changes,
-        args.side_by_side,
     );
 
     if args.watch {
@@ -138,7 +130,6 @@ fn main() -> anyhow::Result<()> {
                 diffs,
                 args.ignore_moved,
                 &args.ignore_changes,
-                args.side_by_side,
             );
         }
     }
