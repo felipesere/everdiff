@@ -1,4 +1,4 @@
-use std::{fmt::Write, io::IsTerminal};
+use std::{io::IsTerminal, io::Write};
 
 use everdiff_diff::{Difference, path::IgnorePath};
 use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
@@ -14,14 +14,15 @@ pub use snippet::{
 };
 
 // TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
-pub fn render_multidoc_diff(
+pub fn render_multidoc_diff<W: Write>(
     (left, right): (Vec<YamlSource>, Vec<YamlSource>),
     mut differences: Vec<DocDifference>,
     ignore_moved: bool,
     ignore: &[IgnorePath],
-) {
+    writer: &mut W,
+) -> std::io::Result<()> {
     if differences.is_empty() {
-        println!("No differences found")
+        writeln!(writer, "No differences found")?;
     }
 
     differences.sort();
@@ -29,12 +30,12 @@ pub fn render_multidoc_diff(
     for d in differences {
         match d {
             DocDifference::Addition(AdditionalDoc { key, .. }) => {
-                println!("{m}", m = "Additional document:".green());
-                println!("{key}");
+                writeln!(writer, "{m}", m = "Additional document:".green())?;
+                writeln!(writer, "{key}")?;
             }
             DocDifference::Missing(MissingDoc { key, .. }) => {
-                println!("{m}", m = "Missing document:".red());
-                println!("{key}");
+                writeln!(writer, "{m}", m = "Missing document:".red())?;
+                writeln!(writer, "{key}")?;
             }
             DocDifference::Changed {
                 key,
@@ -60,9 +61,9 @@ pub fn render_multidoc_diff(
                         .collect()
                 };
 
-                println!();
-                println!("{}", "Changed document:".bold().underline());
-                println!("{key}");
+                writeln!(writer)?;
+                writeln!(writer, "{}", "Changed document:".bold().underline())?;
+                writeln!(writer, "{key}")?;
                 let actual_left_doc = &left[left_doc_idx];
                 let actual_right_doc = &right[right_doc_idx];
                 let max_width = if std::io::stdout().is_terminal() {
@@ -78,13 +79,15 @@ pub fn render_multidoc_diff(
                 };
 
                 let ctx = RenderContext::new(max_width, Color::Enabled);
-                print!(
+                write!(
+                    writer,
                     "{}",
                     render(ctx, actual_left_doc, actual_right_doc, differences)
-                );
+                )?;
             }
         }
     }
+    Ok(())
 }
 
 pub fn render(
@@ -93,6 +96,7 @@ pub fn render(
     right_doc: &YamlSource,
     differences: Vec<Difference>,
 ) -> String {
+    use std::fmt::Write;
     let mut buf = String::new();
     for d in differences {
         match d {
