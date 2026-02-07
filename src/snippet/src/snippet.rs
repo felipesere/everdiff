@@ -80,26 +80,6 @@ impl<'source> fmt::Debug for Snippet<'source> {
 }
 
 impl Snippet<'_> {
-    pub fn try_new<'source>(
-        lines: &'source [&'source str],
-        from: Line,
-        to: Line,
-    ) -> Result<Snippet<'source>, anyhow::Error> {
-        log::debug!("Creating a new snippet");
-        log::debug!("---from: {from} to {to}");
-        log::debug!("{:#?}", lines);
-        if to <= from {
-            anyhow::bail!("'to' ({to}) was less than 'from' ({from})");
-        }
-        if to > lines.len() {
-            anyhow::bail!(
-                "'to' ({to}) reaches out of bounds of 'lines' ({})",
-                lines.len()
-            );
-        }
-        Ok(Snippet { lines, from, to })
-    }
-
     /// Creates a snippet that will safely clamp the `to` value
     /// to not exceed the number of `lines`
     pub fn new_clamped<'source>(
@@ -170,7 +150,7 @@ mod snippet_tests {
             "e", // 5
         ];
 
-        let snippet = Snippet::try_new(content, Line::unchecked(2), Line::unchecked(4)).unwrap();
+        let snippet = Snippet::new_clamped(content, Line::unchecked(2), Line::unchecked(4));
 
         let actual_lines: Vec<_> = snippet
             .iter()
@@ -200,7 +180,7 @@ mod snippet_tests {
             "h", // 8
         ];
 
-        let snippet = Snippet::try_new(content, Line::unchecked(2), Line::unchecked(8)).unwrap();
+        let snippet = Snippet::new_clamped(content, Line::unchecked(2), Line::unchecked(8));
 
         let (first, second) = snippet.split(Line::unchecked(6));
 
@@ -373,8 +353,7 @@ fn render_primary_side(
     let start = change_start.saturating_sub(ctx.visual_context);
     let end = min(change_end + ctx.visual_context, primary_doc.last_line);
     log::debug!("Snippet for primary document");
-    let primary_snippet =
-        Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
+    let primary_snippet = Snippet::new_clamped(&primary_lines, start, end);
 
     // Format the primary side
     let mut changed_range = change_start..change_end;
