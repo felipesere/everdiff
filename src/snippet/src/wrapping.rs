@@ -1,6 +1,7 @@
 use everdiff_line::Line;
 use owo_colors::{OwoColorize, Style};
 
+use crate::inline_diff::InlinePart;
 use crate::snippet::LineWidget;
 
 /// A plain text chunk that fits within the column width, containing no ANSI codes.
@@ -128,6 +129,49 @@ impl WrappedLineUsize {
 
         SourceLineGroup(rows)
     }
+}
+
+/// Format a line with inline highlights where only certain parts are emphasized.
+/// This builds a pre-styled string with ANSI codes applied per-part.
+pub fn format_with_inline_highlights(
+    line_nr: usize,
+    prefix: &str,
+    parts: &[InlinePart],
+    base_style: Style,
+    emphasis_style: Style,
+    width: usize,
+) -> SourceLineGroup {
+    // Build the styled content by applying different styles to each part
+    let mut styled_content = String::new();
+
+    // First add the prefix with base style
+    styled_content.push_str(&prefix.style(base_style).to_string());
+
+    // Then add each part with appropriate styling
+    for part in parts {
+        let style = if part.emphasized {
+            emphasis_style
+        } else {
+            base_style
+        };
+        styled_content.push_str(&part.text.style(style).to_string());
+    }
+
+    // Calculate visible width using ansi_width
+    let visible_width = ansi_width::ansi_width(&styled_content);
+
+    // Calculate extras for format padding (difference between byte length and visible width)
+    let extras = styled_content.len() - visible_width;
+
+    let line_widget = LineWidget::Nr(line_nr);
+
+    // Format with proper padding
+    let row = FormattedRow(format!(
+        "{line_widget}│ {styled_content:<width$}",
+        width = width + extras
+    ));
+
+    SourceLineGroup(vec![row])
 }
 
 impl FormattedRow {
@@ -348,11 +392,23 @@ mod tests {
         let blank = FormattedRow::blank(20);
 
         // line number row:  "  7 │ ..."
-        assert!(group.0[0].0.starts_with("  7 │"), "expected line number, got: {:?}", group.0[0].0);
+        assert!(
+            group.0[0].0.starts_with("  7 │"),
+            "expected line number, got: {:?}",
+            group.0[0].0
+        );
         // continuation row: "  ┆ │ ..."
-        assert!(group.0[1].0.starts_with("  ┆ │"), "expected continuation, got: {:?}", group.0[1].0);
+        assert!(
+            group.0[1].0.starts_with("  ┆ │"),
+            "expected continuation, got: {:?}",
+            group.0[1].0
+        );
         // filler/blank row: "    │ ..."
-        assert!(blank.0.starts_with("    │"), "expected filler, got: {:?}", blank.0);
+        assert!(
+            blank.0.starts_with("    │"),
+            "expected filler, got: {:?}",
+            blank.0
+        );
     }
 
     #[test]

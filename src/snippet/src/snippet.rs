@@ -11,6 +11,7 @@ use everdiff_multidoc::source::YamlSource;
 use owo_colors::Style;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
+use crate::inline_diff::{InlinePart, compute_inline_diff, extract_yaml_prefix};
 use crate::node::node_in;
 
 #[derive(Debug, Clone)]
@@ -79,26 +80,6 @@ impl<'source> fmt::Debug for Snippet<'source> {
 }
 
 impl Snippet<'_> {
-    pub fn try_new<'source>(
-        lines: &'source [&'source str],
-        from: Line,
-        to: Line,
-    ) -> Result<Snippet<'source>, anyhow::Error> {
-        log::debug!("Creating a new snippet");
-        log::debug!("---from: {from} to {to}");
-        log::debug!("{:#?}", lines);
-        if to <= from {
-            anyhow::bail!("'to' ({to}) was less than 'from' ({from})");
-        }
-        if to > lines.len() {
-            anyhow::bail!(
-                "'to' ({to}) reaches out of bounds of 'lines' ({})",
-                lines.len()
-            );
-        }
-        Ok(Snippet { lines, from, to })
-    }
-
     /// Creates a snippet that will safely clamp the `to` value
     /// to not exceed the number of `lines`
     pub fn new_clamped<'source>(
@@ -169,7 +150,7 @@ mod snippet_tests {
             "e", // 5
         ];
 
-        let snippet = Snippet::try_new(content, Line::unchecked(2), Line::unchecked(4)).unwrap();
+        let snippet = Snippet::new_clamped(content, Line::unchecked(2), Line::unchecked(4));
 
         let actual_lines: Vec<_> = snippet
             .iter()
@@ -199,7 +180,7 @@ mod snippet_tests {
             "h", // 8
         ];
 
-        let snippet = Snippet::try_new(content, Line::unchecked(2), Line::unchecked(8)).unwrap();
+        let snippet = Snippet::new_clamped(content, Line::unchecked(2), Line::unchecked(8));
 
         let (first, second) = snippet.split(Line::unchecked(6));
 
@@ -372,8 +353,7 @@ fn render_primary_side(
     let start = change_start.saturating_sub(ctx.visual_context);
     let end = min(change_end + ctx.visual_context, primary_doc.last_line);
     log::debug!("Snippet for primary document");
-    let primary_snippet =
-        Snippet::try_new(&primary_lines, start, end).expect("Primary snippet could not be created");
+    let primary_snippet = Snippet::new_clamped(&primary_lines, start, end);
 
     // Format the primary side
     let mut changed_range = change_start..change_end;
@@ -853,8 +833,20 @@ pub fn render_difference(
         color: ctx.color,
         visual_context: 5,
     };
-    let left = render_changed_snippet(&smaller_context, left_doc, left);
-    let right = render_changed_snippet(&smaller_context, right_doc, right);
+
+    // Check if both values are strings - if so, compute inline diff
+    let inline_diff = match (left.data.as_str(), right.data.as_str()) {
+        (Some(left_str), Some(right_str)) => Some(compute_inline_diff(left_str, right_str)),
+        _ => None,
+    };
+
+    let (left_parts, right_parts) = match &inline_diff {
+        Some((l, r)) => (Some(l.as_slice()), Some(r.as_slice())),
+        None => (None, None),
+    };
+
+    let left = render_changed_snippet(&smaller_context, left_doc, left, left_parts);
+    let right = render_changed_snippet(&smaller_context, right_doc, right, right_parts);
 
     use crate::wrapping::{FormattedRow, SourceLineGroup};
 
@@ -897,8 +889,9 @@ fn render_changed_snippet(
     ctx: &RenderContext,
     source: &YamlSource,
     changed_yaml: MarkedYamlOwned,
+    inline_parts: Option<&[InlinePart]>,
 ) -> Rendered {
-    use crate::wrapping::{SourceLineGroup, WrappedLineUsize};
+    use crate::wrapping::{SourceLineGroup, WrappedLineUsize, format_with_inline_highlights};
 
     // lines to render above and below if available...
     let context = 5;
@@ -911,7 +904,7 @@ fn render_changed_snippet(
     let end = min(changed_line + context, lines.len());
     let left_snippet = &lines[start..end];
 
-    let (added, unchaged) = match ctx.color {
+    let (emphasis, unchanged) = match ctx.color {
         Color::Enabled => (
             owo_colors::Style::new().yellow(),
             owo_colors::Style::new().dimmed(),
@@ -928,17 +921,31 @@ fn render_changed_snippet(
         .iter()
         .zip(start..end)
         .map(|(line, line_nr)| {
-            let style = if line_nr == changed_line {
-                added
+            if line_nr == changed_line {
+                // Check if we have inline parts for this changed line
+                if let Some(parts) = inline_parts {
+                    // Extract the prefix (everything before the value)
+                    // The line format is typically "  key: value" or "    - value"
+                    // We need to find where the changed value starts in the line
+                    let prefix = extract_yaml_prefix(line);
+                    format_with_inline_highlights(
+                        line_nr, prefix, parts, unchanged, emphasis, width,
+                    )
+                } else {
+                    // No inline parts, style the whole line with emphasis
+                    let wrapped = WrappedLineUsize {
+                        line_nr,
+                        segments: crate::wrapping::wrap_text(line, width),
+                    };
+                    wrapped.format_with_usize(emphasis, width)
+                }
             } else {
-                unchaged
-            };
-
-            let wrapped = WrappedLineUsize {
-                line_nr,
-                segments: crate::wrapping::wrap_text(line, width),
-            };
-            wrapped.format_with_usize(style, width)
+                let wrapped = WrappedLineUsize {
+                    line_nr,
+                    segments: crate::wrapping::wrap_text(line, width),
+                };
+                wrapped.format_with_usize(unchanged, width)
+            }
         })
         .collect();
 
@@ -1093,7 +1100,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Removed: .person.address:
@@ -1135,7 +1142,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: .person.address:
@@ -1340,7 +1347,6 @@ mod test {
             &left_doc,
             &right_doc,
             differences,
-            true,
         );
 
         expect![[r#"
@@ -1430,7 +1436,6 @@ mod test {
             &left_doc,
             &right_doc,
             differences,
-            true,
         );
 
         expect![[r#"
@@ -1585,7 +1590,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         // The gap on the right should align correctly with the removed annotations
         // Both sides should start at the same line number
@@ -1632,7 +1637,7 @@ mod test {
 
         let differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Changed: .servers[1].port:
@@ -1670,7 +1675,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Removed: .config.cache:
@@ -1710,7 +1715,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences, true);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: .config.cache:
