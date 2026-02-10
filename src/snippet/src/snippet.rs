@@ -87,9 +87,10 @@ impl Snippet<'_> {
         from: Line,
         to: Line,
     ) -> Snippet<'source> {
-        if to <= from {
-            panic!("'to' ({to}) was less than 'from' ({from})");
-        }
+        assert!(
+            !lines.is_empty(),
+            "Can not create a snippet from empty lines"
+        );
         let to = min(Line::new(lines.len()).unwrap(), to);
         Snippet { lines, from, to }
     }
@@ -102,16 +103,8 @@ impl Snippet<'_> {
     }
 
     fn split(&self, split_at: Line) -> (Snippet<'_>, Snippet<'_>) {
-        let left = Snippet {
-            lines: self.lines,
-            from: self.from,
-            to: split_at,
-        };
-        let right = Snippet {
-            lines: self.lines,
-            from: split_at + 1,
-            to: self.to,
-        };
+        let left = Snippet::new_clamped(self.lines, self.from, split_at);
+        let right = Snippet::new_clamped(self.lines, split_at + 1, self.to);
         (left, right)
     }
 }
@@ -1726,6 +1719,40 @@ mod test {
             │     │                                 │   5 │   cache:                        
             │     │                                 │   6 │     enabled: true               
             │     │                                 │   7 │     ttl: 3600                   
+
+        "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn display_addition_of_final_key_in_document() {
+        // The added key is the very last item in the document: `gap_start` lands on
+        // the last line of the left (gapped) doc, so the right half of the Snippet
+        // split is empty.  This previously triggered a debug_assert in new_clamped.
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Alice
+              age: 30
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Alice
+              age: 30
+              city: London
+        "#});
+
+        let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
+
+        expect![[r#"
+            Added: .person.city:
+            │   1 │ person:                         │   1 │ person:                         
+            │   2 │   name: Alice                   │   2 │   name: Alice                   
+            │   3 │   age: 30                       │   3 │   age: 30                       
+            │     │                                 │   4 │   city: London                  
 
         "#]]
         .assert_eq(content.as_str());
