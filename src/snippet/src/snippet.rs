@@ -820,11 +820,11 @@ pub fn render_difference(
         p = highlight.style(path_to_change.jq_like())
     );
 
-    let max_left = (ctx.max_width - 16) / 2; // includes a bit of random padding, do this proper later
+    let max_width = (ctx.max_width - 16) / 2; // includes a bit of random padding, do this proper later
     let smaller_context = RenderContext {
-        max_width: max_left,
+        max_width,
         color: ctx.color,
-        visual_context: 5,
+        visual_context: 5, // this will become a parameter down the line
     };
 
     // Check if both values are strings - if so, compute inline diff
@@ -846,7 +846,7 @@ pub fn render_difference(
     let above_filler = left.lines_above.abs_diff(right.lines_above);
     let below_filler = left.lines_below.abs_diff(right.lines_below);
 
-    let half_width = usize::from(max_left);
+    let half_width = usize::from(max_width);
     let filler_group = || SourceLineGroup(vec![FormattedRow::blank(half_width)]);
 
     let mut left_groups = left.content.0;

@@ -30,6 +30,7 @@ pub(crate) fn compute_inline_diff(left: &str, right: &str) -> (Vec<InlinePart>, 
             continue;
         }
 
+        // Makes longer runs emphasised/non-emphasised text.
         match change.tag() {
             ChangeTag::Equal => {
                 // Flush any pending emphasized parts before adding equal parts
@@ -112,43 +113,35 @@ pub(crate) fn extract_yaml_prefix(line: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use crate::inline_diff::InlinePart;
+
     use super::compute_inline_diff;
+
+    /// Reconstructs the parts putting `[...]` around emphasised parts
+    fn reconstruct(parts: &[InlinePart]) -> String {
+        parts
+            .iter()
+            .map(|p| {
+                let text = p.text.as_str();
+                if p.emphasized {
+                    format!("[{text}]")
+                } else {
+                    text.to_string()
+                }
+            })
+            .collect()
+    }
 
     #[test]
     fn version_change_highlights_only_differing_parts() {
         // v1.33.1 -> v1.35.0: character-level diff
-        let (left_parts, right_parts) = compute_inline_diff("v1.33.1", "v1.35.0");
+        let (left_parts, right_parts) = compute_inline_diff("v1.34.7-build1", "v1.35.0-build1");
 
-        // Verify the common prefix is unchanged
-        let left_unchanged: String = left_parts
-            .iter()
-            .filter(|p| !p.emphasized)
-            .map(|p| p.text.as_str())
-            .collect();
-        assert!(left_unchanged.contains("v1.3"));
+        let left_reconstructed = reconstruct(&left_parts);
+        let right_reconstructed = reconstruct(&right_parts);
 
-        // Verify emphasized parts exist and are smaller than the full string
-        let left_emphasized: String = left_parts
-            .iter()
-            .filter(|p| p.emphasized)
-            .map(|p| p.text.as_str())
-            .collect();
-        let right_emphasized: String = right_parts
-            .iter()
-            .filter(|p| p.emphasized)
-            .map(|p| p.text.as_str())
-            .collect();
-
-        assert!(!left_emphasized.is_empty());
-        assert!(!right_emphasized.is_empty());
-        assert!(left_emphasized.len() < "v1.33.1".len());
-        assert!(right_emphasized.len() < "v1.35.0".len());
-
-        // When concatenated, parts should reconstruct the original strings
-        let left_reconstructed: String = left_parts.iter().map(|p| p.text.as_str()).collect();
-        let right_reconstructed: String = right_parts.iter().map(|p| p.text.as_str()).collect();
-        assert_eq!(left_reconstructed, "v1.33.1");
-        assert_eq!(right_reconstructed, "v1.35.0");
+        assert_eq!(left_reconstructed, "v1.3[4].[7]-build1");
+        assert_eq!(right_reconstructed, "v1.3[5].[0]-build1");
     }
 
     #[test]
@@ -156,50 +149,33 @@ mod tests {
         // "Hello World" -> "Hello Universe": only "World"/"Universe" differ
         let (left_parts, right_parts) = compute_inline_diff("Hello World", "Hello Universe");
 
-        // The common prefix "Hello " should be unchanged
-        // "World" vs "Universe" will show up as changed parts
-        let left_emphasized: Vec<_> = left_parts.iter().filter(|p| p.emphasized).collect();
-        let right_emphasized: Vec<_> = right_parts.iter().filter(|p| p.emphasized).collect();
+        let left_reconstructed = reconstruct(&left_parts);
+        let right_reconstructed = reconstruct(&right_parts);
 
-        // There should be some emphasized parts on each side
-        assert!(!left_emphasized.is_empty());
-        assert!(!right_emphasized.is_empty());
-
-        // The unchanged parts should include "Hello "
-        let left_unchanged_text: String = left_parts
-            .iter()
-            .filter(|p| !p.emphasized)
-            .map(|p| p.text.as_str())
-            .collect();
-        assert!(left_unchanged_text.contains("Hello "));
+        assert_eq!(left_reconstructed, "Hello [Wo]r[ld]");
+        assert_eq!(right_reconstructed, "Hello [Unive]r[se]");
     }
 
     #[test]
     fn completely_different_strings() {
         let (left_parts, right_parts) = compute_inline_diff("abc", "xyz");
 
-        // Everything should be emphasized since nothing matches
-        let left_emphasized: Vec<_> = left_parts.iter().filter(|p| p.emphasized).collect();
-        let right_emphasized: Vec<_> = right_parts.iter().filter(|p| p.emphasized).collect();
+        let left_reconstructed = reconstruct(&left_parts);
+        let right_reconstructed = reconstruct(&right_parts);
 
-        assert!(!left_emphasized.is_empty());
-        assert!(!right_emphasized.is_empty());
+        assert_eq!(left_reconstructed, "[abc]");
+        assert_eq!(right_reconstructed, "[xyz]");
     }
 
     #[test]
     fn identical_strings_no_emphasis() {
         let (left_parts, right_parts) = compute_inline_diff("same", "same");
 
-        // Nothing should be emphasized
-        let left_emphasized: Vec<_> = left_parts.iter().filter(|p| p.emphasized).collect();
-        let right_emphasized: Vec<_> = right_parts.iter().filter(|p| p.emphasized).collect();
+        let left_reconstructed = reconstruct(&left_parts);
+        let right_reconstructed = reconstruct(&right_parts);
 
-        assert!(left_emphasized.is_empty());
-        assert!(right_emphasized.is_empty());
-
-        // The full text should be present as unchanged
-        let left_text: String = left_parts.iter().map(|p| p.text.as_str()).collect();
-        assert_eq!(left_text, "same");
+        assert_eq!(left_reconstructed, "same");
+        assert_eq!(right_reconstructed, "same");
     }
 
     #[test]
@@ -210,29 +186,13 @@ mod tests {
 
         let (left_parts, right_parts) = compute_inline_diff(left, right);
 
-        // The common prefix "registry.k8s.io/kube-proxy:v1." should be unchanged
-        let left_unchanged_text: String = left_parts
-            .iter()
-            .filter(|p| !p.emphasized)
-            .map(|p| p.text.as_str())
-            .collect();
+        let left_reconstructed = reconstruct(&left_parts);
+        let right_reconstructed = reconstruct(&right_parts);
 
-        assert!(left_unchanged_text.contains("registry.k8s.io/kube-proxy:v1."));
-
-        // Only the version-specific parts should be emphasized
-        let left_emphasized_text: String = left_parts
-            .iter()
-            .filter(|p| p.emphasized)
-            .map(|p| p.text.as_str())
-            .collect();
-        let right_emphasized_text: String = right_parts
-            .iter()
-            .filter(|p| p.emphasized)
-            .map(|p| p.text.as_str())
-            .collect();
-
-        // The emphasized parts should be the differing version numbers
-        assert!(left_emphasized_text.len() < left.len());
-        assert!(right_emphasized_text.len() < right.len());
+        assert_eq!(left_reconstructed, "registry.k8s.io/kube-proxy:v1.3[3].[1]");
+        assert_eq!(
+            right_reconstructed,
+            "registry.k8s.io/kube-proxy:v1.3[5].[0]"
+        );
     }
 }
