@@ -11,7 +11,11 @@ cargo install --path .
 ## Usage
 
 ```
-everdiff [-s] [-k] [-m] [-i=PATH]... [-w] [-v]... -l=PATH... -r=PATH...
+everdiff [-s] [-k] [-m] [-i=PATH]... [-w] [-v]... LEFT RIGHT
+
+Available positional items:
+    LEFT                Left file to compare
+    RIGHT               Right file to compare
 
 Available options:
     -s, --side-by-side  Render differences side-by-side
@@ -20,8 +24,6 @@ Available options:
     -i, --ignore-changes=PATH  Paths to ignore when comparing
     -w, --watch         Watch the `left` and `right` files for changes and re-run
     -v, --verbose       Increase verbosity level (can be repeated)
-    -l, --left=PATH     Left file(s) to compare
-    -r, --right=PATH    Right file(s) to compare
     -h, --help          Prints help information
 ```
 
@@ -32,7 +34,13 @@ Available options:
 Compare two YAML files:
 
 ```sh
-everdiff --left before.yaml --right after.yaml
+everdiff before.yaml after.yaml
+```
+
+Or using shell brace expansion:
+
+```sh
+everdiff {before,after}.yaml
 ```
 
 Given these two files:
@@ -91,7 +99,7 @@ Added: .person.location:
 When comparing Kubernetes manifests, use `--kubernetes` to match documents by their GVK (Group/Version/Kind) and name:
 
 ```sh
-everdiff --kubernetes --left before.yaml --right after.yaml
+everdiff --kubernetes before.yaml after.yaml
 ```
 
 Documents are identified by `apiVersion`, `kind`, and `metadata.name` rather than by position:
@@ -115,7 +123,7 @@ Changed: .spec.replicas:
 When array elements are reordered, `everdiff` reports them as "Moved". Use `--ignore-moved` to hide these:
 
 ```sh
-everdiff --kubernetes --ignore-moved --left before.yaml --right after.yaml
+everdiff --kubernetes --ignore-moved before.yaml after.yaml
 ```
 
 ### Ignoring specific paths
@@ -123,7 +131,7 @@ everdiff --kubernetes --ignore-moved --left before.yaml --right after.yaml
 Use `--ignore-changes` to exclude certain paths from the diff:
 
 ```sh
-everdiff --left before.yaml --right after.yaml \
+everdiff before.yaml after.yaml \
     --ignore-changes '.metadata.annotations' \
     --ignore-changes '.spec.replicas'
 ```
@@ -133,16 +141,6 @@ Path patterns support:
 - Array indices: `.spec.containers[0].image`
 - Wildcards: `.metadata.labels.*`
 
-### Multiple input files
-
-Compare multiple files at once:
-
-```sh
-everdiff --kubernetes \
-    --left deployment.yaml service.yaml \
-    --right new-deployment.yaml new-service.yaml
-```
-
 ## Features
 
 ### Watch mode
@@ -150,7 +148,7 @@ everdiff --kubernetes \
 When you need to keep re-running `everdiff` as you evolve a set of documents, use `--watch` to let it watch all the input files and re-run when needed:
 
 ```sh
-everdiff --watch --left before.yaml --right after.yaml
+everdiff --watch before.yaml after.yaml
 ```
 
 ## TODO

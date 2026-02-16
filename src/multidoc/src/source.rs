@@ -1,4 +1,4 @@
-use camino::Utf8PathBuf;
+use camino::Utf8Path;
 use everdiff_line::Line;
 use saphyr::LoadableYamlNode;
 
@@ -21,7 +21,7 @@ pub struct YamlSource {
     pub last_line: Line,
 }
 
-pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result<Vec<YamlSource>> {
+pub fn read_doc(content: impl Into<String>, path: &Utf8Path) -> anyhow::Result<Vec<YamlSource>> {
     let content = content.into();
     let mut docs = Vec::new();
     let raw_docs: Vec<_> = content
@@ -51,7 +51,7 @@ pub fn read_doc(content: impl Into<String>, path: Utf8PathBuf) -> anyhow::Result
         let last_line = Line::new(n).unwrap();
 
         docs.push(YamlSource {
-            file: path.clone(),
+            file: path.into(),
             yaml: document,
             start,
             end,
@@ -99,7 +99,7 @@ mod test {
               name: Steve E. Anderson
               age: 12
             "#};
-        let secondary = read_doc(secondary, camino::Utf8PathBuf::default())
+        let secondary = read_doc(secondary, &camino::Utf8PathBuf::default())
             .unwrap()
             .remove(0);
 
@@ -125,7 +125,7 @@ mod test {
           breed: American Shorthair
         "#};
 
-        let mut yaml = read_doc(content, camino::Utf8PathBuf::new()).unwrap();
+        let mut yaml = read_doc(content, &camino::Utf8PathBuf::new()).unwrap();
 
         let first = yaml.remove(0);
         let second = yaml.remove(0);
@@ -186,7 +186,7 @@ mod test {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let mut sources = read_doc(content, camino::Utf8PathBuf::new()).unwrap();
+        let mut sources = read_doc(content, &camino::Utf8PathBuf::new()).unwrap();
 
         let first = sources.remove(0);
         let spec = first.yaml.data.get("spec").unwrap();

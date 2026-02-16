@@ -1,6 +1,7 @@
 use std::io::Read;
 
 use bpaf::{Parser, construct, short};
+use camino::Utf8Path;
 use everdiff_diff::path::IgnorePath;
 use everdiff_multidoc::{
     self as multidoc,
@@ -20,8 +21,8 @@ struct Args {
     ignore_changes: Vec<IgnorePath>,
     watch: bool,
     verbosity: usize,
-    left: Vec<camino::Utf8PathBuf>,
-    right: Vec<camino::Utf8PathBuf>,
+    left: camino::Utf8PathBuf,
+    right: camino::Utf8PathBuf,
 }
 
 fn args() -> impl Parser<Args> {
@@ -58,17 +59,11 @@ fn args() -> impl Parser<Args> {
         .many()
         .map(|v| v.len());
 
-    let left = short('l')
-        .long("left")
-        .help("Left file(s) to compare")
-        .argument::<camino::Utf8PathBuf>("PATH")
-        .some("need at least one left path");
+    let left = bpaf::positional::<camino::Utf8PathBuf>("LEFT")
+        .help("Left file to compare");
 
-    let right = short('r')
-        .long("right")
-        .help("Right file(s) to compare")
-        .argument::<camino::Utf8PathBuf>("PATH")
-        .some("need at least one right path");
+    let right = bpaf::positional::<camino::Utf8PathBuf>("RIGHT")
+        .help("Right file to compare");
 
     construct!(Args {
         side_by_side,
@@ -86,6 +81,7 @@ fn main() -> anyhow::Result<()> {
     let version = option_env!("TAG")
         .and_then(|v| v.strip_prefix("v"))
         .unwrap_or("unknwon");
+
     let args = args()
         .to_options()
         .descr("Difference between YAML documents")
@@ -96,8 +92,7 @@ fn main() -> anyhow::Result<()> {
 
     log::debug!("Starting everdiff with args: {:?}", args);
 
-    let left = read(&args.left)?;
-    let right = read(&args.right)?;
+    let (left, right) = read_paths((&args.left, &args.right))?;
 
     let id = if args.kubernetes {
         identifier::kubernetes::gvk()
@@ -121,15 +116,14 @@ fn main() -> anyhow::Result<()> {
         let (tx, rx) = std::sync::mpsc::channel();
 
         let mut watcher = notify::recommended_watcher(tx)?;
-        for p in args.left.clone().into_iter().chain(args.right.clone()) {
+        for p in &[&args.left, &args.right] {
             watcher.watch(p.as_std_path(), RecursiveMode::NonRecursive)?;
         }
 
         for event in rx {
             let _event = event?;
             print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
-            let left = read(&args.left)?;
-            let right = read(&args.right)?;
+            let (left, right) = read_paths((&args.left, &args.right))?;
 
             let diffs = multidoc::diff(&ctx, &left, &right);
 
@@ -178,17 +172,25 @@ fn setup_logging(verbosity: usize) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-pub fn read(paths: &[camino::Utf8PathBuf]) -> anyhow::Result<Vec<YamlSource>> {
+pub fn read(paths: &[&camino::Utf8Path]) -> anyhow::Result<Vec<YamlSource>> {
     let mut docs = Vec::new();
-    for p in paths {
+    for &p in paths {
         let mut f = std::fs::File::open(p)?;
         let mut content = String::new();
         f.read_to_string(&mut content)?;
 
-        let n = read_doc(content, p.clone())?;
+        let n = read_doc(content, p)?;
 
         docs.extend(n.into_iter());
     }
 
     Ok(docs)
+}
+
+fn read_paths(
+    (left, right): (&Utf8Path, &Utf8Path),
+) -> anyhow::Result<(Vec<YamlSource>, Vec<YamlSource>)> {
+    let left = read(&[left])?;
+    let right = read(&[right])?;
+    Ok((left, right))
 }

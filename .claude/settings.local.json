@@ -9,7 +9,8 @@
       "Bash(cargo build:*)",
       "Bash(jj commit:*)",
       "Bash(find:*)",
-      "Bash(jj show:*)"
+      "Bash(jj show:*)",
+      "Bash(target/debug/everdiff:*)"
     ],
     "deny": []
   }
