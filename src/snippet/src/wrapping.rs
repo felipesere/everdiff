@@ -243,6 +243,7 @@ impl Column {
 
 #[cfg(test)]
 mod tests {
+    use expect_test::expect;
     use super::*;
 
     #[test]
@@ -425,5 +426,51 @@ mod tests {
         assert!(row.0.contains("│"));
         // Should be padded to the right width
         assert!(row.0.len() >= 20);
+    }
+
+    /// Replace ANSI escape sequences with readable markers so `expect_test` output
+    /// clearly shows which parts are styled.
+    fn mark_ansi(s: &str) -> String {
+        let mut result = String::new();
+        let mut chars = s.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' && chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+                let mut code = String::new();
+                for ch in chars.by_ref() {
+                    if ch == 'm' {
+                        break;
+                    }
+                    code.push(ch);
+                }
+                match code.as_str() {
+                    "33" => result.push_str("[yellow]"),
+                    "2" => result.push_str("[dim]"),
+                    "0" | "" => result.push_str("[/]"),
+                    other => result.push_str(&format!("[{other}]")),
+                };
+            } else {
+                result.push(c);
+            }
+        }
+        result
+    }
+
+    #[test]
+    fn key_and_value_diff_are_highlighted() {
+        let parts = vec![
+            InlinePart { text: "Steve ".to_string(), emphasized: false },
+            InlinePart { text: "E. ".to_string(), emphasized: true },
+            InlinePart { text: "Anderson".to_string(), emphasized: false },
+        ];
+        let group = format_with_inline_highlights(
+            1,
+            "  name: ",
+            &parts,
+            Style::new().dimmed(),
+            Style::new().yellow(),
+            40,
+        );
+        expect!["  2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve [/][yellow]E. [/][dim]Anderson[/]               "].assert_eq(&mark_ansi(&group.0[0].0));
     }
 }
