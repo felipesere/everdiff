@@ -24,7 +24,6 @@ owo-colors.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 similar.workspace = true
-termsize.workspace = true
 
 [dev-dependencies]
 indoc.workspace = true

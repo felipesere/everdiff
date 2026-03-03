@@ -1,5 +1,6 @@
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 
+use anyhow::Context;
 use bpaf::{Parser, construct, short};
 use camino::Utf8Path;
 use everdiff_diff::path::IgnorePath;
@@ -15,7 +16,6 @@ mod identifier;
 
 #[derive(Debug)]
 struct Args {
-    side_by_side: bool,
     kubernetes: bool,
     ignore_moved: bool,
     ignore_changes: Vec<IgnorePath>,
@@ -26,11 +26,6 @@ struct Args {
 }
 
 fn args() -> impl Parser<Args> {
-    let side_by_side = short('s')
-        .long("side-by-side")
-        .help("Render differences side-by-side")
-        .switch();
-
     let kubernetes = short('k')
         .long("kubernetes")
         .help("Use Kubernetes comparison")
@@ -66,7 +61,6 @@ fn args() -> impl Parser<Args> {
         .help("Right file to compare");
 
     construct!(Args {
-        side_by_side,
         kubernetes,
         ignore_moved,
         ignore_changes,
@@ -88,6 +82,8 @@ fn main() -> anyhow::Result<()> {
         .version(version)
         .run();
 
+    let mut out = std::io::stdout().lock();
+
     setup_logging(args.verbosity)?;
 
     log::debug!("Starting everdiff with args: {:?}", args);
@@ -104,13 +100,21 @@ fn main() -> anyhow::Result<()> {
 
     let diffs = multidoc::diff(&ctx, &left, &right);
 
-    render_multidoc_diff(
+    let r = render_multidoc_diff(
         (left, right),
         diffs,
         args.ignore_moved,
         &args.ignore_changes,
-        args.side_by_side,
+        &mut out,
     );
+
+    if let Err(e) = &r {
+        if e.kind() == ErrorKind::BrokenPipe {
+            return Ok(());
+        } else {
+            return r.context("failed to render diff");
+        }
+    }
 
     if args.watch {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -127,13 +131,21 @@ fn main() -> anyhow::Result<()> {
 
             let diffs = multidoc::diff(&ctx, &left, &right);
 
-            render_multidoc_diff(
+            let r = render_multidoc_diff(
                 (left, right),
                 diffs,
                 args.ignore_moved,
                 &args.ignore_changes,
-                args.side_by_side,
+                &mut out,
             );
+
+            if let Err(e) = &r {
+                if e.kind() == ErrorKind::BrokenPipe {
+                    return Ok(());
+                } else {
+                    return r.context("failed to render diff");
+                }
+            }
         }
     }
 
