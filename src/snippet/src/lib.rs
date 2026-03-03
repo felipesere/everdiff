@@ -10,7 +10,8 @@ mod snippet;
 pub mod wrapping;
 
 pub use snippet::{
-    Color, LineWidget, RenderContext, gap_start, render_added, render_difference, render_removal,
+    Highlight, LineWidget, RenderContext, Theme, gap_start, render_added, render_difference,
+    render_removal,
 };
 
 // TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
@@ -78,7 +79,7 @@ pub fn render_multidoc_diff<W: Write>(
                         .unwrap_or(80)
                 };
 
-                let ctx = RenderContext::new(max_width, Color::Enabled);
+                let ctx = RenderContext::new(max_width);
                 write!(
                     writer,
                     "{}",
@@ -101,12 +102,7 @@ pub fn render(
     for d in differences {
         match d {
             Difference::Added { path, value } => {
-                let p = if ctx.color == Color::Enabled {
-                    path.jq_like().bold().to_string()
-                } else {
-                    path.jq_like()
-                };
-                writeln!(&mut buf, "Added: {p}:").unwrap();
+                writeln!(&mut buf, "Added: {}:", ctx.theme.header(&path.jq_like())).unwrap();
 
                 let added = render_added(&ctx, path, value, left_doc, right_doc);
                 writeln!(&mut buf, "{added}").unwrap();
@@ -127,8 +123,8 @@ pub fn render(
                 writeln!(
                     &mut buf,
                     "Moved: from {p} to {q}:",
-                    p = original_path.jq_like().yellow(),
-                    q = new_path.jq_like().yellow()
+                    p = ctx.theme.changed(&original_path.jq_like()),
+                    q = ctx.theme.changed(&new_path.jq_like())
                 )
                 .unwrap();
             }

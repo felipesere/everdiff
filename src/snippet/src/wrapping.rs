@@ -1,8 +1,7 @@
 use everdiff_line::Line;
-use owo_colors::{OwoColorize, Style};
 
 use crate::inline_diff::InlinePart;
-use crate::snippet::LineWidget;
+use crate::snippet::{Highlight, LineWidget, Theme};
 
 /// A plain text chunk that fits within the column width, containing no ANSI codes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,13 +69,13 @@ impl WrappedLine {
 
     /// Style the segments and format them into rows with line number widgets and padding.
     /// The first segment gets the real line number; continuation segments get a blank line widget.
-    pub fn format(self, style: Style, half_width: usize) -> SourceLineGroup {
+    pub fn format(self, highlight: Highlight, half_width: usize) -> SourceLineGroup {
         let rows = self
             .segments
             .into_iter()
             .enumerate()
             .map(|(i, Segment(text))| {
-                let styled = text.style(style).to_string();
+                let styled = highlight(&text);
                 let extras = styled.len() - ansi_width::ansi_width(&styled);
 
                 let line_widget = if i == 0 {
@@ -105,13 +104,13 @@ pub struct WrappedLineUsize {
 
 impl WrappedLineUsize {
     /// Style the segments and format them into rows, using LineWidget(Some(line_nr)).
-    pub fn format_with_usize(self, style: Style, width: usize) -> SourceLineGroup {
+    pub fn format_with_usize(self, highlight: Highlight, width: usize) -> SourceLineGroup {
         let rows = self
             .segments
             .into_iter()
             .enumerate()
             .map(|(i, Segment(text))| {
-                let styled = text.style(style).to_string();
+                let styled = highlight(&text);
                 let extras = styled.len() - ansi_width::ansi_width(&styled);
 
                 let line_widget = if i == 0 {
@@ -137,32 +136,28 @@ pub fn format_with_inline_highlights(
     line_nr: usize,
     prefix: &str,
     parts: &[InlinePart],
-    base_style: Style,
-    emphasis_style: Style,
+    theme: Theme,
     width: usize,
 ) -> SourceLineGroup {
     // Build the styled content by applying different styles to each part
     let mut styled_content = String::new();
 
-    // Add the prefix: for "  key: " lines, highlight the key with emphasis_style
-    if prefix.ends_with(": ") {
-        let key_part = &prefix[..prefix.len() - 2]; // strip trailing ": "
+    if let Some(key_part) = prefix.strip_suffix(": ") {
         let key_start = key_part.find(|c: char| !c.is_whitespace()).unwrap_or(0);
-        styled_content.push_str(&(&key_part[..key_start]).style(base_style).to_string());
-        styled_content.push_str(&(&key_part[key_start..]).style(emphasis_style).to_string());
-        styled_content.push_str(&": ".style(base_style).to_string());
+        styled_content.push_str(&theme.dimmed(&key_part[..key_start]));
+        styled_content.push_str(&theme.changed(&key_part[key_start..]));
+        styled_content.push_str(&theme.dimmed(": "));
     } else {
-        styled_content.push_str(&prefix.style(base_style).to_string());
+        styled_content.push_str(&theme.dimmed(prefix));
     }
 
     // Then add each part with appropriate styling
     for part in parts {
-        let style = if part.emphasized {
-            emphasis_style
+        if part.emphasized {
+            styled_content.push_str(&theme.changed(&part.text));
         } else {
-            base_style
-        };
-        styled_content.push_str(&part.text.style(style).to_string());
+            styled_content.push_str(&theme.dimmed(&part.text));
+        }
     }
 
     // Calculate visible width using ansi_width
@@ -243,8 +238,9 @@ impl Column {
 
 #[cfg(test)]
 mod tests {
-    use expect_test::expect;
     use super::*;
+    use crate::snippet::Theme;
+    use expect_test::expect;
 
     #[test]
     fn wrap_text_short_line_no_wrapping() {
@@ -313,7 +309,7 @@ mod tests {
             ],
         };
 
-        let group = wl.format(Style::new(), 20);
+        let group = wl.format(Theme::plain().dimmed, 20);
         assert_eq!(group.row_count(), 2);
 
         // First row should have the line number
@@ -330,7 +326,7 @@ mod tests {
             segments: vec![Segment("short".to_string())],
         };
 
-        let group = wl.format(Style::new(), 20);
+        let group = wl.format(Theme::plain().dimmed, 20);
         assert_eq!(group.row_count(), 1);
         assert!(group.0[0].0.contains("3"));
     }
@@ -397,7 +393,7 @@ mod tests {
             ],
         };
 
-        let group = wl.format(Style::new(), 20);
+        let group = wl.format(Theme::plain().dimmed, 20);
         let blank = FormattedRow::blank(20);
 
         // line number row:  "  7 │ ..."
@@ -428,49 +424,26 @@ mod tests {
         assert!(row.0.len() >= 20);
     }
 
-    /// Replace ANSI escape sequences with readable markers so `expect_test` output
-    /// clearly shows which parts are styled.
-    fn mark_ansi(s: &str) -> String {
-        let mut result = String::new();
-        let mut chars = s.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c == '\x1b' && chars.peek() == Some(&'[') {
-                chars.next(); // consume '['
-                let mut code = String::new();
-                for ch in chars.by_ref() {
-                    if ch == 'm' {
-                        break;
-                    }
-                    code.push(ch);
-                }
-                match code.as_str() {
-                    "33" => result.push_str("[yellow]"),
-                    "2" => result.push_str("[dim]"),
-                    "0" | "" => result.push_str("[/]"),
-                    other => result.push_str(&format!("[{other}]")),
-                };
-            } else {
-                result.push(c);
-            }
-        }
-        result
-    }
-
     #[test]
     fn key_and_value_diff_are_highlighted() {
         let parts = vec![
-            InlinePart { text: "Steve ".to_string(), emphasized: false },
-            InlinePart { text: "E. ".to_string(), emphasized: true },
-            InlinePart { text: "Anderson".to_string(), emphasized: false },
+            InlinePart {
+                text: "Steve ".to_string(),
+                emphasized: false,
+            },
+            InlinePart {
+                text: "E. ".to_string(),
+                emphasized: true,
+            },
+            InlinePart {
+                text: "Anderson".to_string(),
+                emphasized: false,
+            },
         ];
-        let group = format_with_inline_highlights(
-            1,
-            "  name: ",
-            &parts,
-            Style::new().dimmed(),
-            Style::new().yellow(),
-            40,
-        );
-        expect!["  2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve [/][yellow]E. [/][dim]Anderson[/]               "].assert_eq(&mark_ansi(&group.0[0].0));
+        let group = format_with_inline_highlights(1, "  name: ", &parts, Theme::markers(), 40);
+        expect![
+            "  2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve [/][yellow]E. [/][dim]Anderson[/]"
+        ]
+        .assert_eq(&group.0[0].0);
     }
 }
