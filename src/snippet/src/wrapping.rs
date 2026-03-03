@@ -144,8 +144,16 @@ pub fn format_with_inline_highlights(
     // Build the styled content by applying different styles to each part
     let mut styled_content = String::new();
 
-    // First add the prefix with base style
-    styled_content.push_str(&prefix.style(base_style).to_string());
+    // Add the prefix: for "  key: " lines, highlight the key with emphasis_style
+    if prefix.ends_with(": ") {
+        let key_part = &prefix[..prefix.len() - 2]; // strip trailing ": "
+        let key_start = key_part.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+        styled_content.push_str(&(&key_part[..key_start]).style(base_style).to_string());
+        styled_content.push_str(&(&key_part[key_start..]).style(emphasis_style).to_string());
+        styled_content.push_str(&": ".style(base_style).to_string());
+    } else {
+        styled_content.push_str(&prefix.style(base_style).to_string());
+    }
 
     // Then add each part with appropriate styling
     for part in parts {
