@@ -2,7 +2,7 @@ use hashlink::LinkedHashSet;
 use log::debug;
 use saphyr::YamlDataOwned;
 
-use crate::path::{Path, Segment};
+use crate::path::{NonEmptyPath, Path, Segment};
 
 /// An item that has been changed.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -32,26 +32,26 @@ impl Item {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Difference {
     Added {
-        path: Path,
+        path: NonEmptyPath,
         value: Item,
     },
     Removed {
-        path: Path,
+        path: NonEmptyPath,
         value: Item,
     },
     Changed {
-        path: Path,
+        path: NonEmptyPath,
         left: saphyr::MarkedYamlOwned, // TODO: this should probably be an Item too?
         right: saphyr::MarkedYamlOwned, // TODO: this should probably be an Item too?
     },
     Moved {
-        original_path: Path,
-        new_path: Path,
+        original_path: NonEmptyPath,
+        new_path: NonEmptyPath,
     },
 }
 
 impl Difference {
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &NonEmptyPath {
         match self {
             Difference::Added { path, .. } => path,
             Difference::Removed { path, .. } => path,
@@ -111,7 +111,6 @@ pub fn diff(
             for key in all_keys {
                 let inner_key = (*key).clone().data;
                 let key_segment = Segment::try_from(key.data.clone()).unwrap();
-                let path = ctx.path.push(key_segment);
                 match (left_mapping.get(key), right_mapping.get(key)) {
                     (None, None) => unreachable!("the key must be from either left or right!"),
                     (None, Some(addition)) => {
@@ -123,7 +122,7 @@ pub fn diff(
                         debug!("Modified span: {:?}", right_copy.span);
 
                         diffs.push(Difference::Added {
-                            path,
+                            path: ctx.path.push_non_empty(key_segment),
                             value: Item::KV {
                                 key: (*key).clone(),
                                 value: (*addition).clone(),
@@ -139,7 +138,7 @@ pub fn diff(
                         debug!("Modified span: {:?}", left_copy.span);
 
                         diffs.push(Difference::Removed {
-                            path,
+                            path: ctx.path.push_non_empty(key_segment),
                             value: Item::KV {
                                 key: (*key).clone(),
                                 value: (*removal).clone(),
@@ -165,14 +164,14 @@ pub fn diff(
                             unreachable!("the index must be from either left or right!")
                         }
                         (None, Some(addition)) => diffs.push(Difference::Added {
-                            path: ctx.path.push(idx),
+                            path: ctx.path.push_non_empty(idx),
                             value: Item::ArrayElement {
                                 index: idx as u32,
                                 value: (*addition).clone(),
                             },
                         }),
                         (Some(removal), None) => diffs.push(Difference::Removed {
-                            path: ctx.path.push(idx),
+                            path: ctx.path.push_non_empty(idx),
                             value: Item::ArrayElement {
                                 index: idx as u32,
                                 value: (*removal).clone(),
@@ -206,7 +205,7 @@ pub fn diff(
                 let mut diffs = Vec::new();
                 for idx in removed {
                     diffs.push(Difference::Removed {
-                        path: ctx.path.push(idx),
+                        path: ctx.path.push_non_empty(idx),
                         value: Item::ArrayElement {
                             index: idx as u32,
                             value: left_elements[idx].clone(),
@@ -216,7 +215,7 @@ pub fn diff(
 
                 for idx in added {
                     diffs.push(Difference::Added {
-                        path: ctx.path.push(idx),
+                        path: ctx.path.push_non_empty(idx),
                         value: Item::ArrayElement {
                             index: idx as u32,
                             value: right_elements[idx].clone(),
@@ -226,8 +225,8 @@ pub fn diff(
 
                 for (ldx, rdx) in moved {
                     diffs.push(Difference::Moved {
-                        original_path: ctx.path.push(ldx),
-                        new_path: ctx.path.push(rdx),
+                        original_path: ctx.path.push_non_empty(ldx),
+                        new_path: ctx.path.push_non_empty(rdx),
                     });
                 }
 
@@ -239,7 +238,8 @@ pub fn diff(
         (left, right) if left == right => Vec::new(),
         _ => {
             vec![Difference::Changed {
-                path: ctx.path.clone(),
+                path: NonEmptyPath::try_from(ctx.path.clone())
+                    .expect("a Changed difference is always nested under at least one key"),
                 left: left.clone(),
                 right: right.clone(),
             }]
@@ -320,7 +320,9 @@ mod tests {
 
     use crate::diff::{ArrayOrdering, Item};
 
-    use super::{Context, Difference, Path, diff};
+    use crate::path::NonEmptyPath;
+
+    use super::{Context, Difference, diff};
 
     pub fn string_value(value: impl Into<String>) -> MarkedYamlOwned {
         MarkedYamlOwned::scalar_from_string(value.into())
@@ -351,7 +353,7 @@ mod tests {
                 right: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
                     Scalar::Integer(2)
                 )),
-                path: Path::from_unchecked(vec!["foo".into(), "bar".into(),])
+                path: NonEmptyPath::try_new(vec!["foo".into(), "bar".into()]).unwrap()
             }]
         )
     }
@@ -387,10 +389,10 @@ mod tests {
                     right: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
                         Scalar::String("x".into())
                     )),
-                    path: Path::from_unchecked(vec!["foo".into(), 0.into(),])
+                    path: NonEmptyPath::try_new(vec!["foo".into(), 0.into()]).unwrap()
                 },
                 Difference::Added {
-                    path: Path::from_unchecked(vec!["foo".into(), 3.into()]),
+                    path: NonEmptyPath::try_new(vec!["foo".into(), 3.into()]).unwrap(),
                     value: Item::ArrayElement {
                         index: 3,
                         value: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
@@ -424,7 +426,7 @@ mod tests {
         assert_eq!(
             differences,
             vec![Difference::Removed {
-                path: Path::from_unchecked(vec!["foo".into(), 2.into()]),
+                path: NonEmptyPath::try_new(vec!["foo".into(), 2.into()]).unwrap(),
                 value: Item::ArrayElement {
                     index: 2,
                     value: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
@@ -460,7 +462,7 @@ mod tests {
                 right: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
                     Scalar::Boolean(false)
                 )),
-                path: Path::from_unchecked(vec!["foo".into(), "bar".into(),])
+                path: NonEmptyPath::try_new(vec!["foo".into(), "bar".into()]).unwrap()
             },]
         )
     }
@@ -492,15 +494,17 @@ mod tests {
         expect![[r#"
             [
                 Removed {
-                    path: Path(
-                        [
-                            Field(
-                                "foo",
-                            ),
-                            Field(
-                                "thing",
-                            ),
-                        ],
+                    path: NonEmptyPath(
+                        Path(
+                            [
+                                Field(
+                                    "foo",
+                                ),
+                                Field(
+                                    "thing",
+                                ),
+                            ],
+                        ),
                     ),
                     value: KV {
                         key: MarkedYamlOwned {
@@ -648,13 +652,14 @@ mod tests {
         assert_eq!(
             differences,
             vec![Difference::Removed {
-                path: Path::from_unchecked(vec![
+                path: NonEmptyPath::try_new(vec![
                     "egress".into(),
                     0.into(),
                     "ports".into(),
                     0.into(),
                     "protocol".into()
-                ]),
+                ])
+                .unwrap(),
                 value: Item::KV {
                     key: string_value("protocol"),
                     value: string_value("TCP")
@@ -710,15 +715,17 @@ mod tests {
         expect![[r#"
             [
                 Added {
-                    path: Path(
-                        [
-                            Field(
-                                "some_list",
-                            ),
-                            Index(
-                                1,
-                            ),
-                        ],
+                    path: NonEmptyPath(
+                        Path(
+                            [
+                                Field(
+                                    "some_list",
+                                ),
+                                Index(
+                                    1,
+                                ),
+                            ],
+                        ),
                     ),
                     value: ArrayElement {
                         index: 1,
@@ -890,43 +897,49 @@ mod tests {
                     },
                 },
                 Moved {
-                    original_path: Path(
-                        [
-                            Field(
-                                "some_list",
-                            ),
-                            Index(
-                                1,
-                            ),
-                        ],
+                    original_path: NonEmptyPath(
+                        Path(
+                            [
+                                Field(
+                                    "some_list",
+                                ),
+                                Index(
+                                    1,
+                                ),
+                            ],
+                        ),
                     ),
-                    new_path: Path(
-                        [
-                            Field(
-                                "some_list",
-                            ),
-                            Index(
-                                0,
-                            ),
-                        ],
+                    new_path: NonEmptyPath(
+                        Path(
+                            [
+                                Field(
+                                    "some_list",
+                                ),
+                                Index(
+                                    0,
+                                ),
+                            ],
+                        ),
                     ),
                 },
                 Changed {
-                    path: Path(
-                        [
-                            Field(
-                                "some_list",
-                            ),
-                            Index(
-                                0,
-                            ),
-                            Field(
-                                "value",
-                            ),
-                            Field(
-                                "doors",
-                            ),
-                        ],
+                    path: NonEmptyPath(
+                        Path(
+                            [
+                                Field(
+                                    "some_list",
+                                ),
+                                Index(
+                                    0,
+                                ),
+                                Field(
+                                    "value",
+                                ),
+                                Field(
+                                    "doors",
+                                ),
+                            ],
+                        ),
                     ),
                     left: MarkedYamlOwned {
                         span: Span {

@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::wrapping::Column;
-use everdiff_diff::{Item, path::Path};
+use everdiff_diff::{Item, path::{NonEmptyPath, Path, Segment}};
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
@@ -274,7 +274,7 @@ struct Rendered {
 //    - this matters in particular for multi-doc docs
 pub fn render_removal(
     ctx: &RenderContext,
-    path_to_change: Path,
+    path_to_change: NonEmptyPath,
     removal: Item,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
@@ -291,7 +291,7 @@ pub fn render_removal(
 
 pub fn render_added(
     ctx: &RenderContext,
-    path_to_change: Path,
+    path_to_change: NonEmptyPath,
     addition: Item,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
@@ -314,7 +314,7 @@ enum ChangeType {
 
 fn render_change(
     ctx: &RenderContext,
-    path_to_change: Path,
+    path_to_change: NonEmptyPath,
     changed_yaml: Item,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
@@ -425,7 +425,7 @@ fn render_secondary_side(
     ctx: &RenderContext,
     primary_doc: &YamlSource,
     secondary_doc: &YamlSource,
-    path_to_changed_node: Path,
+    path_to_changed_node: NonEmptyPath,
     primary_row_count: usize,
     gap_size: usize,
     unchanged: Highlight,
@@ -521,12 +521,13 @@ fn adjust_path_for_secondary(path: &Path, parent_data: &YamlDataOwned<MarkedYaml
 pub fn gap_start(
     primary_doc: &YamlSource,
     secondary_doc: &YamlSource,
-    path_to_change: Path,
+    path_to_change: NonEmptyPath,
 ) -> Line {
-    let parent = path_to_change.parent().unwrap();
+    let parent = path_to_change.parent();
     let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
 
-    let (before_path, after_path) = surrounding_paths(primary_parent_node, &path_to_change);
+    let (before_path, after_path) =
+        surrounding_paths(primary_parent_node, parent.clone(), path_to_change.head());
 
     log::debug!(
         "The before node is {:?}",
@@ -751,7 +752,7 @@ mod test_node_height {
 
 #[cfg(test)]
 mod test_gap_start {
-    use everdiff_diff::path::Path;
+    use everdiff_diff::path::{NonEmptyPath, Path};
     use everdiff_line::Line;
     use everdiff_multidoc::source::read_doc;
     use test_log::test;
@@ -784,7 +785,8 @@ mod test_gap_start {
             .unwrap()
             .remove(0);
 
-        let location = Path::parse_str(".person.location").unwrap();
+        let location = NonEmptyPath::try_from(Path::parse_str(".person.location").unwrap())
+            .expect("non-empty path");
 
         let actual_start = gap_start(&primary, &secondary, location);
 
@@ -838,7 +840,9 @@ mod test_gap_start {
             .unwrap()
             .remove(0);
 
-        let location = Path::parse_str(".metadata.annotations.this_is").unwrap();
+        let location =
+            NonEmptyPath::try_from(Path::parse_str(".metadata.annotations.this_is").unwrap())
+                .expect("non-empty path");
 
         let actual_start = gap_start(&primary, &secondary, location);
 
@@ -851,20 +855,11 @@ mod test_gap_start {
     }
 
     #[test]
-    #[should_panic]
-    fn gap_start_panics_on_empty_path() {
-        // Path::default() is empty — parent() returns None, unwrap() panics
-        let doc = read_doc(
-            indoc::indoc! {r#"
-                ---
-                key: value
-            "#},
-            &camino::Utf8PathBuf::default(),
-        )
-        .unwrap()
-        .remove(0);
-
-        gap_start(&doc, &doc, Path::default());
+    fn empty_path_cannot_be_converted_to_non_empty_path() {
+        // The type system now prevents calling gap_start with an empty path.
+        // NonEmptyPath::try_from rejects empty paths at construction time.
+        assert!(NonEmptyPath::try_from(Path::default()).is_err());
+        assert!(NonEmptyPath::try_new(vec![]).is_none());
     }
 
     #[test]
@@ -882,7 +877,8 @@ mod test_gap_start {
         .unwrap()
         .remove(0);
 
-        gap_start(&doc, &doc, Path::parse_str(".ghost.field").unwrap());
+        let path = NonEmptyPath::try_from(Path::parse_str(".ghost.field").unwrap()).unwrap();
+        gap_start(&doc, &doc, path);
     }
 
     #[test]
@@ -904,10 +900,11 @@ mod test_gap_start {
         .unwrap()
         .remove(0);
 
-        let path = Path::from_unchecked(vec![
+        let path = NonEmptyPath::try_new(vec![
             Segment::Field("items".to_string()),
             Segment::Field("name".to_string()),
-        ]);
+        ])
+        .unwrap();
         gap_start(&doc, &doc, path);
     }
 
@@ -930,15 +927,18 @@ mod test_gap_start {
         .unwrap()
         .remove(0);
 
-        let path =
-            Path::from_unchecked(vec![Segment::Field("data".to_string()), Segment::Index(0)]);
+        let path = NonEmptyPath::try_new(vec![
+            Segment::Field("data".to_string()),
+            Segment::Index(0),
+        ])
+        .unwrap();
         gap_start(&doc, &doc, path);
     }
 }
 
 pub fn render_difference(
     ctx: &RenderContext,
-    path_to_change: Path,
+    path_to_change: NonEmptyPath,
     left: MarkedYamlOwned,
     left_doc: &YamlSource,
     right: MarkedYamlOwned,
@@ -1081,13 +1081,16 @@ impl fmt::Display for LineWidget {
 }
 
 // TODO: remove the `after node`
-fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path>, Option<Path>) {
-    let parent_path = path.parent().unwrap();
+fn surrounding_paths(
+    parent_node: &MarkedYamlOwned,
+    parent_path: Path,
+    head: &Segment,
+) -> (Option<Path>, Option<Path>) {
     log::trace!("the parent is: {}", parent_path.jq_like());
     log::trace!("the parent node is: {:#?}", parent_node);
     match &parent_node.data {
         YamlDataOwned::Sequence(children) => {
-            let idx = path.head().and_then(|s| s.as_index()).unwrap();
+            let idx = head.as_index().unwrap();
             let left = if idx > 0 {
                 Some(parent_path.push(idx - 1))
             } else {
@@ -1102,7 +1105,7 @@ fn surrounding_paths(parent_node: &MarkedYamlOwned, path: &Path) -> (Option<Path
         }
         YamlDataOwned::Mapping(children) => {
             // Consider extracting this...
-            let target_key = path.head().and_then(|s| s.as_field()).unwrap();
+            let target_key = head.as_field().unwrap();
             log::debug!("looking for: {target_key}");
             let keys: Vec<_> = children.keys().filter_map(|k| k.data.as_str()).collect();
 

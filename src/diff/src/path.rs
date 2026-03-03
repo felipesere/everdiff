@@ -97,6 +97,12 @@ impl Path {
         copy
     }
 
+    /// Push a segment and return a `NonEmptyPath`.
+    /// The result is always non-empty because we added at least one segment.
+    pub fn push_non_empty(&self, value: impl Into<Segment>) -> NonEmptyPath {
+        NonEmptyPath(self.push(value))
+    }
+
     /// Create a Path from a vector of segments without validation.
     pub fn from_unchecked(path: Vec<Segment>) -> Self {
         Path(path)
@@ -125,6 +131,64 @@ impl Path {
 
     pub fn segments(&self) -> &[Segment] {
         &self.0
+    }
+}
+
+/// A path guaranteed to have at least one segment.
+/// This makes `parent()` and `head()` infallible.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NonEmptyPath(Path);
+
+impl NonEmptyPath {
+    pub fn try_new(segments: Vec<Segment>) -> Option<Self> {
+        if segments.is_empty() {
+            None
+        } else {
+            Some(Self(Path(segments)))
+        }
+    }
+
+    /// Returns the parent path (everything except the last segment).
+    /// Always succeeds because `NonEmptyPath` has at least one segment.
+    pub fn parent(&self) -> Path {
+        let mut copy = self.0.clone();
+        copy.0.pop();
+        copy
+    }
+
+    /// Returns the last segment.
+    /// Always succeeds because `NonEmptyPath` has at least one segment.
+    pub fn head(&self) -> &Segment {
+        self.0.0.last().expect("NonEmptyPath is always non-empty")
+    }
+
+    pub fn jq_like(&self) -> String {
+        self.0.jq_like()
+    }
+}
+
+impl std::ops::Deref for NonEmptyPath {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl TryFrom<Path> for NonEmptyPath {
+    type Error = ();
+
+    fn try_from(path: Path) -> Result<Self, ()> {
+        if path.0.is_empty() {
+            Err(())
+        } else {
+            Ok(Self(path))
+        }
+    }
+}
+
+impl From<NonEmptyPath> for Path {
+    fn from(nep: NonEmptyPath) -> Self {
+        nep.0
     }
 }
 

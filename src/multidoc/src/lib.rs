@@ -338,15 +338,17 @@ mod tests {
                     right_doc_idx: 1,
                     differences: [
                         Changed {
-                            path: Path(
-                                [
-                                    Field(
-                                        "spec",
-                                    ),
-                                    Field(
-                                        "color",
-                                    ),
-                                ],
+                            path: NonEmptyPath(
+                                Path(
+                                    [
+                                        Field(
+                                            "spec",
+                                        ),
+                                        Field(
+                                            "color",
+                                        ),
+                                    ],
+                                ),
                             ),
                             left: MarkedYamlOwned {
                                 span: Span {
@@ -405,15 +407,17 @@ mod tests {
                     right_doc_idx: 0,
                     differences: [
                         Changed {
-                            path: Path(
-                                [
-                                    Field(
-                                        "spec",
-                                    ),
-                                    Field(
-                                        "thing",
-                                    ),
-                                ],
+                            path: NonEmptyPath(
+                                Path(
+                                    [
+                                        Field(
+                                            "spec",
+                                        ),
+                                        Field(
+                                            "thing",
+                                        ),
+                                    ],
+                                ),
                             ),
                             left: MarkedYamlOwned {
                                 span: Span {
