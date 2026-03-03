@@ -728,7 +728,7 @@ mod test_gap_start {
               age: 12
             "#};
 
-        let primary = read_doc(primary, camino::Utf8PathBuf::default())
+        let primary = read_doc(primary, &camino::Utf8PathBuf::default())
             .unwrap()
             .remove(0);
 
@@ -738,7 +738,7 @@ mod test_gap_start {
               name: Steve E. Anderson
               age: 12
             "#};
-        let secondary = read_doc(secondary, camino::Utf8PathBuf::default())
+        let secondary = read_doc(secondary, &camino::Utf8PathBuf::default())
             .unwrap()
             .remove(0);
 
@@ -773,7 +773,7 @@ mod test_gap_start {
                 - port: 3000
             "#};
 
-        let primary = read_doc(primary, camino::Utf8PathBuf::default())
+        let primary = read_doc(primary, &camino::Utf8PathBuf::default())
             .unwrap()
             .remove(0);
 
@@ -792,7 +792,7 @@ mod test_gap_start {
               ports:
                 - port: 3000
             "#};
-        let secondary = read_doc(secondary, camino::Utf8PathBuf::default())
+        let secondary = read_doc(secondary, &camino::Utf8PathBuf::default())
             .unwrap()
             .remove(0);
 
@@ -1041,7 +1041,7 @@ mod test {
     }
 
     fn yaml_source(yaml: &'static str) -> YamlSource {
-        let mut docs = read_doc(yaml, camino::Utf8PathBuf::new()).expect("to have parsed properly");
+        let mut docs = read_doc(yaml, &camino::Utf8PathBuf::new()).expect("to have parsed properly");
         docs.remove(0)
     }
 

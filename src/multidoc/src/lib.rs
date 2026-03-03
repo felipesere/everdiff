@@ -247,7 +247,7 @@ mod tests {
     pub fn docs(raw: &str) -> Vec<YamlSource> {
         read_doc(
             raw,
-            camino::Utf8PathBuf::from_str("/foo/bar/baz.yaml").unwrap(),
+            &camino::Utf8PathBuf::from_str("/foo/bar/baz.yaml").unwrap(),
         )
         .unwrap()
     }
