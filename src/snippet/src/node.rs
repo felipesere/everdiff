@@ -108,7 +108,7 @@ mod tests {
         .unwrap()
         .remove(0);
 
-        let outcome = sub_mapping(&yaml, &Path::parse_str(".top.target")).unwrap();
+        let outcome = sub_mapping(&yaml, &Path::parse_str(".top.target").unwrap()).unwrap();
 
         let mut buf = String::new();
         saphyr::YamlEmitter::new(&mut buf)

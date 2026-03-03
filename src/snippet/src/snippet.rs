@@ -17,50 +17,60 @@ pub type Highlight = fn(&str) -> String;
 
 #[derive(Copy, Clone)]
 pub struct Theme {
-    pub added:   Highlight,
+    pub added: Highlight,
     pub removed: Highlight,
     pub changed: Highlight,
-    pub dimmed:  Highlight,
-    pub header:  Highlight,
+    pub dimmed: Highlight,
+    pub header: Highlight,
 }
 
 impl Theme {
     pub fn colored() -> Self {
         use owo_colors::OwoColorize;
         Theme {
-            added:   |s| s.green().to_string(),
+            added: |s| s.green().to_string(),
             removed: |s| s.red().to_string(),
             changed: |s| s.yellow().to_string(),
-            dimmed:  |s| s.dimmed().to_string(),
-            header:  |s| s.bold().to_string(),
+            dimmed: |s| s.dimmed().to_string(),
+            header: |s| s.bold().to_string(),
         }
     }
 
     pub fn markers() -> Self {
         Theme {
-            added:   |s| format!("[green]{s}[/]"),
+            added: |s| format!("[green]{s}[/]"),
             removed: |s| format!("[red]{s}[/]"),
             changed: |s| format!("[yellow]{s}[/]"),
-            dimmed:  |s| format!("[dim]{s}[/]"),
-            header:  |s| format!("[bold]{s}[/]"),
+            dimmed: |s| format!("[dim]{s}[/]"),
+            header: |s| format!("[bold]{s}[/]"),
         }
     }
 
     pub fn plain() -> Self {
         Theme {
-            added:   |s| s.to_string(),
+            added: |s| s.to_string(),
             removed: |s| s.to_string(),
             changed: |s| s.to_string(),
-            dimmed:  |s| s.to_string(),
-            header:  |s| s.to_string(),
+            dimmed: |s| s.to_string(),
+            header: |s| s.to_string(),
         }
     }
 
-    pub fn added(&self, s: &str) -> String   { (self.added)(s) }
-    pub fn removed(&self, s: &str) -> String { (self.removed)(s) }
-    pub fn changed(&self, s: &str) -> String { (self.changed)(s) }
-    pub fn dimmed(&self, s: &str) -> String  { (self.dimmed)(s) }
-    pub fn header(&self, s: &str) -> String  { (self.header)(s) }
+    pub fn added(&self, s: &str) -> String {
+        (self.added)(s)
+    }
+    pub fn removed(&self, s: &str) -> String {
+        (self.removed)(s)
+    }
+    pub fn changed(&self, s: &str) -> String {
+        (self.changed)(s)
+    }
+    pub fn dimmed(&self, s: &str) -> String {
+        (self.dimmed)(s)
+    }
+    pub fn header(&self, s: &str) -> String {
+        (self.header)(s)
+    }
 }
 
 #[derive(Clone)]
@@ -326,7 +336,12 @@ fn render_change(
         ChangeType::Addition => ctx.theme.added,
     };
 
-    let primary = render_primary_side(ctx, larger_document, &changed_yaml, (highlighting, ctx.theme.dimmed));
+    let primary = render_primary_side(
+        ctx,
+        larger_document,
+        &changed_yaml,
+        (highlighting, ctx.theme.dimmed),
+    );
     let gap_size = changed_yaml.height();
     let primary_row_count = primary.row_count();
     let secondary = render_secondary_side(
@@ -769,7 +784,7 @@ mod test_gap_start {
             .unwrap()
             .remove(0);
 
-        let location = Path::parse_str(".person.location");
+        let location = Path::parse_str(".person.location").unwrap();
 
         let actual_start = gap_start(&primary, &secondary, location);
 
@@ -823,7 +838,7 @@ mod test_gap_start {
             .unwrap()
             .remove(0);
 
-        let location = Path::parse_str(".metadata.annotations.this_is");
+        let location = Path::parse_str(".metadata.annotations.this_is").unwrap();
 
         let actual_start = gap_start(&primary, &secondary, location);
 
@@ -833,6 +848,91 @@ mod test_gap_start {
         // <--- the gap --->
         // [3]   age: 12
         assert_eq!(actual_start, Line::new(9).unwrap());
+    }
+
+    #[test]
+    #[should_panic]
+    fn gap_start_panics_on_empty_path() {
+        // Path::default() is empty — parent() returns None, unwrap() panics
+        let doc = read_doc(
+            indoc::indoc! {r#"
+                ---
+                key: value
+            "#},
+            &camino::Utf8PathBuf::default(),
+        )
+        .unwrap()
+        .remove(0);
+
+        gap_start(&doc, &doc, Path::default());
+    }
+
+    #[test]
+    #[should_panic]
+    fn gap_start_panics_when_parent_path_missing_from_primary() {
+        // .ghost.field has parent .ghost which is not in the YAML —
+        // node_in(&primary_doc.yaml, &parent).unwrap() panics
+        let doc = read_doc(
+            indoc::indoc! {r#"
+                ---
+                real: value
+            "#},
+            &camino::Utf8PathBuf::default(),
+        )
+        .unwrap()
+        .remove(0);
+
+        gap_start(&doc, &doc, Path::parse_str(".ghost.field").unwrap());
+    }
+
+    #[test]
+    #[should_panic]
+    fn gap_start_panics_when_field_segment_points_into_sequence() {
+        // .items is a sequence, but the path head is a Field —
+        // surrounding_paths calls as_index().unwrap() and panics
+        use everdiff_diff::path::Segment;
+
+        let doc = read_doc(
+            indoc::indoc! {r#"
+                ---
+                items:
+                  - foo
+                  - bar
+            "#},
+            &camino::Utf8PathBuf::default(),
+        )
+        .unwrap()
+        .remove(0);
+
+        let path = Path::from_unchecked(vec![
+            Segment::Field("items".to_string()),
+            Segment::Field("name".to_string()),
+        ]);
+        gap_start(&doc, &doc, path);
+    }
+
+    #[test]
+    #[should_panic]
+    fn gap_start_panics_when_index_segment_points_into_mapping() {
+        // .data is a mapping, but the path head is an Index —
+        // surrounding_paths calls as_field().unwrap() and panics
+        use everdiff_diff::path::Segment;
+
+        let doc = read_doc(
+            indoc::indoc! {r#"
+                ---
+                data:
+                  key1: val1
+                  key2: val2
+            "#},
+            &camino::Utf8PathBuf::default(),
+        )
+        .unwrap()
+        .remove(0);
+
+        let path =
+            Path::from_unchecked(vec![Segment::Field("data".to_string()), Segment::Index(0)]);
+        gap_start(&doc, &doc, path);
     }
 }
 
@@ -844,7 +944,10 @@ pub fn render_difference(
     right: MarkedYamlOwned,
     right_doc: &YamlSource,
 ) -> String {
-    let title = format!("Changed: {p}:", p = ctx.theme.header(&path_to_change.jq_like()));
+    let title = format!(
+        "Changed: {p}:",
+        p = ctx.theme.header(&path_to_change.jq_like())
+    );
 
     let max_width = (ctx.max_width - 16) / 2; // includes a bit of random padding, do this proper later
     let smaller_context = RenderContext {
@@ -1045,7 +1148,8 @@ mod test {
     }
 
     fn yaml_source(yaml: &'static str) -> YamlSource {
-        let mut docs = read_doc(yaml, &camino::Utf8PathBuf::new()).expect("to have parsed properly");
+        let mut docs =
+            read_doc(yaml, &camino::Utf8PathBuf::new()).expect("to have parsed properly");
         docs.remove(0)
     }
 
@@ -1347,7 +1451,11 @@ mod test {
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
         let content = render(
-            RenderContext { max_width: 80, theme: super::Theme::markers(), visual_context: 5 },
+            RenderContext {
+                max_width: 80,
+                theme: super::Theme::markers(),
+                visual_context: 5,
+            },
             &left_doc,
             &right_doc,
             differences,
@@ -1436,7 +1544,11 @@ mod test {
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
         let content = render(
-            RenderContext { max_width: 150, theme: super::Theme::markers(), visual_context: 5 },
+            RenderContext {
+                max_width: 150,
+                theme: super::Theme::markers(),
+                visual_context: 5,
+            },
             &left_doc,
             &right_doc,
             differences,

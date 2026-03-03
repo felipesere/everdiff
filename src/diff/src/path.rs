@@ -104,21 +104,23 @@ impl Path {
 
     /// Parse a jq-like path string into a Path.
     /// Paths start with a `.` and use `.field` for field access and `[n]` for array indices.
-    pub fn parse_str(val: &str) -> Self {
-        let segments = val
-            .split(".")
-            .skip(1) // paths start with a `.` at their root
-            .map(|raw_segment| {
-                if raw_segment.contains("[") {
-                    let num = raw_segment.trim_start_matches("[").trim_end_matches("]");
-                    Segment::Index(num.parse().expect("the segment to have a valid number"))
-                } else {
-                    Segment::Field(raw_segment.to_string())
-                }
-            })
-            .collect();
+    pub fn parse_str(val: &str) -> Result<Self, anyhow::Error> {
+        let mut segments = Vec::new();
+        for raw_segment in val.split(".").skip(1) {
+            let segment = if raw_segment.contains("[") {
+                let num = raw_segment.trim_start_matches("[").trim_end_matches("]");
+                let index = num
+                    .parse()
+                    .with_context(|| format!("{num} is not a valid number"))?;
+                Segment::Index(index)
+            } else {
+                Segment::Field(raw_segment.to_string())
+            };
 
-        Self(segments)
+            segments.push(segment);
+        }
+
+        Ok(Self(segments))
     }
 
     pub fn segments(&self) -> &[Segment] {
@@ -195,7 +197,7 @@ impl FromStr for IgnorePath {
     }
 }
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use nom::branch::alt;
 use nom::bytes::complete::take_while1;
 use nom::character::complete::char;
@@ -385,5 +387,26 @@ mod path_ignoring {
 
             assert_eq!(case.matches, path_match.matches(&case.path));
         }
+    }
+}
+
+#[cfg(test)]
+mod panics {
+    use std::str::FromStr;
+
+    use super::{IgnorePath, Path};
+
+    #[test]
+    fn parse_str_panics_on_non_numeric_bracket_content() {
+        // "[not_a_number]" cannot be parsed
+        assert!(Path::parse_str(".[not_a_number]").is_err());
+    }
+
+    #[test]
+    #[should_panic]
+    fn ignore_path_panics_on_overflowing_array_index() {
+        // 99999999999999999999 overflows usize on any 64-bit platform —
+        // v.parse::<usize>().unwrap() panics inside the nom parser
+        let _ = IgnorePath::from_str("path.env[99999999999999999999]");
     }
 }
