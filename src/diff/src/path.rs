@@ -254,10 +254,10 @@ impl FromStr for IgnorePath {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok((_, value)) = ignore_path(s) {
+        if let Ok(("", value)) = ignore_path(s) {
             return Ok(value);
         }
-        bail!("Failed to aprse PathMatch")
+        bail!("Failed to parse IgnorePath")
     }
 }
 
@@ -265,7 +265,7 @@ use anyhow::{Context, bail};
 use nom::branch::alt;
 use nom::bytes::complete::take_while1;
 use nom::character::complete::char;
-use nom::combinator::{map, opt};
+use nom::combinator::{map, map_res, opt};
 use nom::multi::many0;
 use nom::sequence::{delimited, preceded};
 use nom::{IResult, Parser};
@@ -305,8 +305,8 @@ fn escaped_field(input: &str) -> IResult<&str, MatchElement> {
         |v: &str| MatchElement::Field(v.to_string()),
     );
 
-    let array_index = map(take_while1(|c: char| c.is_ascii_digit()), |v: &str| {
-        MatchElement::Index(v.parse::<usize>().unwrap())
+    let array_index = map_res(take_while1(|c: char| c.is_ascii_digit()), |v: &str| {
+        v.parse::<usize>().map(MatchElement::Index)
     });
     let any_array_index = map(char('*'), |_| MatchElement::AnyArrayElement);
     let (rest, p) = delimited(
@@ -467,10 +467,8 @@ mod panics {
     }
 
     #[test]
-    #[should_panic]
-    fn ignore_path_panics_on_overflowing_array_index() {
-        // 99999999999999999999 overflows usize on any 64-bit platform —
-        // v.parse::<usize>().unwrap() panics inside the nom parser
-        let _ = IgnorePath::from_str("path.env[99999999999999999999]");
+    fn ignore_path_returns_error_on_overflowing_array_index() {
+        // 99999999999999999999 overflows usize — map_res propagates the error
+        assert!(IgnorePath::from_str("path.env[99999999999999999999]").is_err());
     }
 }
