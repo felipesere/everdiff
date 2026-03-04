@@ -946,19 +946,7 @@ pub fn render_difference(
         visual_context: 5, // this will become a parameter down the line
     };
 
-    // Check if both values are strings - if so, compute inline diff
-    let inline_diff = match (left.data.as_str(), right.data.as_str()) {
-        (Some(left_str), Some(right_str)) => Some(compute_inline_diff(left_str, right_str)),
-        _ => None,
-    };
-
-    let (left_parts, right_parts) = match &inline_diff {
-        Some((l, r)) => (Some(l.as_slice()), Some(r.as_slice())),
-        None => (None, None),
-    };
-
-    let left = render_changed_snippet(&smaller_context, left_doc, left, left_parts);
-    let right = render_changed_snippet(&smaller_context, right_doc, right, right_parts);
+    let (left, right) = render_changed_pair(&smaller_context, left, left_doc, right, right_doc);
 
     use crate::wrapping::{FormattedRow, SourceLineGroup};
 
@@ -997,11 +985,28 @@ pub fn render_difference(
     format!("{title}\n{body}")
 }
 
+fn render_changed_pair(
+    ctx: &RenderContext,
+    left: MarkedYamlOwned,
+    left_doc: &YamlSource,
+    right: MarkedYamlOwned,
+    right_doc: &YamlSource,
+) -> (Rendered, Rendered) {
+    let (left_parts, right_parts) = left.data.as_str()
+        .zip(right.data.as_str())
+        .map(|(l, r)| compute_inline_diff(l, r))
+        .unzip();
+
+    let left = render_changed_snippet(ctx, left_doc, left, left_parts);
+    let right = render_changed_snippet(ctx, right_doc, right, right_parts);
+    (left, right)
+}
+
 fn render_changed_snippet(
     ctx: &RenderContext,
     source: &YamlSource,
     changed_yaml: MarkedYamlOwned,
-    inline_parts: Option<&[InlinePart]>,
+    inline_parts: Option<Vec<InlinePart>>,
 ) -> Rendered {
     use crate::wrapping::{SourceLineGroup, WrappedLineUsize, format_with_inline_highlights};
 
@@ -1026,7 +1031,7 @@ fn render_changed_snippet(
         .zip(start..end)
         .map(|(line, line_nr)| {
             if line_nr == changed_line {
-                if let Some(parts) = inline_parts {
+                if let Some(parts) = &inline_parts {
                     let prefix = extract_yaml_prefix(line);
                     format_with_inline_highlights(line_nr, prefix, parts, ctx.theme, width)
                 } else {
