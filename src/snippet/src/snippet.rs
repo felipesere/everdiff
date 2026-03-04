@@ -5,7 +5,10 @@ use std::{
 };
 
 use crate::wrapping::Column;
-use everdiff_diff::{Item, path::{NonEmptyPath, Path, Segment}};
+use everdiff_diff::{
+    Item,
+    path::{NonEmptyPath, Path, Segment},
+};
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
@@ -434,7 +437,8 @@ fn render_secondary_side(
 
     log::debug!("changed_node: {}", path_to_changed_node.jq_like());
 
-    let gap_start = gap_start(primary_doc, secondary_doc, path_to_changed_node);
+    let gap_start =
+        gap_start(primary_doc, secondary_doc, path_to_changed_node).unwrap_or(Line::one());
     log::debug!("The gap should be right after: {gap_start}");
     let start = (gap_start + 1).saturating_sub(ctx.visual_context);
     let end: Line = gap_start + ctx.visual_context + 1;
@@ -522,12 +526,12 @@ pub fn gap_start(
     primary_doc: &YamlSource,
     secondary_doc: &YamlSource,
     path_to_change: NonEmptyPath,
-) -> Line {
+) -> Option<Line> {
     let parent = path_to_change.parent();
-    let primary_parent_node = node_in(&primary_doc.yaml, &parent).unwrap();
+    let primary_parent_node = node_in(&primary_doc.yaml, &parent)?;
 
     let (before_path, after_path) =
-        surrounding_paths(primary_parent_node, parent.clone(), path_to_change.head());
+        surrounding_paths(primary_parent_node, parent.clone(), path_to_change.head())?;
 
     log::debug!(
         "The before node is {:?}",
@@ -553,7 +557,7 @@ pub fn gap_start(
         };
         log::debug!("before node adjustment factor: {adjustment}");
         log::debug!("the span ends on {}", before.span.end.line());
-        secondary_doc.relative_line(before.span.end.line() - adjustment)
+        Some(secondary_doc.relative_line(before.span.end.line() - adjustment))
     } else if let Some(after) = after_path {
         // No "before" node (e.g., adding at index 0 of an array).
         // Use the "after" node to find where the gap should go.
@@ -573,19 +577,21 @@ pub fn gap_start(
                 start_line,
                 start_line - 1
             );
-            secondary_doc.relative_line(start_line - 1)
+            Some(secondary_doc.relative_line(start_line - 1))
         } else {
             // Fallback: use parent node's start
             log::debug!("Could not find after node in secondary, falling back to parent");
             let secondary_parent = node_in(&secondary_doc.yaml, &parent);
-            secondary_parent
-                .map(|p| secondary_doc.relative_line(p.span.start.line()))
-                .unwrap_or(Line::one())
+            Some(
+                secondary_parent
+                    .map(|p| secondary_doc.relative_line(p.span.start.line()))
+                    .unwrap_or(Line::one()),
+            )
         }
     } else {
         // No before or after path, fall back to line 1
         log::debug!("No before or after path, falling back to Line::one()");
-        Line::one()
+        Some(Line::one())
     }
 }
 
@@ -795,7 +801,7 @@ mod test_gap_start {
         // [2]   name: Steve E. Anderson
         // <--- the gap --->
         // [3]   age: 12
-        assert_eq!(actual_start, Line::unchecked(2));
+        assert_eq!(actual_start, Some(Line::unchecked(2)));
     }
 
     #[test]
@@ -846,12 +852,7 @@ mod test_gap_start {
 
         let actual_start = gap_start(&primary, &secondary, location);
 
-        // The split we are looking for is
-        // [1] person:
-        // [2]   name: Steve E. Anderson
-        // <--- the gap --->
-        // [3]   age: 12
-        assert_eq!(actual_start, Line::new(9).unwrap());
+        assert_eq!(actual_start, Some(Line::new(9).unwrap()));
     }
 
     #[test]
@@ -863,10 +864,7 @@ mod test_gap_start {
     }
 
     #[test]
-    #[should_panic]
-    fn gap_start_panics_when_parent_path_missing_from_primary() {
-        // .ghost.field has parent .ghost which is not in the YAML —
-        // node_in(&primary_doc.yaml, &parent).unwrap() panics
+    fn gap_start_returns_none_when_parent_path_missing_from_primary() {
         let doc = read_doc(
             indoc::indoc! {r#"
                 ---
@@ -878,14 +876,11 @@ mod test_gap_start {
         .remove(0);
 
         let path = NonEmptyPath::try_from(Path::parse_str(".ghost.field").unwrap()).unwrap();
-        gap_start(&doc, &doc, path);
+        assert!(gap_start(&doc, &doc, path).is_none());
     }
 
     #[test]
-    #[should_panic]
-    fn gap_start_panics_when_field_segment_points_into_sequence() {
-        // .items is a sequence, but the path head is a Field —
-        // surrounding_paths calls as_index().unwrap() and panics
+    fn gap_start_returns_none_when_field_segment_points_into_sequence() {
         use everdiff_diff::path::Segment;
 
         let doc = read_doc(
@@ -905,14 +900,11 @@ mod test_gap_start {
             Segment::Field("name".to_string()),
         ])
         .unwrap();
-        gap_start(&doc, &doc, path);
+        assert!(gap_start(&doc, &doc, path).is_none());
     }
 
     #[test]
-    #[should_panic]
-    fn gap_start_panics_when_index_segment_points_into_mapping() {
-        // .data is a mapping, but the path head is an Index —
-        // surrounding_paths calls as_field().unwrap() and panics
+    fn gap_start_returns_none_when_index_segment_points_into_mapping() {
         use everdiff_diff::path::Segment;
 
         let doc = read_doc(
@@ -927,12 +919,10 @@ mod test_gap_start {
         .unwrap()
         .remove(0);
 
-        let path = NonEmptyPath::try_new(vec![
-            Segment::Field("data".to_string()),
-            Segment::Index(0),
-        ])
-        .unwrap();
-        gap_start(&doc, &doc, path);
+        let path =
+            NonEmptyPath::try_new(vec![Segment::Field("data".to_string()), Segment::Index(0)])
+                .unwrap();
+        assert!(gap_start(&doc, &doc, path).is_none());
     }
 }
 
@@ -1085,12 +1075,12 @@ fn surrounding_paths(
     parent_node: &MarkedYamlOwned,
     parent_path: Path,
     head: &Segment,
-) -> (Option<Path>, Option<Path>) {
+) -> Option<(Option<Path>, Option<Path>)> {
     log::trace!("the parent is: {}", parent_path.jq_like());
     log::trace!("the parent node is: {:#?}", parent_node);
     match &parent_node.data {
         YamlDataOwned::Sequence(children) => {
-            let idx = head.as_index().unwrap();
+            let idx = head.as_index()?;
             let left = if idx > 0 {
                 Some(parent_path.push(idx - 1))
             } else {
@@ -1101,11 +1091,11 @@ fn surrounding_paths(
             } else {
                 None
             };
-            (left, right)
+            Some((left, right))
         }
         YamlDataOwned::Mapping(children) => {
             // Consider extracting this...
-            let target_key = head.as_field().unwrap();
+            let target_key = head.as_field()?;
             log::debug!("looking for: {target_key}");
             let keys: Vec<_> = children.keys().filter_map(|k| k.data.as_str()).collect();
 
@@ -1117,12 +1107,12 @@ fn surrounding_paths(
                 } else {
                     None
                 };
-                (
+                Some((
                     before.map(|k| parent_path.push(k)),
                     after.map(|k| parent_path.push(k)),
-                )
+                ))
             } else {
-                (None, None)
+                Some((None, None))
             }
         }
         _ => unreachable!("parent has to be a container"),
