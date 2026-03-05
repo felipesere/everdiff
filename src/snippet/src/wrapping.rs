@@ -201,7 +201,6 @@ impl Column {
     /// Zip two columns together for side-by-side display.
     /// Each source line group is paired; when one side has more rows in a group,
     /// the other side is padded with blank rows. Stops at the shorter column
-    /// (matching the old zip behavior).
     /// Returns the combined lines as strings.
     pub fn zip_with(self, other: Column, half_width: usize) -> Vec<String> {
         let min_groups = self.0.len().min(other.0.len());
