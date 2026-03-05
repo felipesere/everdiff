@@ -928,16 +928,16 @@ mod test_gap_start {
 
 pub fn render_difference(
     ctx: &RenderContext,
-    path_to_change: NonEmptyPath,
+    path_to_change: Option<NonEmptyPath>,
     left: MarkedYamlOwned,
     left_doc: &YamlSource,
     right: MarkedYamlOwned,
     right_doc: &YamlSource,
 ) -> String {
-    let title = format!(
-        "Changed: {p}:",
-        p = ctx.theme.header(&path_to_change.jq_like())
-    );
+    let title = match &path_to_change {
+        Some(path) => format!("Changed: {}:", ctx.theme.header(&path.jq_like())),
+        None => "Changed:".to_string(),
+    };
 
     let max_width = (ctx.max_width - 16) / 2; // includes a bit of random padding, do this proper later
     let smaller_context = RenderContext {

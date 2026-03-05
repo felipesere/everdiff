@@ -338,16 +338,18 @@ mod tests {
                     right_doc_idx: 1,
                     differences: [
                         Changed {
-                            path: NonEmptyPath(
-                                Path(
-                                    [
-                                        Field(
-                                            "spec",
-                                        ),
-                                        Field(
-                                            "color",
-                                        ),
-                                    ],
+                            path: Some(
+                                NonEmptyPath(
+                                    Path(
+                                        [
+                                            Field(
+                                                "spec",
+                                            ),
+                                            Field(
+                                                "color",
+                                            ),
+                                        ],
+                                    ),
                                 ),
                             ),
                             left: MarkedYamlOwned {
@@ -407,16 +409,18 @@ mod tests {
                     right_doc_idx: 0,
                     differences: [
                         Changed {
-                            path: NonEmptyPath(
-                                Path(
-                                    [
-                                        Field(
-                                            "spec",
-                                        ),
-                                        Field(
-                                            "thing",
-                                        ),
-                                    ],
+                            path: Some(
+                                NonEmptyPath(
+                                    Path(
+                                        [
+                                            Field(
+                                                "spec",
+                                            ),
+                                            Field(
+                                                "thing",
+                                            ),
+                                        ],
+                                    ),
                                 ),
                             ),
                             left: MarkedYamlOwned {

@@ -41,10 +41,8 @@ pub enum Difference {
         value: Entry,
     },
     Changed {
-        path: NonEmptyPath,
-        /// `Changed` operates at the value level: the key is already encoded in `path`,
-        /// so only the old and new values are carried. This is intentionally asymmetric
-        /// with `Added`/`Removed`, which carry a full `Entry` for display purposes.
+        /// `None` when the change is at the document root (no key to navigate to it).
+        path: Option<NonEmptyPath>,
         left: saphyr::MarkedYamlOwned,
         right: saphyr::MarkedYamlOwned,
     },
@@ -55,12 +53,12 @@ pub enum Difference {
 }
 
 impl Difference {
-    pub fn path(&self) -> &NonEmptyPath {
+    pub fn path(&self) -> Option<&NonEmptyPath> {
         match self {
-            Difference::Added { path, .. } => path,
-            Difference::Removed { path, .. } => path,
-            Difference::Changed { path, .. } => path,
-            Difference::Moved { original_path, .. } => original_path,
+            Difference::Added { path, .. } => Some(path),
+            Difference::Removed { path, .. } => Some(path),
+            Difference::Changed { path, .. } => path.as_ref(),
+            Difference::Moved { original_path, .. } => Some(original_path),
         }
     }
 }
@@ -242,8 +240,7 @@ pub fn diff(
         (left, right) if left == right => Vec::new(),
         _ => {
             vec![Difference::Changed {
-                path: NonEmptyPath::try_from(ctx.path.clone())
-                    .expect("a Changed difference is always nested under at least one key"),
+                path: NonEmptyPath::try_from(ctx.path.clone()).ok(),
                 left: left.clone(),
                 right: right.clone(),
             }]
@@ -348,7 +345,9 @@ mod tests {
         assert_eq!(
             differences,
             vec![Difference::Changed {
-                path: NonEmptyPath::try_new(vec![crate::path::Segment::Boolean(true)]).unwrap(),
+                path: Some(
+                    NonEmptyPath::try_new(vec![crate::path::Segment::Boolean(true)]).unwrap()
+                ),
                 left: string_value("old_value"),
                 right: string_value("new_value"),
             }]
@@ -356,13 +355,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "a Changed difference is always nested under at least one key")]
-    fn root_level_scalar_diff_panics() {
-        // Diffing two differing scalars at the root level (empty path context)
-        // panics because NonEmptyPath can't be constructed from an empty path.
+    fn root_level_scalar_diff_has_no_path() {
+        // Diffing two differing scalars at the root level produces a Changed
+        // difference with path: None, since there is no key to navigate to it.
         let left = string_value("hello");
         let right = string_value("world");
-        let _ = diff(Context::new(), &left, &right);
+        let differences = diff(Context::new(), &left, &right);
+        assert_eq!(
+            differences,
+            vec![Difference::Changed {
+                path: None,
+                left: string_value("hello"),
+                right: string_value("world"),
+            }]
+        );
     }
 
     #[test]
@@ -390,7 +396,7 @@ mod tests {
                 right: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
                     Scalar::Integer(2)
                 )),
-                path: NonEmptyPath::try_new(vec!["foo".into(), "bar".into()]).unwrap()
+                path: Some(NonEmptyPath::try_new(vec!["foo".into(), "bar".into()]).unwrap())
             }]
         )
     }
@@ -426,7 +432,7 @@ mod tests {
                     right: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
                         Scalar::String("x".into())
                     )),
-                    path: NonEmptyPath::try_new(vec!["foo".into(), 0.into()]).unwrap()
+                    path: Some(NonEmptyPath::try_new(vec!["foo".into(), 0.into()]).unwrap())
                 },
                 Difference::Added {
                     path: NonEmptyPath::try_new(vec!["foo".into(), 3.into()]).unwrap(),
@@ -499,7 +505,7 @@ mod tests {
                 right: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
                     Scalar::Boolean(false)
                 )),
-                path: NonEmptyPath::try_new(vec!["foo".into(), "bar".into()]).unwrap()
+                path: Some(NonEmptyPath::try_new(vec!["foo".into(), "bar".into()]).unwrap())
             },]
         )
     }
@@ -960,22 +966,24 @@ mod tests {
                     ),
                 },
                 Changed {
-                    path: NonEmptyPath(
-                        Path(
-                            [
-                                Field(
-                                    "some_list",
-                                ),
-                                Index(
-                                    0,
-                                ),
-                                Field(
-                                    "value",
-                                ),
-                                Field(
-                                    "doors",
-                                ),
-                            ],
+                    path: Some(
+                        NonEmptyPath(
+                            Path(
+                                [
+                                    Field(
+                                        "some_list",
+                                    ),
+                                    Index(
+                                        0,
+                                    ),
+                                    Field(
+                                        "value",
+                                    ),
+                                    Field(
+                                        "doors",
+                                    ),
+                                ],
+                            ),
                         ),
                     ),
                     left: MarkedYamlOwned {

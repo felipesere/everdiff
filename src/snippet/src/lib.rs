@@ -47,9 +47,9 @@ pub fn render_multidoc_diff<W: Write>(
                 let differences: Vec<_> = differences
                     .into_iter()
                     .filter(|diff| {
-                        !ignore
-                            .iter()
-                            .any(|path_match| path_match.matches(diff.path()))
+                        diff.path().map_or(true, |path| {
+                            !ignore.iter().any(|path_match| path_match.matches(path))
+                        })
                     })
                     .collect();
 
