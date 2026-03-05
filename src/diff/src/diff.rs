@@ -329,6 +329,39 @@ mod tests {
     }
 
     #[test]
+    fn boolean_keys_are_tracked() {
+        let left = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
+        true: old_value
+        "#})
+        .unwrap();
+
+        let right = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
+        true: new_value
+        "#})
+        .unwrap();
+
+        let differences = diff(Context::new(), &left[0], &right[0]);
+        assert_eq!(
+            differences,
+            vec![Difference::Changed {
+                path: NonEmptyPath::try_new(vec![crate::path::Segment::Boolean(true)]).unwrap(),
+                left: string_value("old_value"),
+                right: string_value("new_value"),
+            }]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a Changed difference is always nested under at least one key")]
+    fn root_level_scalar_diff_panics() {
+        // Diffing two differing scalars at the root level (empty path context)
+        // panics because NonEmptyPath can't be constructed from an empty path.
+        let left = string_value("hello");
+        let right = string_value("world");
+        let _ = diff(Context::new(), &left, &right);
+    }
+
+    #[test]
     fn simple_values_changes() {
         let left = saphyr::MarkedYamlOwned::load_from_str(indoc! {r#"
         foo:

@@ -4,20 +4,22 @@ use std::str::FromStr;
 pub enum Segment {
     Field(String),
     Index(usize),
+    Boolean(bool),
+    Null,
 }
 
 impl Segment {
     pub fn as_field(&self) -> Option<String> {
         match self {
             Segment::Field(f) => Some(f.to_string()),
-            Segment::Index(_) => None,
+            _ => None,
         }
     }
 
     pub fn as_index(&self) -> Option<usize> {
         match self {
-            Segment::Field(_) => None,
             Segment::Index(idx) => Some(*idx),
+            _ => None,
         }
     }
 
@@ -27,6 +29,14 @@ impl Segment {
             Segment::Index(i) => MarkedYamlOwned {
                 span: Default::default(),
                 data: saphyr::YamlDataOwned::Value(saphyr::ScalarOwned::Integer(*i as i64)),
+            },
+            Segment::Boolean(b) => MarkedYamlOwned {
+                span: Default::default(),
+                data: saphyr::YamlDataOwned::Value(saphyr::ScalarOwned::Boolean(*b)),
+            },
+            Segment::Null => MarkedYamlOwned {
+                span: Default::default(),
+                data: saphyr::YamlDataOwned::Value(saphyr::ScalarOwned::Null),
             },
         }
     }
@@ -48,7 +58,13 @@ impl TryFrom<saphyr::YamlDataOwned<MarkedYamlOwned>> for Segment {
         if let Some(n) = value.as_integer() {
             return Ok(Segment::Index(n as usize));
         }
-        anyhow::bail!("Only YAML strings and numbers can be turned into Segments")
+        if let Some(b) = value.as_bool() {
+            return Ok(Segment::Boolean(b));
+        }
+        if value.is_null() {
+            return Ok(Segment::Null);
+        }
+        anyhow::bail!("Only YAML strings, numbers, booleans, and null can be turned into Segments")
     }
 }
 
@@ -85,6 +101,12 @@ impl Path {
                 }
                 Segment::Index(n) => {
                     buf += &format!("[{n}]");
+                }
+                Segment::Boolean(b) => {
+                    buf += &format!("[{b}]");
+                }
+                Segment::Null => {
+                    buf += "[null]";
                 }
             };
         }

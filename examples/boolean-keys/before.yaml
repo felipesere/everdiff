@@ -1,0 +1,7 @@
+---
+feature_flags:
+  true: legacy_mode
+  false: experimental_mode
+settings:
+  name: my-service
+  replicas: 2

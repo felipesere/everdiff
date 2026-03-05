@@ -13,6 +13,11 @@ pub fn node_in<'y>(yaml: &'y MarkedYamlOwned, path: &Path) -> Option<&'y MarkedY
                 let v = n.and_then(|n| n.get(*nr))?;
                 n = Some(v);
             }
+            Segment::Boolean(_) | Segment::Null => {
+                let key = p.as_yaml();
+                let v = n.and_then(|n| n.data.as_mapping().and_then(|m| m.get(&key)))?;
+                n = Some(v);
+            }
         }
     }
     n

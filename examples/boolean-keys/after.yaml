@@ -1,0 +1,7 @@
+---
+feature_flags:
+  true: active_mode
+  false: disabled_mode
+settings:
+  name: my-service
+  replicas: 3
