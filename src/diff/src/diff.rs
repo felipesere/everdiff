@@ -118,8 +118,8 @@ pub fn diff(
                     (None, None) => unreachable!("the key must be from either left or right!"),
                     (None, Some(addition)) => {
                         let mut right_copy = right.clone();
-                        let fileds = right_copy.data.as_mapping_mut().unwrap();
-                        fileds.retain_with_order(|k, _| k == *key);
+                        let fields = right_copy.data.as_mapping_mut().unwrap();
+                        fields.retain_with_order(|k, _| k == *key);
 
                         debug!("Original span: {:?}", right.span);
                         debug!("Modified span: {:?}", right_copy.span);

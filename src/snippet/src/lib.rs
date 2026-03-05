@@ -102,13 +102,13 @@ pub fn render(
     for d in differences {
         match d {
             Difference::Added { path, value } => {
-                writeln!(&mut buf, "Added: {}:", ctx.theme.header(&path.jq_like())).unwrap();
+                writeln!(&mut buf, "Added: {}:", ctx.theme.header(&path.to_string())).unwrap();
 
                 let added = render_added(&ctx, path, value, left_doc, right_doc);
                 writeln!(&mut buf, "{added}").unwrap();
             }
             Difference::Removed { path, value } => {
-                writeln!(&mut buf, "Removed: {p}:", p = path.jq_like()).unwrap();
+                writeln!(&mut buf, "Removed: {p}:", p = path.to_string()).unwrap();
                 let output = render_removal(&ctx, path, value, left_doc, right_doc);
                 writeln!(&mut buf, "{output}").unwrap();
             }
@@ -123,8 +123,8 @@ pub fn render(
                 writeln!(
                     &mut buf,
                     "Moved: from {p} to {q}:",
-                    p = ctx.theme.changed(&original_path.jq_like()),
-                    q = ctx.theme.changed(&new_path.jq_like())
+                    p = ctx.theme.changed(&original_path.to_string()),
+                    q = ctx.theme.changed(&new_path.to_string())
                 )
                 .unwrap();
             }

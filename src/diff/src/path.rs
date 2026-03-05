@@ -92,27 +92,6 @@ impl Path {
 
         Some(Path(copy))
     }
-    pub fn jq_like(&self) -> String {
-        let mut buf = String::new();
-        for s in &self.0 {
-            match s {
-                Segment::Field(s) => {
-                    buf += &format!(".{s}");
-                }
-                Segment::Index(n) => {
-                    buf += &format!("[{n}]");
-                }
-                Segment::Boolean(b) => {
-                    buf += &format!("[{b}]");
-                }
-                Segment::Null => {
-                    buf += "[null]";
-                }
-            };
-        }
-        buf
-    }
-
     pub fn push(&self, value: impl Into<Segment>) -> Self {
         let mut copy = self.clone();
         copy.0.push(value.into());
@@ -184,9 +163,6 @@ impl NonEmptyPath {
         self.0.0.last().expect("NonEmptyPath is always non-empty")
     }
 
-    pub fn jq_like(&self) -> String {
-        self.0.jq_like()
-    }
 }
 
 impl std::ops::Deref for NonEmptyPath {
@@ -211,6 +187,26 @@ impl TryFrom<Path> for NonEmptyPath {
 impl From<NonEmptyPath> for Path {
     fn from(nep: NonEmptyPath) -> Self {
         nep.0
+    }
+}
+
+impl fmt::Display for Path {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for s in &self.0 {
+            match s {
+                Segment::Field(s) => write!(f, ".{s}")?,
+                Segment::Index(n) => write!(f, "[{n}]")?,
+                Segment::Boolean(b) => write!(f, "[{b}]")?,
+                Segment::Null => write!(f, "[null]")?,
+            }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for NonEmptyPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -282,6 +278,8 @@ impl FromStr for IgnorePath {
         bail!("Failed to parse IgnorePath")
     }
 }
+
+use std::fmt;
 
 use anyhow::{Context, bail};
 use nom::branch::alt;

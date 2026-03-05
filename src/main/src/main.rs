@@ -74,7 +74,7 @@ fn args() -> impl Parser<Args> {
 fn main() -> anyhow::Result<()> {
     let version = option_env!("TAG")
         .and_then(|v| v.strip_prefix("v"))
-        .unwrap_or("unknwon");
+        .unwrap_or("unknown");
 
     let args = args()
         .to_options()

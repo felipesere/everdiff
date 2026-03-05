@@ -93,8 +93,10 @@ impl RenderContext {
     }
 
     pub fn half_width(&self) -> usize {
-        // includes a bit of random padding, do this proper later
-        ((self.max_width - 16) / 2) as usize
+        // Fixed chrome per side: outer "│ " (2) + line widget "{:>3} " (4) + inner "│ " (2) = 8
+        // Two sides: 16 chars of total non-content width.
+        const CHROME: u16 = 8 * 2;
+        ((self.max_width - CHROME) / 2) as usize
     }
 }
 
@@ -323,7 +325,7 @@ fn render_change(
     right_doc: &YamlSource,
     change_type: ChangeType,
 ) -> String {
-    log::debug!("Rendering change for {}", path_to_change.jq_like());
+    log::debug!("Rendering change for {}", path_to_change.to_string());
     log::debug!("The changed yaml node looks like: {:#?}", changed_yaml);
 
     // Select primary and secondary documents based on change type
@@ -435,7 +437,7 @@ fn render_secondary_side(
 ) -> Column {
     use crate::wrapping::{FormattedRow, SourceLineGroup, WrappedLine};
 
-    log::debug!("changed_node: {}", path_to_changed_node.jq_like());
+    log::debug!("changed_node: {}", path_to_changed_node.to_string());
 
     let gap_start =
         gap_start(primary_doc, secondary_doc, path_to_changed_node).unwrap_or(Line::one());
@@ -535,11 +537,11 @@ pub fn gap_start(
 
     log::debug!(
         "The before node is {:?}",
-        &before_path.as_ref().map(|p| p.jq_like())
+        &before_path.as_ref().map(|p| p.to_string())
     );
     log::debug!(
         "The after node is {:?}",
-        &after_path.as_ref().map(|p| p.jq_like())
+        &after_path.as_ref().map(|p| p.to_string())
     );
 
     // TODO: I think this needs something similar to what I did with Entry::KV and Entry::ArrayElement
@@ -566,7 +568,7 @@ pub fn gap_start(
         let adjusted_path = adjust_path_for_secondary(&after, &primary_parent_node.data);
         log::debug!(
             "Adjusted after_path for secondary: {:?}",
-            adjusted_path.jq_like()
+            adjusted_path.to_string()
         );
 
         if let Some(after_node) = node_in(&secondary_doc.yaml, &adjusted_path) {
@@ -935,11 +937,12 @@ pub fn render_difference(
     right_doc: &YamlSource,
 ) -> String {
     let title = match &path_to_change {
-        Some(path) => format!("Changed: {}:", ctx.theme.header(&path.jq_like())),
+        Some(path) => format!("Changed: {}:", ctx.theme.header(&path.to_string())),
         None => "Changed:".to_string(),
     };
 
-    let max_width = (ctx.max_width - 16) / 2; // includes a bit of random padding, do this proper later
+    const CHROME: u16 = 8 * 2;
+    let max_width = (ctx.max_width - CHROME) / 2;
     let smaller_context = RenderContext {
         max_width,
         theme: ctx.theme,
@@ -1081,7 +1084,7 @@ fn surrounding_paths(
     parent_path: Path,
     head: &Segment,
 ) -> Option<(Option<Path>, Option<Path>)> {
-    log::trace!("the parent is: {}", parent_path.jq_like());
+    log::trace!("the parent is: {}", parent_path.to_string());
     log::trace!("the parent node is: {:#?}", parent_node);
     match &parent_node.data {
         YamlDataOwned::Sequence(children) => {
@@ -1407,7 +1410,7 @@ mod test {
         };
 
         // Verify the path is what we expect
-        assert_eq!(path.jq_like(), ".spec.template.spec.containers[0].env[0]");
+        assert_eq!(path.to_string(), ".spec.template.spec.containers[0].env[0]");
 
         let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
