@@ -109,8 +109,9 @@ pub fn diff(
             let mut diffs = Vec::new();
             // I want to do this differently.
             for key in all_keys {
-                let inner_key = (*key).clone().data;
-                let key_segment = Segment::try_from(key.data.clone()).unwrap();
+                let Ok(key_segment) = Segment::try_from(key.data.clone()) else {
+                    continue;
+                };
                 match (left_mapping.get(key), right_mapping.get(key)) {
                     (None, None) => unreachable!("the key must be from either left or right!"),
                     (None, Some(addition)) => {
@@ -146,8 +147,7 @@ pub fn diff(
                         })
                     }
                     (Some(left), Some(right)) => {
-                        let inner_key_segment = Segment::try_from(inner_key).unwrap();
-                        diffs.append(&mut diff(ctx.for_key(inner_key_segment), left, right));
+                        diffs.append(&mut diff(ctx.for_key(key_segment), left, right));
                     }
                 }
             }
