@@ -238,7 +238,7 @@ pub struct IgnorePath(Vec<MatchElement>);
 
 impl IgnorePath {
     fn absolute(&self) -> bool {
-        matches!(self.0[0], MatchElement::Root)
+        self.0.first().is_some_and(|e| matches!(e, MatchElement::Root))
     }
 
     pub fn matches(&self, path: &Path) -> bool {
