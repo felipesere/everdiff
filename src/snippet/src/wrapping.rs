@@ -204,8 +204,13 @@ impl Column {
     /// Returns the combined lines as strings.
     pub fn zip_with(self, other: Column, half_width: usize) -> Vec<String> {
         let min_groups = self.0.len().min(other.0.len());
-        // wtf is this +6
-        let width = half_width + 6;
+        // Each FormattedRow already contains its own prefix before the content:
+        //   line widget: "{:>3} "  → 4 chars
+        //   separator:   "│ "      → 2 chars
+        // Total fixed prefix: 6 chars. The outer format pads to this full width.
+        let line_widget_width = 4;
+        let separator_width = 2;
+        let width = half_width + line_widget_width + separator_width;
 
         let mut result = Vec::new();
 
