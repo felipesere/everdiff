@@ -4,26 +4,27 @@ use saphyr::YamlDataOwned;
 
 use crate::path::{NonEmptyPath, Path, Segment};
 
-/// An item that has been changed.
+/// A whole entry (key-value pair or array element) that was added or removed.
+/// Carries enough context — the key node or index — to render the entry in place.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Item {
+pub enum Entry {
     /// A key-value pair out of a mapping.
     KV {
         key: saphyr::MarkedYamlOwned,
         value: saphyr::MarkedYamlOwned,
     },
-    /// an element from from an array
+    /// An element from an array.
     ArrayElement {
         index: u32,
         value: saphyr::MarkedYamlOwned,
     },
 }
 
-impl Item {
+impl Entry {
     pub fn height(&self) -> usize {
         let (start, end) = match self {
-            Item::KV { key, value } => (key.span.start.line(), value.span.end.line()),
-            Item::ArrayElement { value, .. } => (value.span.start.line(), value.span.end.line()),
+            Entry::KV { key, value } => (key.span.start.line(), value.span.end.line()),
+            Entry::ArrayElement { value, .. } => (value.span.start.line(), value.span.end.line()),
         };
         std::cmp::max(end - start, 1)
     }
@@ -33,16 +34,19 @@ impl Item {
 pub enum Difference {
     Added {
         path: NonEmptyPath,
-        value: Item,
+        value: Entry,
     },
     Removed {
         path: NonEmptyPath,
-        value: Item,
+        value: Entry,
     },
     Changed {
         path: NonEmptyPath,
-        left: saphyr::MarkedYamlOwned, // TODO: this should probably be an Item too?
-        right: saphyr::MarkedYamlOwned, // TODO: this should probably be an Item too?
+        /// `Changed` operates at the value level: the key is already encoded in `path`,
+        /// so only the old and new values are carried. This is intentionally asymmetric
+        /// with `Added`/`Removed`, which carry a full `Entry` for display purposes.
+        left: saphyr::MarkedYamlOwned,
+        right: saphyr::MarkedYamlOwned,
     },
     Moved {
         original_path: NonEmptyPath,
@@ -124,7 +128,7 @@ pub fn diff(
 
                         diffs.push(Difference::Added {
                             path: ctx.path.push_non_empty(key_segment),
-                            value: Item::KV {
+                            value: Entry::KV {
                                 key: (*key).clone(),
                                 value: (*addition).clone(),
                             },
@@ -140,7 +144,7 @@ pub fn diff(
 
                         diffs.push(Difference::Removed {
                             path: ctx.path.push_non_empty(key_segment),
-                            value: Item::KV {
+                            value: Entry::KV {
                                 key: (*key).clone(),
                                 value: (*removal).clone(),
                             },
@@ -165,14 +169,14 @@ pub fn diff(
                         }
                         (None, Some(addition)) => diffs.push(Difference::Added {
                             path: ctx.path.push_non_empty(idx),
-                            value: Item::ArrayElement {
+                            value: Entry::ArrayElement {
                                 index: idx as u32,
                                 value: (*addition).clone(),
                             },
                         }),
                         (Some(removal), None) => diffs.push(Difference::Removed {
                             path: ctx.path.push_non_empty(idx),
-                            value: Item::ArrayElement {
+                            value: Entry::ArrayElement {
                                 index: idx as u32,
                                 value: (*removal).clone(),
                             },
@@ -206,7 +210,7 @@ pub fn diff(
                 for idx in removed {
                     diffs.push(Difference::Removed {
                         path: ctx.path.push_non_empty(idx),
-                        value: Item::ArrayElement {
+                        value: Entry::ArrayElement {
                             index: idx as u32,
                             value: left_elements[idx].clone(),
                         },
@@ -216,7 +220,7 @@ pub fn diff(
                 for idx in added {
                     diffs.push(Difference::Added {
                         path: ctx.path.push_non_empty(idx),
-                        value: Item::ArrayElement {
+                        value: Entry::ArrayElement {
                             index: idx as u32,
                             value: right_elements[idx].clone(),
                         },
@@ -318,7 +322,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use saphyr::{LoadableYamlNode, MarkedYamlOwned, Scalar};
 
-    use crate::diff::{ArrayOrdering, Item};
+    use crate::diff::{ArrayOrdering, Entry};
 
     use crate::path::NonEmptyPath;
 
@@ -426,7 +430,7 @@ mod tests {
                 },
                 Difference::Added {
                     path: NonEmptyPath::try_new(vec!["foo".into(), 3.into()]).unwrap(),
-                    value: Item::ArrayElement {
+                    value: Entry::ArrayElement {
                         index: 3,
                         value: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
                             Scalar::String("d".into())
@@ -460,7 +464,7 @@ mod tests {
             differences,
             vec![Difference::Removed {
                 path: NonEmptyPath::try_new(vec!["foo".into(), 2.into()]).unwrap(),
-                value: Item::ArrayElement {
+                value: Entry::ArrayElement {
                     index: 2,
                     value: saphyr::MarkedYamlOwned::from_bare_yaml(saphyr::Yaml::Value(
                         Scalar::String("c".into())
@@ -693,7 +697,7 @@ mod tests {
                     "protocol".into()
                 ])
                 .unwrap(),
-                value: Item::KV {
+                value: Entry::KV {
                     key: string_value("protocol"),
                     value: string_value("TCP")
                 },

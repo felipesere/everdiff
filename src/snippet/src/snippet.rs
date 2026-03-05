@@ -6,7 +6,7 @@ use std::{
 
 use crate::wrapping::Column;
 use everdiff_diff::{
-    Item,
+    Entry,
     path::{NonEmptyPath, Path, Segment},
 };
 use everdiff_line::Line;
@@ -278,7 +278,7 @@ struct Rendered {
 pub fn render_removal(
     ctx: &RenderContext,
     path_to_change: NonEmptyPath,
-    removal: Item,
+    removal: Entry,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
 ) -> String {
@@ -295,7 +295,7 @@ pub fn render_removal(
 pub fn render_added(
     ctx: &RenderContext,
     path_to_change: NonEmptyPath,
-    addition: Item,
+    addition: Entry,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
 ) -> String {
@@ -318,7 +318,7 @@ enum ChangeType {
 fn render_change(
     ctx: &RenderContext,
     path_to_change: NonEmptyPath,
-    changed_yaml: Item,
+    changed_yaml: Entry,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     change_type: ChangeType,
@@ -375,7 +375,7 @@ fn render_change(
 fn render_primary_side(
     ctx: &RenderContext,
     primary_doc: &YamlSource,
-    item: &Item,
+    item: &Entry,
     (highlighting, unchanged): (Highlight, Highlight),
 ) -> Column {
     use crate::wrapping::{SourceLineGroup, WrappedLine};
@@ -384,11 +384,11 @@ fn render_primary_side(
     let primary_lines = primary_doc.lines();
 
     let (change_start, change_end) = match item {
-        Item::KV { key, value } => (
+        Entry::KV { key, value } => (
             primary_doc.relative_line(key.span.start.line()),
             primary_doc.relative_line(value.span.end.line()),
         ),
-        Item::ArrayElement { value, .. } => (
+        Entry::ArrayElement { value, .. } => (
             primary_doc.relative_line(value.span.start.line()),
             primary_doc.relative_line(value.span.end.line()),
         ),
@@ -542,7 +542,7 @@ pub fn gap_start(
         &after_path.as_ref().map(|p| p.jq_like())
     );
 
-    // TODO: I think this needs something similar to what I did with Item::KV and Item::ArrayElement
+    // TODO: I think this needs something similar to what I did with Entry::KV and Entry::ArrayElement
     // where we are able to retrieve the proper bounding box of the node, not just its value.
     let candidate_node_before_change = before_path.and_then(|p| node_in(&secondary_doc.yaml, &p));
 
@@ -600,7 +600,7 @@ mod test_node_height {
     use indoc::indoc;
     use saphyr::{LoadableYamlNode, MarkedYamlOwned, SafelyIndex};
 
-    use everdiff_diff::Item;
+    use everdiff_diff::Entry;
 
     #[test]
     fn height_of_simple_string() {
@@ -611,7 +611,7 @@ mod test_node_height {
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
         let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
-        let item = Item::KV {
+        let item = Entry::KV {
             key: (*key).clone(),
             value: (*value).clone(),
         };
@@ -631,7 +631,7 @@ mod test_node_height {
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
         let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
-        let item = Item::KV {
+        let item = Entry::KV {
             key: (*key).clone(),
             value: (*value).clone(),
         };
@@ -648,7 +648,7 @@ mod test_node_height {
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
         let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
-        let item = Item::KV {
+        let item = Entry::KV {
             key: (*key).clone(),
             value: (*value).clone(),
         };
@@ -665,7 +665,7 @@ mod test_node_height {
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
         let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
-        let item = Item::KV {
+        let item = Entry::KV {
             key: (*key).clone(),
             value: (*value).clone(),
         };
@@ -682,7 +682,7 @@ mod test_node_height {
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
         let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
-        let item = Item::KV {
+        let item = Entry::KV {
             key: (*key).clone(),
             value: (*value).clone(),
         };
@@ -703,7 +703,7 @@ mod test_node_height {
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
         let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
-        let item = Item::KV {
+        let item = Entry::KV {
             key: (*key).clone(),
             value: (*value).clone(),
         };
@@ -726,7 +726,7 @@ mod test_node_height {
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
         let value = yaml.get("thing").and_then(|thing| thing.get(1)).unwrap();
-        let item = Item::ArrayElement {
+        let item = Entry::ArrayElement {
             index: 1,
             value: (*value).clone(),
         };
@@ -747,7 +747,7 @@ mod test_node_height {
         let mut yaml = MarkedYamlOwned::load_from_str(raw).unwrap();
         let yaml = yaml.remove(0);
         let (key, value) = yaml.data.as_mapping().unwrap().into_iter().next().unwrap();
-        let item = Item::KV {
+        let item = Entry::KV {
             key: (*key).clone(),
             value: (*value).clone(),
         };

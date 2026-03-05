@@ -1,4 +1,4 @@
 mod diff;
 pub mod path;
 
-pub use diff::{ArrayOrdering, Context, Difference, Item, diff};
+pub use diff::{ArrayOrdering, Context, Difference, Entry, diff};
