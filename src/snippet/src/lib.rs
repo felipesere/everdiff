@@ -48,7 +48,7 @@ pub fn render_multidoc_diff<W: Write>(
                 let differences: Vec<_> = differences
                     .into_iter()
                     .filter(|diff| {
-                        diff.path().map_or(true, |path| {
+                        diff.path().is_none_or(|path| {
                             !ignore.iter().any(|path_match| path_match.matches(path))
                         })
                     })
@@ -109,7 +109,7 @@ pub fn render(
                 writeln!(&mut buf, "{added}").unwrap();
             }
             Difference::Removed { path, value } => {
-                writeln!(&mut buf, "Removed: {p}:", p = path.to_string()).unwrap();
+                writeln!(&mut buf, "Removed: {path}:").unwrap();
                 let output = render_removal(&ctx, path, value, left_doc, right_doc);
                 writeln!(&mut buf, "{output}").unwrap();
             }
