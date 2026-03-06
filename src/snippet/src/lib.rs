@@ -15,6 +15,8 @@ pub use snippet::{
 };
 pub use wrapping::Column;
 
+use crate::snippet::unchanged_highlight;
+
 // TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
 #[allow(clippy::too_many_arguments)]
 pub fn render_multidoc_diff<W: Write>(
@@ -45,6 +47,7 @@ pub fn render_multidoc_diff<W: Write>(
             }
             DocDifference::Changed {
                 key,
+                right_key,
                 differences,
                 left_doc_idx,
                 right_doc_idx,
@@ -69,7 +72,6 @@ pub fn render_multidoc_diff<W: Write>(
 
                 writeln!(writer)?;
                 writeln!(writer, "{}", "Changed document:".bold().underline())?;
-                writeln!(writer, "{key}")?;
                 let actual_left_doc = &left[left_doc_idx];
                 let actual_right_doc = &right[right_doc_idx];
                 let max_width = if std::io::stdout().is_terminal() {
@@ -83,6 +85,30 @@ pub fn render_multidoc_diff<W: Write>(
                         .map(|(terminal_size::Width(n), _)| n)
                         .unwrap_or(80)
                 };
+                // CHROME = outer "│ " (2) + line_widget (4) + inner "│ " (2) = 8 per side × 2
+                let half_width = ((max_width.saturating_sub(16)) / 2) as usize;
+
+                let left_key = key.to_string();
+                let left_column = Column::from_lines(
+                    left_key
+                        .lines()
+                        .enumerate()
+                        .map(|(i, line)| (i, line, unchanged_highlight())),
+                    half_width,
+                );
+                let right_key = right_key.to_string();
+                let right_column = Column::from_lines(
+                    right_key
+                        .lines()
+                        .enumerate()
+                        .map(|(i, line)| (i, line, unchanged_highlight())),
+                    half_width,
+                );
+
+                for line in left_column.zip_with(right_column, half_width) {
+                    writeln!(writer, "{line}")?;
+                }
+                writeln!(writer)?;
 
                 let ctx = RenderContext::new(max_width, word_wise_diff, lines_before, lines_after);
                 write!(

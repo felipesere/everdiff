@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use everdiff_multidoc::{DocKey, IdentifierFn};
+use everdiff_multidoc::{DocKey, Fields, IdentifierFn};
 
 /// Naively assume that a document is identified by its index in the document.
 /// This effectively means that documents are diffed pair-wise in the
@@ -9,7 +9,8 @@ pub fn by_index() -> IdentifierFn {
     Box::new(|idx, source| {
         Some(DocKey::new(
             source.file.clone(),
-            BTreeMap::from([("idx".to_string(), Some(idx.to_string()))]),
+            Fields(BTreeMap::from([("idx".to_string(), Some(idx.to_string()))])),
+            idx,
         ))
     })
 }
@@ -26,7 +27,7 @@ pub mod kubernetes {
 
     /// Keys to identify immutable kinds
     pub fn gvk() -> IdentifierFn {
-        Box::new(|_, source| {
+        Box::new(|idx, source| {
             let doc = &source.yaml;
             let api_version = string_of(doc.get("apiVersion"));
             let kind = string_of(doc.get("kind"));
@@ -35,11 +36,12 @@ pub mod kubernetes {
 
             Some(DocKey::new(
                 source.file.clone(),
-                BTreeMap::from([
+                Fields(BTreeMap::from([
                     ("api_version".to_string(), api_version),
                     ("kind".to_string(), kind),
                     ("metadata.name".to_string(), name),
-                ]),
+                ])),
+                idx,
             ))
         })
     }

@@ -11,12 +11,17 @@ use everdiff_diff::{
 };
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
+use owo_colors::OwoColorize;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
 use crate::inline_diff::{InlinePart, compute_inline_diff, extract_yaml_prefix};
 use crate::node::node_in;
 
 pub type Highlight = fn(&str) -> String;
+
+pub fn unchanged_highlight() -> Highlight {
+    |s| s.dimmed().to_string()
+}
 
 #[derive(Copy, Clone)]
 pub struct Theme {
@@ -88,7 +93,12 @@ pub struct RenderContext {
 }
 
 impl RenderContext {
-    pub fn new(max_width: u16, word_wise_diff: bool, lines_before: usize, lines_after: usize) -> Self {
+    pub fn new(
+        max_width: u16,
+        word_wise_diff: bool,
+        lines_before: usize,
+        lines_after: usize,
+    ) -> Self {
         RenderContext {
             max_width,
             word_wise_diff,
