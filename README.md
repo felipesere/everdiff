@@ -19,7 +19,7 @@ cargo install --path .
 ## Usage
 
 ```
-everdiff [-s] [-k] [-m] [-i=PATH]... [-w] [-v]... LEFT RIGHT
+everdiff [-k] [-m] [-i=PATH]... [-w] [-B=NUMBER] [-A=NUMBER] [-C=NUMBER] [-v]... LEFT RIGHT
 
 Available positional items:
     LEFT                Left file to compare
@@ -30,6 +30,9 @@ Available options:
     -m, --ignore-moved  Don't show changes for moved elements
     -i, --ignore-changes=PATH  Paths to ignore when comparing
     -w, --watch         Watch the `left` and `right` files for changes and re-run
+    -B, --lines-before=NUMBER  Number of context lines to show before each change (default: 5)
+    -A, --lines-after=NUMBER   Number of context lines to show after each change (default: 5)
+    -C, --lines-context=NUMBER Number of context lines before and after each change (overrides -A and -B)
     -v, --verbose       Increase verbosity level (can be repeated)
     -h, --help          Prints help information
     --version           Show version information
@@ -114,6 +117,23 @@ When array elements are reordered, `everdiff` reports them as "Moved". Use `--ig
 ```sh
 everdiff --kubernetes --ignore-moved before.yaml after.yaml
 ```
+
+### Controlling context lines
+
+By default, `everdiff` shows 5 lines of context before and after each change. Use `-A`, `-B`, and `-C` to adjust this, similar to `diff` and `grep`:
+
+```sh
+# Show 3 lines before and 3 lines after each change
+everdiff -C 3 before.yaml after.yaml
+
+# Show 1 line before and 10 lines after each change
+everdiff -B 1 -A 10 before.yaml after.yaml
+
+# Show no context at all
+everdiff -C 0 before.yaml after.yaml
+```
+
+`-C` sets both before and after to the same value and cannot be combined with `-A` or `-B`.
 
 ### Ignoring specific paths
 

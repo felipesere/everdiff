@@ -82,6 +82,21 @@ impl YamlSource {
         // If the line we ask for is literally the start, this would be `start - start + 1` which is line 1  :)
         Line::new(line.saturating_sub(start) + 1).unwrap()
     }
+
+    /// Returns the last content line of `node` as a document-relative [`Line`].
+    ///
+    /// saphyr's `span.end.line()` is exclusive for complex nodes (mappings/sequences) —
+    /// it points to the line *after* the last content line — but equals `span.start.line()`
+    /// for scalars (inclusive). This method hides that inconsistency so callers never need
+    /// to match on the node type and subtract 1 themselves.
+    pub fn relative_inclusive_end(&self, node: &saphyr::MarkedYamlOwned) -> Line {
+        use saphyr::YamlDataOwned;
+        let adjustment = match &node.data {
+            YamlDataOwned::Sequence(_) | YamlDataOwned::Mapping(_) => 1,
+            _ => 0,
+        };
+        self.relative_line(node.span.end.line() - adjustment)
+    }
 }
 
 #[cfg(test)]

@@ -82,16 +82,18 @@ impl Theme {
 pub struct RenderContext {
     pub max_width: u16,
     pub word_wise_diff: bool,
-    pub visual_context: usize,
+    pub lines_before: usize,
+    pub lines_after: usize,
     pub theme: Theme,
 }
 
 impl RenderContext {
-    pub fn new(max_width: u16, word_wise_diff: bool) -> Self {
+    pub fn new(max_width: u16, word_wise_diff: bool, lines_before: usize, lines_after: usize) -> Self {
         RenderContext {
             max_width,
             word_wise_diff,
-            visual_context: 5,
+            lines_before,
+            lines_after,
             theme: Theme::colored(),
         }
     }
@@ -392,26 +394,22 @@ fn render_primary_side(
     let (change_start, change_end) = match item {
         Entry::KV { key, value } => (
             primary_doc.relative_line(key.span.start.line()),
-            primary_doc.relative_line(value.span.end.line()),
+            primary_doc.relative_inclusive_end(value),
         ),
         Entry::ArrayElement { value, .. } => (
             primary_doc.relative_line(value.span.start.line()),
-            primary_doc.relative_line(value.span.end.line()),
+            primary_doc.relative_inclusive_end(value),
         ),
     };
 
     // Show a few more lines before and after the lines that have changed
-    let start = change_start.saturating_sub(ctx.visual_context);
-    let end = min(change_end + ctx.visual_context, primary_doc.last_line);
+    let start = change_start.saturating_sub(ctx.lines_before);
+    let end = min(change_end + ctx.lines_after, primary_doc.last_line);
     log::debug!("Snippet for primary document");
     let primary_snippet = Snippet::new_clamped(&primary_lines, start, end);
 
-    // Format the primary side
-    let mut changed_range = change_start..change_end;
-    if changed_range.is_empty() {
-        // We need to at least highlight 1 line!
-        changed_range = change_start..(change_end + 1);
-    }
+    // Format the primary side. change_end is inclusive, so use +1 for the exclusive range end.
+    let changed_range = change_start..(change_end + 1);
     log::debug!("We will highlight {change_start}..={change_end}");
     let groups: Vec<SourceLineGroup> = primary_snippet
         .iter()
@@ -446,8 +444,8 @@ fn render_secondary_side(
     let gap_start =
         gap_start(primary_doc, secondary_doc, path_to_changed_node).unwrap_or(Line::one());
     log::debug!("The gap should be right after: {gap_start}");
-    let start = (gap_start + 1).saturating_sub(ctx.visual_context);
-    let end: Line = gap_start + ctx.visual_context + 1;
+    let start = (gap_start + 1).saturating_sub(ctx.lines_before);
+    let end: Line = gap_start + ctx.lines_after + 1;
 
     let lines = secondary_doc.lines();
 
@@ -554,16 +552,8 @@ pub fn gap_start(
 
     if let Some(before) = candidate_node_before_change {
         // Normal case: there's a node before the change, use its end line.
-        // For complex nodes (mappings/sequences), span.end.line() is exclusive
-        // (points to line after content), so we subtract 1.
-        // For scalars, span.end.line() equals span.start.line() (inclusive).
-        let adjustment = match &before.data {
-            YamlDataOwned::Sequence(_) | YamlDataOwned::Mapping(_) => 1,
-            _ => 0,
-        };
-        log::debug!("before node adjustment factor: {adjustment}");
         log::debug!("the span ends on {}", before.span.end.line());
-        Some(secondary_doc.relative_line(before.span.end.line() - adjustment))
+        Some(secondary_doc.relative_inclusive_end(&before))
     } else if let Some(after) = after_path {
         // No "before" node (e.g., adding at index 0 of an array).
         // Use the "after" node to find where the gap should go.
@@ -952,7 +942,8 @@ pub fn render_difference(
         word_wise_diff: ctx.word_wise_diff,
         max_width,
         theme: ctx.theme,
-        visual_context: 5, // TODO: this will become a parameter down the line
+        lines_before: ctx.lines_before,
+        lines_after: ctx.lines_after,
     };
 
     let (left, right) = render_changed_pair(&smaller_context, left, left_doc, right, right_doc);
@@ -1024,15 +1015,14 @@ fn render_changed_snippet(
 ) -> Rendered {
     use crate::wrapping::{SourceLineGroup, WrappedLineUsize, format_with_inline_highlights};
 
-    // lines to render above and below if available...
-    let context = 5;
     let start_line_of_document = source.yaml.span.start.line();
 
     let lines: Vec<_> = source.content.lines().map(|s| s.to_string()).collect();
 
     let changed_line = changed_yaml.span.start.line() - start_line_of_document;
-    let start = changed_line.saturating_sub(context);
-    let end = min(changed_line + context, lines.len());
+    let start = changed_line.saturating_sub(ctx.lines_before);
+    // Slice indexing is exclusive at the end, so +1 to include `lines_after` lines after the change
+    let end = min(changed_line + ctx.lines_after + 1, lines.len());
     let left_snippet = &lines[start..end];
 
     let lines_above = changed_line - start;
@@ -1155,7 +1145,8 @@ mod test {
             word_wise_diff: true,
             max_width: 80,
             theme: super::Theme::markers(),
-            visual_context: 5,
+            lines_before: 5,
+            lines_after: 5,
         }
     }
 
@@ -1467,7 +1458,8 @@ mod test {
                 word_wise_diff: true,
                 max_width: 80,
                 theme: super::Theme::markers(),
-                visual_context: 5,
+                lines_before: 5,
+                lines_after: 5,
             },
             &left_doc,
             &right_doc,
@@ -1561,7 +1553,8 @@ mod test {
                 word_wise_diff: true,
                 max_width: 150,
                 theme: super::Theme::markers(),
-                visual_context: 5,
+                lines_before: 5,
+                lines_after: 5,
             },
             &left_doc,
             &right_doc,
@@ -1930,6 +1923,150 @@ mod test {
             │   2 │ [dim]  - first[/]               │   2 │ [dim]  - first[/]               
             │   3 │ [dim]  - second[/]              │   3 │ [dim]  - second[/]              
             │   4 │ [red]  - third[/]               │     │                                 "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn context_lines_before_only() {
+        // With lines_before=1, lines_after=0: only 1 line of context before the change
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Steve E. Anderson
+              age: 12
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Robert Anderson
+              age: 12
+        "#});
+
+        let mut differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+        let first = differences.remove(0);
+        let Difference::Changed { path, left, right } = first else {
+            panic!("Should have gotten a Change");
+        };
+
+        let content = render_difference(
+            &RenderContext {
+                word_wise_diff: false,
+                max_width: 80,
+                theme: super::Theme::markers(),
+                lines_before: 1,
+                lines_after: 0,
+            },
+            path,
+            left,
+            &left_doc,
+            right,
+            &right_doc,
+        );
+
+        // Only 1 line before the changed line, no lines after
+        expect![[r#"
+            Changed: [bold].person.name[/]:
+            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
+            │   2 │ [yellow]  name: Steve E. Anderson[/]│   2 │ [yellow]  name: Robert Anderson[/]"#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn context_lines_after_only() {
+        // With lines_before=0, lines_after=1: only 1 line of context after the change
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Steve E. Anderson
+              age: 12
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Robert Anderson
+              age: 12
+        "#});
+
+        let mut differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+        let first = differences.remove(0);
+        let Difference::Changed { path, left, right } = first else {
+            panic!("Should have gotten a Change");
+        };
+
+        let content = render_difference(
+            &RenderContext {
+                word_wise_diff: false,
+                max_width: 80,
+                theme: super::Theme::markers(),
+                lines_before: 0,
+                lines_after: 1,
+            },
+            path,
+            left,
+            &left_doc,
+            right,
+            &right_doc,
+        );
+
+        // No lines before, 1 line after the changed line
+        expect![[r#"
+            Changed: [bold].person.name[/]:
+            │   2 │ [yellow]  name: Steve E. Anderson[/]│   2 │ [yellow]  name: Robert Anderson[/]
+            │   3 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               "#]]
+        .assert_eq(content.as_str());
+    }
+
+    #[test]
+    fn context_symmetric_small() {
+        // With lines_before=1, lines_after=1: tight context around a removal
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Robert Anderson
+              address:
+                street: foo bar
+                nr: 1
+                postcode: ABC123
+              age: 12
+              foo: bar
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            person:
+              name: Robert Anderson
+              age: 12
+              foo: bar
+        "#});
+
+        let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
+
+        let content = render(
+            RenderContext {
+                word_wise_diff: false,
+                max_width: 80,
+                theme: super::Theme::markers(),
+                lines_before: 1,
+                lines_after: 1,
+            },
+            &left_doc,
+            &right_doc,
+            differences,
+        );
+
+        // Only 1 line before and 1 line after the removed block
+        expect![[r#"
+            Removed: .person.address:
+            │   2 │ [dim]  name: Robert Anderson[/] │   2 │ [dim]  name: Robert Anderson[/] 
+            │   3 │ [red]  address:[/]              │     │                                 
+            │   4 │ [red]    street: foo bar[/]     │     │                                 
+            │   5 │ [red]    nr: 1[/]               │     │                                 
+            │   6 │ [red]    postcode: ABC123[/]    │     │                                 
+            │   7 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               
+
+        "#]]
         .assert_eq(content.as_str());
     }
 
