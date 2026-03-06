@@ -23,6 +23,7 @@ struct Args {
     verbosity: usize,
     left: camino::Utf8PathBuf,
     right: camino::Utf8PathBuf,
+    word_wise_diff: bool,
 }
 
 fn args() -> impl Parser<Args> {
@@ -47,6 +48,11 @@ fn args() -> impl Parser<Args> {
         .help("Watch the `left` and `right` files for changes and re-run")
         .switch();
 
+    let word_wise_diff = short('w')
+        .long("word-wise-diff")
+        .help("Highlight character based differences where possible") // TODO: this needs a better description
+        .switch();
+
     let verbosity = short('v')
         .long("verbose")
         .help("Increase verbosity level (can be repeated)")
@@ -54,11 +60,9 @@ fn args() -> impl Parser<Args> {
         .many()
         .map(|v| v.len());
 
-    let left = bpaf::positional::<camino::Utf8PathBuf>("LEFT")
-        .help("Left file to compare");
+    let left = bpaf::positional::<camino::Utf8PathBuf>("LEFT").help("Left file to compare");
 
-    let right = bpaf::positional::<camino::Utf8PathBuf>("RIGHT")
-        .help("Right file to compare");
+    let right = bpaf::positional::<camino::Utf8PathBuf>("RIGHT").help("Right file to compare");
 
     construct!(Args {
         kubernetes,
@@ -68,6 +72,7 @@ fn args() -> impl Parser<Args> {
         verbosity,
         left,
         right,
+        word_wise_diff,
     })
 }
 
@@ -105,6 +110,7 @@ fn main() -> anyhow::Result<()> {
         diffs,
         args.ignore_moved,
         &args.ignore_changes,
+        args.word_wise_diff,
         &mut out,
     );
 
@@ -136,6 +142,7 @@ fn main() -> anyhow::Result<()> {
                 diffs,
                 args.ignore_moved,
                 &args.ignore_changes,
+                args.word_wise_diff,
                 &mut out,
             );
 
