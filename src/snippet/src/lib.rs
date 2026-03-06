@@ -15,12 +15,15 @@ pub use snippet::{
 };
 
 // TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
+#[allow(clippy::too_many_arguments)]
 pub fn render_multidoc_diff<W: Write>(
     (left, right): (Vec<YamlSource>, Vec<YamlSource>),
     mut differences: Vec<DocDifference>,
     ignore_moved: bool,
     ignore: &[IgnorePath],
     word_wise_diff: bool,
+    lines_before: usize,
+    lines_after: usize,
     writer: &mut W,
 ) -> std::io::Result<()> {
     if differences.is_empty() {
@@ -80,7 +83,7 @@ pub fn render_multidoc_diff<W: Write>(
                         .unwrap_or(80)
                 };
 
-                let ctx = RenderContext::new(max_width, word_wise_diff);
+                let ctx = RenderContext::new(max_width, word_wise_diff, lines_before, lines_after);
                 write!(
                     writer,
                     "{}",

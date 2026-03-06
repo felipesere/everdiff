@@ -24,6 +24,9 @@ struct Args {
     left: camino::Utf8PathBuf,
     right: camino::Utf8PathBuf,
     word_wise_diff: bool,
+    lines_before: Option<usize>,
+    lines_after: Option<usize>,
+    lines_context: Option<usize>,
 }
 
 fn args() -> impl Parser<Args> {
@@ -52,6 +55,24 @@ fn args() -> impl Parser<Args> {
         .help("Highlight character based differences where possible")
         .switch();
 
+    let lines_before = short('B')
+        .long("lines-before")
+        .help("Number of context lines to show before each change")
+        .argument::<usize>("NUMBER")
+        .optional();
+
+    let lines_after = short('A')
+        .long("lines-after")
+        .help("Number of context lines to show after each change")
+        .argument::<usize>("NUMBER")
+        .optional();
+
+    let lines_context = short('C')
+        .long("lines-context")
+        .help("Number of context lines to show before and after each change (overrides -A and -B)")
+        .argument::<usize>("NUMBER")
+        .optional();
+
     let verbosity = short('v')
         .long("verbose")
         .help("Increase verbosity level (can be repeated)")
@@ -70,6 +91,9 @@ fn args() -> impl Parser<Args> {
         watch,
         verbosity,
         word_wise_diff,
+        lines_before,
+        lines_after,
+        lines_context,
         left,
         right,
     })
@@ -89,6 +113,18 @@ fn main() -> anyhow::Result<()> {
     let mut out = std::io::stdout().lock();
 
     setup_logging(args.verbosity)?;
+
+    if args.lines_context.is_some() && (args.lines_before.is_some() || args.lines_after.is_some()) {
+        anyhow::bail!("-C cannot be used together with -A or -B");
+    }
+
+    let (lines_before, lines_after) = match args.lines_context {
+        Some(c) => (c, c),
+        None => (
+            args.lines_before.unwrap_or(5),
+            args.lines_after.unwrap_or(5),
+        ),
+    };
 
     log::debug!("Starting everdiff with args: {:?}", args);
 
@@ -110,6 +146,8 @@ fn main() -> anyhow::Result<()> {
         args.ignore_moved,
         &args.ignore_changes,
         args.word_wise_diff,
+        lines_before,
+        lines_after,
         &mut out,
     );
 
@@ -142,6 +180,8 @@ fn main() -> anyhow::Result<()> {
                 args.ignore_moved,
                 &args.ignore_changes,
                 args.word_wise_diff,
+                lines_before,
+                lines_after,
                 &mut out,
             );
 
