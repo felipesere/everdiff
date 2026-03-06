@@ -20,6 +20,7 @@ pub fn render_multidoc_diff<W: Write>(
     mut differences: Vec<DocDifference>,
     ignore_moved: bool,
     ignore: &[IgnorePath],
+    word_wise_diff: bool,
     writer: &mut W,
 ) -> std::io::Result<()> {
     if differences.is_empty() {
@@ -79,7 +80,7 @@ pub fn render_multidoc_diff<W: Write>(
                         .unwrap_or(80)
                 };
 
-                let ctx = RenderContext::new(max_width);
+                let ctx = RenderContext::new(max_width, word_wise_diff);
                 write!(
                     writer,
                     "{}",

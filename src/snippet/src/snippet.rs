@@ -27,6 +27,8 @@ pub struct Theme {
     pub header: Highlight,
 }
 
+// TODO: Move all of this to something like theme.rs or colors.rs
+// Consider if we can load things from the environment + XDG_HOME
 impl Theme {
     pub fn colored() -> Self {
         use owo_colors::OwoColorize;
@@ -79,14 +81,16 @@ impl Theme {
 #[derive(Clone)]
 pub struct RenderContext {
     pub max_width: u16,
+    pub word_wise_diff: bool,
     pub visual_context: usize,
     pub theme: Theme,
 }
 
 impl RenderContext {
-    pub fn new(max_width: u16) -> Self {
+    pub fn new(max_width: u16, word_wise_diff: bool) -> Self {
         RenderContext {
             max_width,
+            word_wise_diff,
             visual_context: 5,
             theme: Theme::colored(),
         }
@@ -943,10 +947,12 @@ pub fn render_difference(
 
     const CHROME: u16 = 8 * 2;
     let max_width = (ctx.max_width - CHROME) / 2;
+    // TODO: Extract a function that construct smaller contexts...
     let smaller_context = RenderContext {
+        word_wise_diff: ctx.word_wise_diff,
         max_width,
         theme: ctx.theme,
-        visual_context: 5, // this will become a parameter down the line
+        visual_context: 5, // TODO: this will become a parameter down the line
     };
 
     let (left, right) = render_changed_pair(&smaller_context, left, left_doc, right, right_doc);
@@ -995,10 +1001,15 @@ fn render_changed_pair(
     right: MarkedYamlOwned,
     right_doc: &YamlSource,
 ) -> (Rendered, Rendered) {
-    let (left_parts, right_parts) = left.data.as_str()
-        .zip(right.data.as_str())
-        .map(|(l, r)| compute_inline_diff(l, r))
-        .unzip();
+    let (left_parts, right_parts) = if ctx.word_wise_diff {
+        left.data
+            .as_str()
+            .zip(right.data.as_str())
+            .map(|(l, r)| compute_inline_diff(l, r))
+            .unzip()
+    } else {
+        (None, None)
+    };
 
     let left = render_changed_snippet(ctx, left_doc, left, left_parts);
     let right = render_changed_snippet(ctx, right_doc, right, right_parts);
@@ -1141,6 +1152,7 @@ mod test {
 
     fn ctx() -> RenderContext {
         RenderContext {
+            word_wise_diff: true,
             max_width: 80,
             theme: super::Theme::markers(),
             visual_context: 5,
@@ -1452,6 +1464,7 @@ mod test {
 
         let content = render(
             RenderContext {
+                word_wise_diff: true,
                 max_width: 80,
                 theme: super::Theme::markers(),
                 visual_context: 5,
@@ -1545,6 +1558,7 @@ mod test {
 
         let content = render(
             RenderContext {
+                word_wise_diff: true,
                 max_width: 150,
                 theme: super::Theme::markers(),
                 visual_context: 5,

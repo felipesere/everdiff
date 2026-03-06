@@ -1,7 +1,7 @@
 use std::io::{ErrorKind, Read};
 
 use anyhow::Context;
-use bpaf::{Parser, construct, short};
+use bpaf::{Parser, construct, long, short};
 use camino::Utf8Path;
 use everdiff_diff::path::IgnorePath;
 use everdiff_multidoc::{
@@ -23,6 +23,7 @@ struct Args {
     verbosity: usize,
     left: camino::Utf8PathBuf,
     right: camino::Utf8PathBuf,
+    word_wise_diff: bool,
 }
 
 fn args() -> impl Parser<Args> {
@@ -42,9 +43,13 @@ fn args() -> impl Parser<Args> {
         .argument::<IgnorePath>("PATH")
         .many();
 
-    let watch = short('w')
-        .long("watch")
+    let watch = long("watch")
         .help("Watch the `left` and `right` files for changes and re-run")
+        .switch();
+
+    let word_wise_diff = short('w')
+        .long("word-wise-diff")
+        .help("Highlight character based differences where possible")
         .switch();
 
     let verbosity = short('v')
@@ -54,11 +59,9 @@ fn args() -> impl Parser<Args> {
         .many()
         .map(|v| v.len());
 
-    let left = bpaf::positional::<camino::Utf8PathBuf>("LEFT")
-        .help("Left file to compare");
+    let left = bpaf::positional::<camino::Utf8PathBuf>("LEFT").help("Left file to compare");
 
-    let right = bpaf::positional::<camino::Utf8PathBuf>("RIGHT")
-        .help("Right file to compare");
+    let right = bpaf::positional::<camino::Utf8PathBuf>("RIGHT").help("Right file to compare");
 
     construct!(Args {
         kubernetes,
@@ -66,6 +69,7 @@ fn args() -> impl Parser<Args> {
         ignore_changes,
         watch,
         verbosity,
+        word_wise_diff,
         left,
         right,
     })
@@ -105,6 +109,7 @@ fn main() -> anyhow::Result<()> {
         diffs,
         args.ignore_moved,
         &args.ignore_changes,
+        args.word_wise_diff,
         &mut out,
     );
 
@@ -136,6 +141,7 @@ fn main() -> anyhow::Result<()> {
                 diffs,
                 args.ignore_moved,
                 &args.ignore_changes,
+                args.word_wise_diff,
                 &mut out,
             );
 
