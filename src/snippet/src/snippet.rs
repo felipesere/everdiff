@@ -325,7 +325,7 @@ fn render_change(
     right_doc: &YamlSource,
     change_type: ChangeType,
 ) -> String {
-    log::debug!("Rendering change for {}", path_to_change.to_string());
+    log::debug!("Rendering change for {path_to_change}");
     log::debug!("The changed yaml node looks like: {:#?}", changed_yaml);
 
     // Select primary and secondary documents based on change type
@@ -437,7 +437,7 @@ fn render_secondary_side(
 ) -> Column {
     use crate::wrapping::{FormattedRow, SourceLineGroup, WrappedLine};
 
-    log::debug!("changed_node: {}", path_to_changed_node.to_string());
+    log::debug!("changed_node: {path_to_changed_node}");
 
     let gap_start =
         gap_start(primary_doc, secondary_doc, path_to_changed_node).unwrap_or(Line::one());
@@ -1078,13 +1078,12 @@ impl fmt::Display for LineWidget {
     }
 }
 
-// TODO: remove the `after node`
 fn surrounding_paths(
     parent_node: &MarkedYamlOwned,
     parent_path: Path,
     head: &Segment,
 ) -> Option<(Option<Path>, Option<Path>)> {
-    log::trace!("the parent is: {}", parent_path.to_string());
+    log::trace!("the parent is: {parent_path}");
     log::trace!("the parent node is: {:#?}", parent_node);
     match &parent_node.data {
         YamlDataOwned::Sequence(children) => {
