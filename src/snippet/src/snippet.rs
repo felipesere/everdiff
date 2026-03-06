@@ -386,8 +386,6 @@ fn render_primary_side(
     item: &Entry,
     (highlighting, unchanged): (Highlight, Highlight),
 ) -> Column {
-    use crate::wrapping::{SourceLineGroup, WrappedLine};
-
     // Extract lines from primary document
     let primary_lines = primary_doc.lines();
 
@@ -411,21 +409,19 @@ fn render_primary_side(
     // Format the primary side. change_end is inclusive, so use +1 for the exclusive range end.
     let changed_range = change_start..(change_end + 1);
     log::debug!("We will highlight {change_start}..={change_end}");
-    let groups: Vec<SourceLineGroup> = primary_snippet
-        .iter()
-        .map(move |(line_nr, line)| {
+
+    // line_nr.get() - 1 mirrors LineWidget::from(Line) which subtracts 1 for 0-based display
+    Column::from_lines(
+        primary_snippet.iter().map(move |(line_nr, line)| {
             let style = if changed_range.contains(&line_nr) {
                 highlighting
             } else {
                 unchanged
             };
-
-            let wrapped = WrappedLine::new(line_nr, line, ctx.half_width());
-            wrapped.format(style, ctx.half_width())
-        })
-        .collect();
-
-    Column(groups)
+            (line_nr.get() - 1, line, style)
+        }),
+        ctx.half_width(),
+    )
 }
 
 fn render_secondary_side(
@@ -437,8 +433,6 @@ fn render_secondary_side(
     gap_size: usize,
     unchanged: Highlight,
 ) -> Column {
-    use crate::wrapping::{FormattedRow, SourceLineGroup, WrappedLine};
-
     log::debug!("changed_node: {path_to_changed_node}");
 
     let gap_start =
@@ -464,31 +458,24 @@ fn render_secondary_side(
     };
     log::debug!("Filler will be {filler_len}");
 
-    let mut groups: Vec<SourceLineGroup> = Vec::new();
-
-    // Filler lines (single-row groups)
-    for _ in 0..filler_len {
-        groups.push(SourceLineGroup(vec![FormattedRow::blank(ctx.half_width())]));
-    }
-
-    // Pre-gap lines
-    for (line_nr, line) in before_gap.iter() {
-        let wrapped = WrappedLine::new(line_nr, line, ctx.half_width());
-        groups.push(wrapped.format(unchanged, ctx.half_width()));
-    }
-
-    // Gap lines (blank rows)
-    for _ in 0..gap_size {
-        groups.push(SourceLineGroup(vec![FormattedRow::blank(ctx.half_width())]));
-    }
-
-    // Post-gap lines
-    for (line_nr, line) in after_gap.iter() {
-        let wrapped = WrappedLine::new(line_nr, line, ctx.half_width());
-        groups.push(wrapped.format(unchanged, ctx.half_width()));
-    }
-
-    Column(groups)
+    let width = ctx.half_width();
+    // line_nr.get() - 1 mirrors LineWidget::from(Line) which subtracts 1 for 0-based display
+    Column::concat([
+        Column::blank(filler_len, width),
+        Column::from_lines(
+            before_gap
+                .iter()
+                .map(|(line_nr, line)| (line_nr.get() - 1, line, unchanged)),
+            width,
+        ),
+        Column::blank(gap_size, width),
+        Column::from_lines(
+            after_gap
+                .iter()
+                .map(|(line_nr, line)| (line_nr.get() - 1, line, unchanged)),
+            width,
+        ),
+    ])
 }
 
 /// Adjusts a path from primary document indexing to secondary document indexing.
@@ -948,37 +935,36 @@ pub fn render_difference(
 
     let (left, right) = render_changed_pair(&smaller_context, left, left_doc, right, right_doc);
 
-    use crate::wrapping::{FormattedRow, SourceLineGroup};
-
     let above_filler = left.lines_above.abs_diff(right.lines_above);
     let below_filler = left.lines_below.abs_diff(right.lines_below);
 
     let half_width = usize::from(max_width);
-    let filler_group = || SourceLineGroup(vec![FormattedRow::blank(half_width)]);
-
-    let mut left_groups = left.content.0;
-    let mut right_groups = right.content.0;
 
     // Prepend top filler to the side with fewer lines above
-    if left.lines_above < right.lines_above {
-        let mut filler: Vec<_> = (0..above_filler).map(|_| filler_group()).collect();
-        filler.append(&mut left_groups);
-        left_groups = filler;
+    let (left_col, right_col) = if left.lines_above < right.lines_above {
+        (
+            Column::concat([Column::blank(above_filler, half_width), left.content]),
+            right.content,
+        )
     } else {
-        let mut filler: Vec<_> = (0..above_filler).map(|_| filler_group()).collect();
-        filler.append(&mut right_groups);
-        right_groups = filler;
-    }
+        (
+            left.content,
+            Column::concat([Column::blank(above_filler, half_width), right.content]),
+        )
+    };
 
     // Append bottom filler to the side with fewer lines below
-    if left.lines_below < right.lines_below {
-        left_groups.extend((0..below_filler).map(|_| filler_group()));
+    let (left_col, right_col) = if left.lines_below < right.lines_below {
+        (
+            Column::concat([left_col, Column::blank(below_filler, half_width)]),
+            right_col,
+        )
     } else {
-        right_groups.extend((0..below_filler).map(|_| filler_group()));
-    }
-
-    let left_col = Column(left_groups);
-    let right_col = Column(right_groups);
+        (
+            left_col,
+            Column::concat([right_col, Column::blank(below_filler, half_width)]),
+        )
+    };
 
     let body = left_col.zip_with(right_col, ctx.half_width()).join("\n");
 
@@ -1037,21 +1023,19 @@ fn render_changed_snippet(
             if line_nr == changed_line {
                 if let Some(parts) = &inline_parts {
                     let prefix = extract_yaml_prefix(line);
-                    format_with_inline_highlights(line_nr, prefix, parts, ctx.theme, width)
-                } else {
-                    let wrapped = WrappedLineUsize {
-                        line_nr,
-                        segments: crate::wrapping::wrap_text(line, width),
-                    };
-                    wrapped.format_with_usize(ctx.theme.changed, width)
+                    return format_with_inline_highlights(line_nr, prefix, parts, ctx.theme, width);
                 }
-            } else {
-                let wrapped = WrappedLineUsize {
-                    line_nr,
-                    segments: crate::wrapping::wrap_text(line, width),
-                };
-                wrapped.format_with_usize(ctx.theme.dimmed, width)
             }
+            let highlight = if line_nr == changed_line {
+                ctx.theme.changed
+            } else {
+                ctx.theme.dimmed
+            };
+            WrappedLineUsize {
+                line_nr,
+                segments: crate::wrapping::wrap_text(line, width),
+            }
+            .format_with_usize(highlight, width)
         })
         .collect();
 
@@ -1060,6 +1044,21 @@ fn render_changed_snippet(
         lines_above,
         lines_below,
     }
+}
+
+/// Render an entire [`YamlSource`] document as a [`Column`].
+///
+/// Every line is styled with `highlight`. Line numbers are 0-based, matching
+/// the convention used by the rest of the side-by-side rendering.
+pub fn column_from_source(source: &YamlSource, highlight: Highlight, width: usize) -> Column {
+    Column::from_lines(
+        source
+            .lines()
+            .into_iter()
+            .enumerate()
+            .map(|(i, line)| (i, line, highlight)),
+        width,
+    )
 }
 
 // pub struct LineWidget(pub Option<usize>);

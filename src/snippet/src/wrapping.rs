@@ -198,6 +198,38 @@ impl Column {
         self.0.iter().map(|g| g.row_count()).sum()
     }
 
+    /// Build a Column from an arbitrary sequence of `(line_nr, text, highlight)` triples.
+    pub fn from_lines<'a>(
+        lines: impl IntoIterator<Item = (usize, &'a str, Highlight)>,
+        width: usize,
+    ) -> Self {
+        let groups = lines
+            .into_iter()
+            .map(|(line_nr, text, highlight)| {
+                WrappedLineUsize {
+                    line_nr,
+                    segments: wrap_text(text, width),
+                }
+                .format_with_usize(highlight, width)
+            })
+            .collect();
+        Column(groups)
+    }
+
+    /// A column of `height` blank rows, each padded to `width`.
+    pub fn blank(height: usize, width: usize) -> Self {
+        Column(
+            (0..height)
+                .map(|_| SourceLineGroup(vec![FormattedRow::blank(width)]))
+                .collect(),
+        )
+    }
+
+    /// Concatenate multiple columns into one by chaining their groups.
+    pub fn concat(columns: impl IntoIterator<Item = Column>) -> Self {
+        Column(columns.into_iter().flat_map(|c| c.0).collect())
+    }
+
     /// Zip two columns together for side-by-side display.
     /// Each source line group is paired; when one side has more rows in a group,
     /// the other side is padded with blank rows. Stops at the shorter column
