@@ -1,3 +1,64 @@
+//! # How the rendering structures fit together
+//!
+//! Source text is wrapped into [`Segment`]s, formatted into [`FormattedRow`]s,
+//! grouped by source line into [`SourceLineGroup`]s, collected into a [`Column`],
+//! and finally two [`Column`]s are zipped side-by-side for the final output.
+//!
+//! ## 1. Wrapping: source text → Segments
+//!
+//!   "a very long source line that wraps"   (one source line)
+//!              │
+//!              ▼  wrap_text(width)
+//!
+//!   ┌─ Segment ─────────┐  ┌─ Segment ─────────┐  ┌─ Segment ──┐
+//!   │ "a very long sou" │  │ "rce line that w" │  │ "raps"     │
+//!   └───────────────────┘  └───────────────────┘  └────────────┘
+//!
+//! ## 2. Formatting: Segments → FormattedRows (line widget + styled content + padding)
+//!
+//!   ┌─ FormattedRow ───────────────────────────────┐
+//!   │ "  3 │ a very long sou                     " │  ← first: real line number
+//!   ├─ FormattedRow ───────────────────────────────┤
+//!   │ "  ┆ │ rce line that w                     " │  ← continuation: ┆ marker
+//!   ├─ FormattedRow ───────────────────────────────┤
+//!   │ "  ┆ │ raps                                " │
+//!   └──────────────────────────────────────────────┘
+//!    ╰─4─╯╰2╯╰──────────── width ────────────────╯
+//!      LineWidget "│ "         content + padding
+//!
+//! ## 3. Grouping: FormattedRows → SourceLineGroup (one group per source line)
+//!
+//!   ┌─ SourceLineGroup ───────────────┐
+//!   │  FormattedRow  ("  3 │ ...")    │
+//!   │  FormattedRow  ("  ┆ │ ...")    │
+//!   │  FormattedRow  ("  ┆ │ ...")    │
+//!   └─────────────────────────────────┘
+//!
+//! ## 4. Column: all SourceLineGroups for one side of the diff
+//!
+//!   ┌─ Column ────────────────────────┐
+//!   │  SourceLineGroup  (line 1)      │
+//!   │  SourceLineGroup  (line 2)      │
+//!   │  SourceLineGroup  (line 3, ...) │
+//!   └─────────────────────────────────┘
+//!
+//! ## 5. Zipping: two Columns → final output lines
+//!
+//!   left Column              right Column
+//!   ┌──────────────────┐     ┌──────────────────┐
+//!   │ SourceLineGroup  │     │ SourceLineGroup  │
+//!   │ SourceLineGroup  │ zip │ SourceLineGroup  │
+//!   │ SourceLineGroup  │     │ SourceLineGroup  │
+//!   └──────────────────┘     └──────────────────┘
+//!              │
+//!              ▼  Column::zip_with(other, width)
+//!
+//!   "│   1 │ left content         │   1 │ right content        "
+//!   "│   2 │ left line 2          │   2 │ right line 2         "
+//!   "│   ┆ │ left wrapped         │     │                      "
+//!    ╰╯╰──────────────────────────╯╰╯╰──────────────────────────╯
+//!    │·      FormattedRow            │·      FormattedRow
+
 use everdiff_line::Line;
 
 use crate::inline_diff::InlinePart;
@@ -29,12 +90,9 @@ pub struct Column(pub Vec<SourceLineGroup>);
 
 /// Split plain text into segments that each fit within `max_width` visible columns.
 /// Uses unicode-width for correct width measurement.
+/// *visible* is important here, as we also use this for syled text
 pub fn wrap_text(text: &str, max_width: usize) -> Vec<Segment> {
-    if max_width == 0 {
-        return vec![Segment(String::new())];
-    }
-
-    if text.is_empty() {
+    if max_width == 0 || text.is_empty() {
         return vec![Segment(String::new())];
     }
 
