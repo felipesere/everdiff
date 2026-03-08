@@ -20,22 +20,27 @@ pub struct MatchingDocs {
     key: DocKey,
     /// The right document from the match.
     right_key: DocKey,
+
+    /// Fields used that matched
+    fields: Fields,
     /// The index of the document in the left file.
-    left: usize,
+    left_index: usize,
     /// The index of the document in the right file.
-    right: usize,
+    right_index: usize,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct MissingDoc {
     pub key: DocKey,
-    pub left: usize,
+    pub index: usize,
+    pub fields: Fields,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct AdditionalDoc {
     pub key: DocKey,
-    pub right: usize,
+    pub index: usize,
+    pub fields: Fields,
 }
 
 pub struct Context {
@@ -69,15 +74,17 @@ fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
     let mut added_docs: Vec<AdditionalDoc> = Vec::new();
 
     let mut last_idx_used_on_right = 0_usize;
-    'comparing_left_docs: for (idx, doc) in lefts.iter().enumerate() {
-        if let Some(key) = extract(idx, doc) {
+    'comparing_left_docs: for (index, doc) in lefts.iter().enumerate() {
+        if let Some(key) = extract(index, doc) {
             seen_left_docs.insert(key.fields.clone(), key.clone());
             if let Some(right_key) = seen_right_docs.get(&key.fields) {
+                let fields = key.fields.clone();
                 matches.push(MatchingDocs {
                     key,
+                    fields,
                     right_key: right_key.clone(),
-                    left: idx,
-                    right: right_key.index,
+                    left_index: index,
+                    right_index: right_key.index,
                 });
                 continue 'comparing_left_docs;
             }
@@ -86,12 +93,14 @@ fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
                 if let Some(right_key) = extract(right, doc) {
                     // seen_left_docs.insert(key.fields.clone(), key.clone());
                     seen_right_docs.insert(right_key.fields.clone(), key.clone());
+                    let fields = key.fields.clone();
                     if right_key == key {
                         matches.push(MatchingDocs {
                             key,
+                            fields,
                             right_key,
-                            left: idx,
-                            right,
+                            left_index: index,
+                            right_index: right,
                         });
                         last_idx_used_on_right = right;
                         continue 'comparing_left_docs;
@@ -100,7 +109,8 @@ fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
             }
             // ...we've gone through all the docs on the "right" without finding a match, it must
             // be missing
-            missing_docs.push(MissingDoc { key, left: idx })
+            let fields = key.fields.clone();
+            missing_docs.push(MissingDoc { key, index, fields })
         }
     }
     // let's go over all docs we've seen on the right and check which ones don't exist on the left
@@ -108,8 +118,9 @@ fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
         if seen_left_docs.contains_key(&key.fields) {
             continue;
         }
-        let right = key.index;
-        added_docs.push(AdditionalDoc { key, right })
+        let index = key.index;
+        let fields = key.fields.clone();
+        added_docs.push(AdditionalDoc { key, index, fields })
     }
 
     (matches, missing_docs, added_docs)
@@ -215,9 +226,10 @@ pub fn diff(ctx: &Context, lefts: &[YamlSource], rights: &[YamlSource]) -> Vec<D
     let mut differences = Vec::new();
     for MatchingDocs {
         key,
+        fields: _,
         right_key,
-        left,
-        right,
+        left_index: left,
+        right_index: right,
     } in matches
     {
         let left_doc = &lefts[left].yaml;
