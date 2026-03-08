@@ -249,6 +249,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "everdiff-layout"
+version = "0.1.0"
+dependencies = [
+ "ansi-width",
+ "expect-test",
+ "unicode-width 0.2.2",
+]
+
+[[package]]
 name = "everdiff-line"
 version = "0.1.0"
 

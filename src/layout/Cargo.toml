@@ -1,0 +1,12 @@
+[package]
+name = "everdiff-layout"
+
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ansi-width.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+expect-test.workspace = true

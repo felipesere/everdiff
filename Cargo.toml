@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src/diff", "src/multidoc", "src/snippet", "src/main", "src/line"]
+members = ["src/diff", "src/multidoc", "src/snippet", "src/main", "src/line", "src/layout"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ edition = "2024"
 [workspace.dependencies]
 # Internal crates
 everdiff-diff = { path = "src/diff" }
+everdiff-layout = { path = "src/layout" }
 everdiff-multidoc = { path = "src/multidoc" }
 everdiff-snippet = { path = "src/snippet" }
 everdiff-line = { path = "src/line" }
