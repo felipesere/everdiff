@@ -1,17 +1,16 @@
 use std::collections::BTreeMap;
 
-use everdiff_multidoc::{DocKey, Fields, IdentifierFn};
+use everdiff_multidoc::{Fields, IdentifierFn};
 
 /// Naively assume that a document is identified by its index in the document.
 /// This effectively means that documents are diffed pair-wise in the
 /// order they show up in the YAML
 pub fn by_index() -> IdentifierFn {
-    Box::new(|idx, source| {
-        Some(DocKey::new(
-            source.file.clone(),
-            Fields(BTreeMap::from([("idx".to_string(), Some(idx.to_string()))])),
-            idx,
-        ))
+    Box::new(|idx, _source| {
+        Some(Fields(BTreeMap::from([(
+            "idx".to_string(),
+            Some(idx.to_string()),
+        )])))
     })
 }
 
@@ -27,22 +26,18 @@ pub mod kubernetes {
 
     /// Keys to identify immutable kinds
     pub fn gvk() -> IdentifierFn {
-        Box::new(|idx, source| {
+        Box::new(|_idx, source| {
             let doc = &source.yaml;
             let api_version = string_of(doc.get("apiVersion"));
             let kind = string_of(doc.get("kind"));
             // TODO: don't bail on missing metadata
             let name = string_of(doc.get("metadata")?.get("name"));
 
-            Some(DocKey::new(
-                source.file.clone(),
-                Fields(BTreeMap::from([
-                    ("api_version".to_string(), api_version),
-                    ("kind".to_string(), kind),
-                    ("metadata.name".to_string(), name),
-                ])),
-                idx,
-            ))
+            Some(Fields(BTreeMap::from([
+                ("api_version".to_string(), api_version),
+                ("kind".to_string(), kind),
+                ("metadata.name".to_string(), name),
+            ])))
         })
     }
 }
