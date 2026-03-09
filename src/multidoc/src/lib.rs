@@ -1,5 +1,4 @@
-use std::cmp::{Ordering, max};
-use std::fmt::Write;
+use std::cmp::Ordering;
 use std::{collections::BTreeMap, fmt::Display};
 
 use everdiff_diff::{ArrayOrdering, Context as DiffContext, Difference as Diff, diff as diff_yaml};
@@ -9,37 +8,35 @@ use crate::source::YamlSource;
 pub mod source;
 
 /// Fn that identifies a document by inspecting keys
-pub type IdentifierFn = Box<dyn Fn(usize, &YamlSource) -> Option<DocKey>>;
+pub type IdentifierFn = Box<dyn Fn(usize, &YamlSource) -> Option<Fields>>;
 
-/// Two matching documents.
-/// The DocKey holds the fields that were used to match,
-/// but we need both src files
+// The underlying file path and the index _in_ that file.
+// In YAML a file can contain multiple documents separated by
+// `---` and `...`.
+pub type DocumentRef = (camino::Utf8PathBuf, usize);
+
+/// Two matching documents, they have the same output for `Fields`
 #[derive(Debug)]
 pub struct MatchingDocs {
-    /// The left document from the match
-    key: DocKey,
-    /// The right document from the match.
-    right_key: DocKey,
-
     /// Fields used that matched
     fields: Fields,
-    /// The index of the document in the left file.
-    left_index: usize,
-    /// The index of the document in the right file.
-    right_index: usize,
+
+    /// The left document from the match
+    left: DocumentRef,
+    ///
+    /// The right document from the match
+    right: DocumentRef,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct MissingDoc {
-    pub key: DocKey,
-    pub index: usize,
+    pub doc: DocumentRef,
     pub fields: Fields,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct AdditionalDoc {
-    pub key: DocKey,
-    pub index: usize,
+    pub doc: DocumentRef,
     pub fields: Fields,
 }
 
@@ -62,45 +59,38 @@ impl Context {
 }
 
 // TODO: Consider if we can use [iddqd](https://docs.rs/iddqd/latest/iddqd/) could spare us some clones
-fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
+fn matching_docs(
     lefts: &[YamlSource],
     rights: &[YamlSource],
-    extract: &F,
+    extract: &IdentifierFn,
 ) -> (Vec<MatchingDocs>, Vec<MissingDoc>, Vec<AdditionalDoc>) {
-    let mut seen_left_docs: BTreeMap<Fields, DocKey> = BTreeMap::new();
-    let mut seen_right_docs: BTreeMap<Fields, DocKey> = BTreeMap::new();
+    let mut seen_left_docs: BTreeMap<Fields, DocumentRef> = BTreeMap::new();
+    let mut seen_right_docs: BTreeMap<Fields, DocumentRef> = BTreeMap::new();
     let mut matches = Vec::new();
     let mut missing_docs = Vec::new();
     let mut added_docs: Vec<AdditionalDoc> = Vec::new();
 
     let mut last_idx_used_on_right = 0_usize;
     'comparing_left_docs: for (index, doc) in lefts.iter().enumerate() {
-        if let Some(key) = extract(index, doc) {
-            seen_left_docs.insert(key.fields.clone(), key.clone());
-            if let Some(right_key) = seen_right_docs.get(&key.fields) {
-                let fields = key.fields.clone();
+        if let Some(fields) = extract(index, doc) {
+            seen_left_docs.insert(fields.clone(), (doc.file.clone(), index));
+            if let Some(right_ref) = seen_right_docs.get(&fields) {
                 matches.push(MatchingDocs {
-                    key,
                     fields,
-                    right_key: right_key.clone(),
-                    left_index: index,
-                    right_index: right_key.index,
+                    left: (doc.file.clone(), index),
+                    right: right_ref.clone(),
                 });
                 continue 'comparing_left_docs;
             }
 
-            for (right, doc) in rights.iter().enumerate().skip(last_idx_used_on_right) {
-                if let Some(right_key) = extract(right, doc) {
-                    // seen_left_docs.insert(key.fields.clone(), key.clone());
-                    seen_right_docs.insert(right_key.fields.clone(), key.clone());
-                    let fields = key.fields.clone();
-                    if right_key == key {
+            for (right, right_doc) in rights.iter().enumerate().skip(last_idx_used_on_right) {
+                if let Some(right_fields) = extract(right, right_doc) {
+                    seen_right_docs.insert(fields.clone(), (right_doc.file.clone(), right));
+                    if fields == right_fields {
                         matches.push(MatchingDocs {
-                            key,
                             fields,
-                            right_key,
-                            left_index: index,
-                            right_index: right,
+                            left: (doc.file.clone(), index),
+                            right: (right_doc.file.clone(), right),
                         });
                         last_idx_used_on_right = right;
                         continue 'comparing_left_docs;
@@ -109,73 +99,53 @@ fn matching_docs<F: Fn(usize, &YamlSource) -> Option<DocKey> + ?Sized>(
             }
             // ...we've gone through all the docs on the "right" without finding a match, it must
             // be missing
-            let fields = key.fields.clone();
-            missing_docs.push(MissingDoc { key, index, fields })
+            missing_docs.push(MissingDoc {
+                doc: (doc.file.clone(), index),
+                fields,
+            })
         }
     }
     // let's go over all docs we've seen on the right and check which ones don't exist on the left
-    for (_, key) in seen_right_docs {
-        if seen_left_docs.contains_key(&key.fields) {
+    for (fields, right_ref) in seen_right_docs {
+        if seen_left_docs.contains_key(&fields) {
             continue;
         }
-        let index = key.index;
-        let fields = key.fields.clone();
-        added_docs.push(AdditionalDoc { key, index, fields })
+        added_docs.push(AdditionalDoc {
+            doc: right_ref,
+            fields,
+        })
     }
 
     (matches, missing_docs, added_docs)
 }
 
 /// Newtype used to identify a document.
-/// Two Documents that produce the same `DocKey` will be diffed
+/// Two Documents that produce the same `Fields` will be diffed
 /// against each other.
-/// While the original file path is stored, it won't be used when doing Eq, Ord, or Hash
 /// A common use case is to for example grab
 /// * apiVersion
 /// * kind
 /// * metadata.name
 ///
 /// from a Kubernetes resource to diff
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
-pub struct DocKey {
-    // the file that this DocKey refers to
-    src_file: camino::Utf8PathBuf,
-    // the fields that were extracted to match other DocKeys
-    fields: Fields,
-    /// The index of the doc in teh file
-    index: usize,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Fields(pub BTreeMap<String, Option<String>>);
+
+impl Display for Fields {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (k, v) in &self.0 {
+            f.write_fmt(format_args!(
+                "{k} -> {value}\n",
+                value = v.as_deref().unwrap_or("∅")
+            ))?;
+        }
+        Ok(())
+    }
+}
 
 impl AsRef<BTreeMap<String, Option<String>>> for Fields {
     fn as_ref(&self) -> &BTreeMap<String, Option<String>> {
         &self.0
-    }
-}
-
-impl DocKey {
-    pub fn new(src_file: camino::Utf8PathBuf, fields: Fields, index: usize) -> Self {
-        DocKey {
-            src_file,
-            fields,
-            index,
-        }
-    }
-}
-
-impl Display for DocKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("file: {}\n", &self.src_file))?;
-        let max_width = &self.fields.0.keys().fold(0, |acc, f| max(acc, f.len()));
-        f.write_char('\n')?;
-        for (k, optval) in &self.fields.0 {
-            if let Some(v) = &optval {
-                f.write_fmt(format_args!("{k:width$} → {v}\n", width = max_width))?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -184,10 +154,9 @@ pub enum DocDifference {
     Addition(AdditionalDoc),
     Missing(MissingDoc),
     Changed {
-        key: DocKey,
-        right_key: DocKey,
-        left_doc_idx: usize,
-        right_doc_idx: usize,
+        left: DocumentRef,
+        right: DocumentRef,
+        fields: Fields,
         differences: Vec<Diff>,
     },
 }
@@ -202,16 +171,23 @@ impl Ord for DocDifference {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         match (self, other) {
             (
-                DocDifference::Addition(AdditionalDoc { key, .. }),
-                DocDifference::Addition(AdditionalDoc { key: other_key, .. }),
-            ) => key.cmp(other_key),
+                DocDifference::Addition(AdditionalDoc { fields, .. }),
+                DocDifference::Addition(AdditionalDoc { fields: other, .. }),
+            ) => fields.cmp(other),
             (
-                DocDifference::Missing(MissingDoc { key, .. }),
-                DocDifference::Missing(MissingDoc { key: other_key, .. }),
-            ) => key.cmp(other_key),
-            (DocDifference::Changed { key, .. }, DocDifference::Changed { key: other_key, .. }) => {
-                key.cmp(other_key)
-            }
+                DocDifference::Missing(MissingDoc { fields, .. }),
+                DocDifference::Missing(MissingDoc {
+                    fields: other_fields,
+                    ..
+                }),
+            ) => fields.cmp(other_fields),
+            (
+                DocDifference::Changed { fields, .. },
+                DocDifference::Changed {
+                    fields: other_fields,
+                    ..
+                },
+            ) => fields.cmp(other_fields),
             (DocDifference::Addition(_), _) => Ordering::Less,
             (DocDifference::Changed { .. }, _) => Ordering::Greater,
             (DocDifference::Missing(_), DocDifference::Addition(_)) => Ordering::Greater,
@@ -225,25 +201,22 @@ pub fn diff(ctx: &Context, lefts: &[YamlSource], rights: &[YamlSource]) -> Vec<D
 
     let mut differences = Vec::new();
     for MatchingDocs {
-        key,
-        fields: _,
-        right_key,
-        left_index: left,
-        right_index: right,
+        fields,
+        left,
+        right,
     } in matches
     {
-        let left_doc = &lefts[left].yaml;
-        let right_doc = &rights[right].yaml;
+        let left_doc = &lefts[left.1].yaml;
+        let right_doc = &rights[right.1].yaml;
         let mut diff_context = DiffContext::new();
         diff_context.array_ordering = ArrayOrdering::Dynamic;
 
         let diffs = diff_yaml(diff_context, left_doc, right_doc);
         if !diffs.is_empty() {
             differences.push(DocDifference::Changed {
-                key,
-                right_key,
-                left_doc_idx: left,
-                right_doc_idx: right,
+                fields,
+                left,
+                right,
                 differences: diffs,
             })
         }
@@ -265,7 +238,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use crate::{
-        Context, DocKey, Fields, diff,
+        Context, Fields, diff,
         source::{YamlSource, read_doc},
     };
     use indoc::indoc;
@@ -285,18 +258,14 @@ mod tests {
             node?.data.as_str().map(String::from)
         }
 
-        Box::new(|idx, source| {
+        Box::new(|_idx, source| {
             let doc = &source.yaml;
             let name = string_of(doc.get("metadata")?.get("name"));
             let namespace = string_of(doc.get("metadata")?.get("namespace"));
-            Some(DocKey::new(
-                source.file.clone(),
-                Fields(BTreeMap::from([
-                    ("metadata.name".to_string(), name),
-                    ("metadata.namespace".to_string(), namespace),
-                ])),
-                idx,
-            ))
+            Some(Fields(BTreeMap::from([
+                ("metadata.name".to_string(), name),
+                ("metadata.namespace".to_string(), namespace),
+            ])))
         })
     }
 
@@ -526,23 +495,17 @@ mod tests {
     }
 
     #[test]
-    fn display_dockey() {
-        let key = DocKey::new(
-            camino::Utf8PathBuf::from_str(r#"/foo/bar/baz.yaml"#).unwrap(),
-            Fields(BTreeMap::from([
-                ("api_version".to_string(), Some("bar".to_string())),
-                ("metadata.name".to_string(), Some("foo".to_string())),
-            ])),
-            6,
-        );
+    fn display_fields() {
+        let fields = Fields(BTreeMap::from([
+            ("api_version".to_string(), Some("bar".to_string())),
+            ("metadata.name".to_string(), Some("foo".to_string())),
+        ]));
         assert_eq!(
-            key.to_string(),
+            fields.to_string(),
             indoc! {r#"
-            file: /foo/bar/baz.yaml
-
-            api_version   → bar
-            metadata.name → foo
-        "#}
+              api_version -> bar
+              metadata.name -> foo
+            "#}
         );
     }
 }
