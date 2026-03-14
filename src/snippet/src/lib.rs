@@ -102,7 +102,13 @@ pub fn render_multidoc_diff<W: Write>(
                 }
                 writeln!(writer)?;
 
-                let ctx = RenderContext::new(max_width, word_wise_diff, lines_before, lines_after);
+                let ctx = RenderContext::new(
+                    max_width,
+                    half_width,
+                    word_wise_diff,
+                    lines_before,
+                    lines_after,
+                );
                 write!(
                     writer,
                     "{}",
