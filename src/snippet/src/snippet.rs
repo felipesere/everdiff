@@ -86,6 +86,7 @@ impl Theme {
 #[derive(Clone)]
 pub struct RenderContext {
     pub max_width: u16,
+    pub temp_half_width: usize,
     pub word_wise_diff: bool,
     pub lines_before: usize,
     pub lines_after: usize,
@@ -95,12 +96,14 @@ pub struct RenderContext {
 impl RenderContext {
     pub fn new(
         max_width: u16,
+        temp_half_width: usize, // FIXME: temporarily keep track of the half width to later eliminate it
         word_wise_diff: bool,
         lines_before: usize,
         lines_after: usize,
     ) -> Self {
         RenderContext {
             max_width,
+            temp_half_width,
             word_wise_diff,
             lines_before,
             lines_after,
@@ -933,11 +936,13 @@ pub fn render_difference(
     };
 
     const CHROME: u16 = 8 * 2;
-    let max_width = (ctx.max_width - CHROME) / 2;
+    let half_width = (ctx.max_width - CHROME) / 2;
+    let half_width = usize::from(half_width);
     // TODO: Extract a function that construct smaller contexts...
     let smaller_context = RenderContext {
         word_wise_diff: ctx.word_wise_diff,
-        max_width,
+        max_width: half_width as u16,
+        temp_half_width: half_width,
         theme: ctx.theme,
         lines_before: ctx.lines_before,
         lines_after: ctx.lines_after,
@@ -947,8 +952,6 @@ pub fn render_difference(
 
     let above_filler = left.lines_above.abs_diff(right.lines_above);
     let below_filler = left.lines_below.abs_diff(right.lines_below);
-
-    let half_width = usize::from(max_width);
 
     // Prepend top filler to the side with fewer lines above
     let (left_col, right_col) = if left.lines_above < right.lines_above {
@@ -1153,6 +1156,7 @@ mod test {
         RenderContext {
             word_wise_diff: true,
             max_width: 80,
+            temp_half_width: (80 - 16) / 2,
             theme: super::Theme::markers(),
             lines_before: 5,
             lines_after: 5,
@@ -1462,18 +1466,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(
-            RenderContext {
-                word_wise_diff: true,
-                max_width: 80,
-                theme: super::Theme::markers(),
-                lines_before: 5,
-                lines_after: 5,
-            },
-            &left_doc,
-            &right_doc,
-            differences,
-        );
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Changed: [bold].person.name[/]:
@@ -1557,18 +1550,10 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(
-            RenderContext {
-                word_wise_diff: true,
-                max_width: 150,
-                theme: super::Theme::markers(),
-                lines_before: 5,
-                lines_after: 5,
-            },
-            &left_doc,
-            &right_doc,
-            differences,
-        );
+        let mut ctx = ctx();
+        ctx.max_width = 150;
+
+        let content = render(ctx, &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: [bold].metadata.annotations.this_is[/]:
@@ -1958,20 +1943,12 @@ mod test {
             panic!("Should have gotten a Change");
         };
 
-        let content = render_difference(
-            &RenderContext {
-                word_wise_diff: false,
-                max_width: 80,
-                theme: super::Theme::markers(),
-                lines_before: 1,
-                lines_after: 0,
-            },
-            path,
-            left,
-            &left_doc,
-            right,
-            &right_doc,
-        );
+        let mut ctx = ctx();
+        ctx.word_wise_diff = false;
+        ctx.lines_before = 1;
+        ctx.lines_after = 0;
+
+        let content = render_difference(&ctx, path, left, &left_doc, right, &right_doc);
 
         // Only 1 line before the changed line, no lines after
         expect![[r#"
@@ -2004,20 +1981,12 @@ mod test {
             panic!("Should have gotten a Change");
         };
 
-        let content = render_difference(
-            &RenderContext {
-                word_wise_diff: false,
-                max_width: 80,
-                theme: super::Theme::markers(),
-                lines_before: 0,
-                lines_after: 1,
-            },
-            path,
-            left,
-            &left_doc,
-            right,
-            &right_doc,
-        );
+        let mut ctx = ctx();
+        ctx.word_wise_diff = false;
+        ctx.lines_before = 0;
+        ctx.lines_after = 1;
+
+        let content = render_difference(&ctx, path, left, &left_doc, right, &right_doc);
 
         // No lines before, 1 line after the changed line
         expect![[r#"
@@ -2052,18 +2021,12 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(
-            RenderContext {
-                word_wise_diff: false,
-                max_width: 80,
-                theme: super::Theme::markers(),
-                lines_before: 1,
-                lines_after: 1,
-            },
-            &left_doc,
-            &right_doc,
-            differences,
-        );
+        let mut ctx = ctx();
+        ctx.word_wise_diff = false;
+        ctx.lines_before = 1;
+        ctx.lines_after = 1;
+
+        let content = render(ctx, &left_doc, &right_doc, differences);
 
         // Only 1 line before and 1 line after the removed block
         expect![[r#"
