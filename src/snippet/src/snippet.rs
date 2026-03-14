@@ -1141,7 +1141,10 @@ mod test {
     use super::{RenderContext, render_added, render_difference, render_removal};
 
     fn ctx() -> RenderContext {
-        let max_width = 80;
+        ctx_max_width(80)
+    }
+
+    fn ctx_max_width(max_width: u16) -> RenderContext {
         RenderContext {
             word_wise_diff: true,
             max_width,
@@ -1539,39 +1542,33 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences);
+        let content = render(ctx_max_width(150), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: [bold].metadata.annotations.this_is[/]:
-            │   9 │ [dim]    app: flux-engine-steam[/]│   9 │ [dim]    app: flux-engine-steam[/]
-            │  10 │ [dim]    app.kubernetes.io/version: 0[/]│  10 │ [dim]    app.kubernetes.io/version: 0[/]
-            │   ┆ │ [dim].0.27-pre1[/]              │   ┆ │ [dim].0.27-pre1[/]              
-            │  11 │ [dim]    app.kubernetes.io/managed-by[/]│  11 │ [dim]    app.kubernetes.io/managed-by[/]
-            │   ┆ │ [dim]: batman[/]                │   ┆ │ [dim]: batman[/]                
-            │  12 │ [dim]  annotations:[/]          │  12 │ [dim]  annotations:[/]          
-            │  13 │ [dim]    github.com/repository_url: g[/]│  13 │ [dim]    github.com/repository_url: g[/]
-            │   ┆ │ [dim]it@github.com:flux-engine-steam[/]│   ┆ │ [dim]it@github.com:flux-engine-steam[/]
-            │     │                                 │  14 │ [green]    this_is: new[/]      
-            │  14 │ [dim]spec:[/]                   │  15 │ [dim]spec:[/]                   
-            │  15 │ [dim]  ports:[/]                │  16 │ [dim]  ports:[/]                
-            │  16 │ [dim]    - targetPort: 8501[/]  │  17 │ [dim]    - targetPort: 8502[/]  
-            │  17 │ [dim]      port: 3000[/]        │  18 │ [dim]      port: 3000[/]        
-            │  18 │ [dim]      name: https[/]       │  19 │ [dim]      name: https[/]       
+            │   9 │ [dim]    app: flux-engine-steam[/]                                 │   9 │ [dim]    app: flux-engine-steam[/]                                 
+            │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                 │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                 
+            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   
+            │  12 │ [dim]  annotations:[/]                                             │  12 │ [dim]  annotations:[/]                                             
+            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]
+            │     │                                                                    │  14 │ [green]    this_is: new[/]                                         
+            │  14 │ [dim]spec:[/]                                                      │  15 │ [dim]spec:[/]                                                      
+            │  15 │ [dim]  ports:[/]                                                   │  16 │ [dim]  ports:[/]                                                   
+            │  16 │ [dim]    - targetPort: 8501[/]                                     │  17 │ [dim]    - targetPort: 8502[/]                                     
+            │  17 │ [dim]      port: 3000[/]                                           │  18 │ [dim]      port: 3000[/]                                           
+            │  18 │ [dim]      name: https[/]                                          │  19 │ [dim]      name: https[/]                                          
 
             Changed: [bold].spec.ports[0].targetPort[/]:
-            │  11 │ [dim]    app.kubernetes.io/managed-by[/]│  12 │ [dim]  annotations:[/]          
-            │   ┆ │ [dim]: batman[/]                │     │                                 
-            │  12 │ [dim]  annotations:[/]          │  13 │ [dim]    github.com/repository_url: g[/]
-            │     │                                 │   ┆ │ [dim]it@github.com:flux-engine-steam[/]
-            │  13 │ [dim]    github.com/repository_url: g[/]│  14 │ [dim]    this_is: new[/]        
-            │   ┆ │ [dim]it@github.com:flux-engine-steam[/]│     │                                 
-            │  14 │ [dim]spec:[/]                   │  15 │ [dim]spec:[/]                   
-            │  15 │ [dim]  ports:[/]                │  16 │ [dim]  ports:[/]                
-            │  16 │ [yellow]    - targetPort: 8501[/]│  17 │ [yellow]    - targetPort: 8502[/]
-            │  17 │ [dim]      port: 3000[/]        │  18 │ [dim]      port: 3000[/]        
-            │  18 │ [dim]      name: https[/]       │  19 │ [dim]      name: https[/]       
-            │  19 │ [dim]  selector:[/]             │  20 │ [dim]  selector:[/]             
-            │  20 │ [dim]    app: flux-engine-steam[/]│  21 │ [dim]    app: flux-engine-steam[/]
+            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   │  12 │ [dim]  annotations:[/]                                             
+            │  12 │ [dim]  annotations:[/]                                             │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]
+            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│  14 │ [dim]    this_is: new[/]                                           
+            │  14 │ [dim]spec:[/]                                                      │  15 │ [dim]spec:[/]                                                      
+            │  15 │ [dim]  ports:[/]                                                   │  16 │ [dim]  ports:[/]                                                   
+            │  16 │ [yellow]    - targetPort: 8501[/]                                  │  17 │ [yellow]    - targetPort: 8502[/]                                  
+            │  17 │ [dim]      port: 3000[/]                                           │  18 │ [dim]      port: 3000[/]                                           
+            │  18 │ [dim]      name: https[/]                                          │  19 │ [dim]      name: https[/]                                          
+            │  19 │ [dim]  selector:[/]                                                │  20 │ [dim]  selector:[/]                                                
+            │  20 │ [dim]    app: flux-engine-steam[/]                                 │  21 │ [dim]    app: flux-engine-steam[/]                                 
 
         "#]].assert_eq(content.as_str());
     }
