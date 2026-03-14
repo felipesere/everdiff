@@ -86,7 +86,7 @@ impl Theme {
 #[derive(Clone)]
 pub struct RenderContext {
     pub max_width: u16,
-    pub temp_half_width: usize,
+    pub temp_column_width: usize,
     pub word_wise_diff: bool,
     pub lines_before: usize,
     pub lines_after: usize,
@@ -96,14 +96,14 @@ pub struct RenderContext {
 impl RenderContext {
     pub fn new(
         max_width: u16,
-        temp_half_width: usize, // FIXME: temporarily keep track of the half width to later eliminate it
+        temp_column_width: usize, // FIXME: temporarily keep track of the half width to later eliminate it
         word_wise_diff: bool,
         lines_before: usize,
         lines_after: usize,
     ) -> Self {
         RenderContext {
             max_width,
-            temp_half_width,
+            temp_column_width,
             word_wise_diff,
             lines_before,
             lines_after,
@@ -114,8 +114,9 @@ impl RenderContext {
     pub fn half_width(&self) -> usize {
         // Fixed chrome per side: outer "│ " (2) + line widget "{:>3} " (4) + inner "│ " (2) = 8
         // Two sides: 16 chars of total non-content width.
-        const CHROME: u16 = 8 * 2;
-        ((self.max_width - CHROME) / 2) as usize
+        // const CHROME: u16 = 8 * 2;
+        // ((self.max_width - CHROME) / 2) as usize
+        self.temp_column_width
     }
 }
 
@@ -935,20 +936,7 @@ pub fn render_difference(
         None => "Changed:".to_string(),
     };
 
-    const CHROME: u16 = 8 * 2;
-    let half_width = (ctx.max_width - CHROME) / 2;
-    let half_width = usize::from(half_width);
-    // TODO: Extract a function that construct smaller contexts...
-    let smaller_context = RenderContext {
-        word_wise_diff: ctx.word_wise_diff,
-        max_width: half_width as u16,
-        temp_half_width: half_width,
-        theme: ctx.theme,
-        lines_before: ctx.lines_before,
-        lines_after: ctx.lines_after,
-    };
-
-    let (left, right) = render_changed_pair(&smaller_context, left, left_doc, right, right_doc);
+    let (left, right) = render_changed_pair(ctx, left, left_doc, right, right_doc);
 
     let above_filler = left.lines_above.abs_diff(right.lines_above);
     let below_filler = left.lines_below.abs_diff(right.lines_below);
@@ -956,26 +944,26 @@ pub fn render_difference(
     // Prepend top filler to the side with fewer lines above
     let (left_col, right_col) = if left.lines_above < right.lines_above {
         (
-            Column::concat([Column::blank(above_filler, half_width), left.content]),
+            Column::concat([Column::blank(above_filler, ctx.half_width()), left.content]),
             right.content,
         )
     } else {
         (
             left.content,
-            Column::concat([Column::blank(above_filler, half_width), right.content]),
+            Column::concat([Column::blank(above_filler, ctx.half_width()), right.content]),
         )
     };
 
     // Append bottom filler to the side with fewer lines below
     let (left_col, right_col) = if left.lines_below < right.lines_below {
         (
-            Column::concat([left_col, Column::blank(below_filler, half_width)]),
+            Column::concat([left_col, Column::blank(below_filler, ctx.half_width())]),
             right_col,
         )
     } else {
         (
             left_col,
-            Column::concat([right_col, Column::blank(below_filler, half_width)]),
+            Column::concat([right_col, Column::blank(below_filler, ctx.half_width())]),
         )
     };
 
@@ -1027,7 +1015,7 @@ fn render_changed_snippet(
     let lines_above = changed_line - start;
     let lines_below = end - changed_line;
 
-    let width = usize::from(ctx.max_width);
+    let width = ctx.temp_column_width;
 
     let groups: Vec<SourceLineGroup> = left_snippet
         .iter()
@@ -1153,10 +1141,11 @@ mod test {
     use super::{RenderContext, render_added, render_difference, render_removal};
 
     fn ctx() -> RenderContext {
+        let max_width = 80;
         RenderContext {
             word_wise_diff: true,
-            max_width: 80,
-            temp_half_width: (80 - 16) / 2,
+            max_width,
+            temp_column_width: ((max_width - 16) / 2) as usize,
             theme: super::Theme::markers(),
             lines_before: 5,
             lines_after: 5,
@@ -1550,36 +1539,39 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let mut ctx = ctx();
-        ctx.max_width = 150;
-
-        let content = render(ctx, &left_doc, &right_doc, differences);
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: [bold].metadata.annotations.this_is[/]:
-            │   9 │ [dim]    app: flux-engine-steam[/]                                 │   9 │ [dim]    app: flux-engine-steam[/]                                 
-            │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                 │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                 
-            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   
-            │  12 │ [dim]  annotations:[/]                                             │  12 │ [dim]  annotations:[/]                                             
-            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]
-            │     │                                                                    │  14 │ [green]    this_is: new[/]                                         
-            │  14 │ [dim]spec:[/]                                                      │  15 │ [dim]spec:[/]                                                      
-            │  15 │ [dim]  ports:[/]                                                   │  16 │ [dim]  ports:[/]                                                   
-            │  16 │ [dim]    - targetPort: 8501[/]                                     │  17 │ [dim]    - targetPort: 8502[/]                                     
-            │  17 │ [dim]      port: 3000[/]                                           │  18 │ [dim]      port: 3000[/]                                           
-            │  18 │ [dim]      name: https[/]                                          │  19 │ [dim]      name: https[/]                                          
+            │   9 │ [dim]    app: flux-engine-steam[/]│   9 │ [dim]    app: flux-engine-steam[/]
+            │  10 │ [dim]    app.kubernetes.io/version: 0[/]│  10 │ [dim]    app.kubernetes.io/version: 0[/]
+            │   ┆ │ [dim].0.27-pre1[/]              │   ┆ │ [dim].0.27-pre1[/]              
+            │  11 │ [dim]    app.kubernetes.io/managed-by[/]│  11 │ [dim]    app.kubernetes.io/managed-by[/]
+            │   ┆ │ [dim]: batman[/]                │   ┆ │ [dim]: batman[/]                
+            │  12 │ [dim]  annotations:[/]          │  12 │ [dim]  annotations:[/]          
+            │  13 │ [dim]    github.com/repository_url: g[/]│  13 │ [dim]    github.com/repository_url: g[/]
+            │   ┆ │ [dim]it@github.com:flux-engine-steam[/]│   ┆ │ [dim]it@github.com:flux-engine-steam[/]
+            │     │                                 │  14 │ [green]    this_is: new[/]      
+            │  14 │ [dim]spec:[/]                   │  15 │ [dim]spec:[/]                   
+            │  15 │ [dim]  ports:[/]                │  16 │ [dim]  ports:[/]                
+            │  16 │ [dim]    - targetPort: 8501[/]  │  17 │ [dim]    - targetPort: 8502[/]  
+            │  17 │ [dim]      port: 3000[/]        │  18 │ [dim]      port: 3000[/]        
+            │  18 │ [dim]      name: https[/]       │  19 │ [dim]      name: https[/]       
 
             Changed: [bold].spec.ports[0].targetPort[/]:
-            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   │  12 │ [dim]  annotations:[/]                                             
-            │  12 │ [dim]  annotations:[/]                                             │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]
-            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│  14 │ [dim]    this_is: new[/]                                           
-            │  14 │ [dim]spec:[/]                                                      │  15 │ [dim]spec:[/]                                                      
-            │  15 │ [dim]  ports:[/]                                                   │  16 │ [dim]  ports:[/]                                                   
-            │  16 │ [yellow]    - targetPort: 8501[/]                                  │  17 │ [yellow]    - targetPort: 8502[/]                                  
-            │  17 │ [dim]      port: 3000[/]                                           │  18 │ [dim]      port: 3000[/]                                           
-            │  18 │ [dim]      name: https[/]                                          │  19 │ [dim]      name: https[/]                                          
-            │  19 │ [dim]  selector:[/]                                                │  20 │ [dim]  selector:[/]                                                
-            │  20 │ [dim]    app: flux-engine-steam[/]                                 │  21 │ [dim]    app: flux-engine-steam[/]                                 
+            │  11 │ [dim]    app.kubernetes.io/managed-by[/]│  12 │ [dim]  annotations:[/]          
+            │   ┆ │ [dim]: batman[/]                │     │                                 
+            │  12 │ [dim]  annotations:[/]          │  13 │ [dim]    github.com/repository_url: g[/]
+            │     │                                 │   ┆ │ [dim]it@github.com:flux-engine-steam[/]
+            │  13 │ [dim]    github.com/repository_url: g[/]│  14 │ [dim]    this_is: new[/]        
+            │   ┆ │ [dim]it@github.com:flux-engine-steam[/]│     │                                 
+            │  14 │ [dim]spec:[/]                   │  15 │ [dim]spec:[/]                   
+            │  15 │ [dim]  ports:[/]                │  16 │ [dim]  ports:[/]                
+            │  16 │ [yellow]    - targetPort: 8501[/]│  17 │ [yellow]    - targetPort: 8502[/]
+            │  17 │ [dim]      port: 3000[/]        │  18 │ [dim]      port: 3000[/]        
+            │  18 │ [dim]      name: https[/]       │  19 │ [dim]      name: https[/]       
+            │  19 │ [dim]  selector:[/]             │  20 │ [dim]  selector:[/]             
+            │  20 │ [dim]    app: flux-engine-steam[/]│  21 │ [dim]    app: flux-engine-steam[/]
 
         "#]].assert_eq(content.as_str());
     }
