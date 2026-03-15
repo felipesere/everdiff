@@ -2,6 +2,7 @@ use core::option::Option::None;
 use std::{
     cmp::min,
     fmt::{self},
+    sync::Arc,
 };
 
 use crate::wrapping::Column;
@@ -9,19 +10,17 @@ use everdiff_diff::{
     Entry,
     path::{NonEmptyPath, Path, Segment},
 };
+use everdiff_layout::{
+    Column as LColumn, ColumnPair, Highlighted, InlineParts as LInlineParts, Line as LLine,
+};
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
-use owo_colors::OwoColorize;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
 use crate::inline_diff::{InlinePart, compute_inline_diff, extract_yaml_prefix};
 use crate::node::node_in;
 
 pub type Highlight = fn(&str) -> String;
-
-pub fn unchanged_highlight() -> Highlight {
-    |s| s.dimmed().to_string()
-}
 
 #[derive(Copy, Clone)]
 pub struct Theme {
@@ -285,7 +284,7 @@ mod snippet_tests {
 }
 
 struct Rendered {
-    content: crate::wrapping::Column,
+    content: LColumn,
     lines_above: usize,
     lines_below: usize,
 }
@@ -554,7 +553,7 @@ pub fn gap_start(
     if let Some(before) = candidate_node_before_change {
         // Normal case: there's a node before the change, use its end line.
         log::debug!("the span ends on {}", before.span.end.line());
-        Some(secondary_doc.relative_inclusive_end(&before))
+        Some(secondary_doc.relative_inclusive_end(before))
     } else if let Some(after) = after_path {
         // No "before" node (e.g., adding at index 0 of an array).
         // Use the "after" node to find where the gap should go.
@@ -931,49 +930,44 @@ pub fn render_difference(
     right: MarkedYamlOwned,
     right_doc: &YamlSource,
 ) -> String {
+    let pair = ColumnPair::new(ctx.max_width as usize);
+
     let title = match &path_to_change {
         Some(path) => format!("Changed: {}:", ctx.theme.header(&path.to_string())),
         None => "Changed:".to_string(),
     };
 
-    let (left, right) = render_changed_pair(ctx, left, left_doc, right, right_doc);
+    let (mut left, mut right) = render_changed_pair(ctx, &pair, left, left_doc, right, right_doc);
 
     let above_filler = left.lines_above.abs_diff(right.lines_above);
     let below_filler = left.lines_below.abs_diff(right.lines_below);
 
     // Prepend top filler to the side with fewer lines above
-    let (left_col, right_col) = if left.lines_above < right.lines_above {
-        (
-            Column::concat([Column::blank(above_filler, ctx.half_width()), left.content]),
-            right.content,
-        )
+    let (mut left_col, mut right_col) = if left.lines_above < right.lines_above {
+        left.content.prepend_blank(above_filler);
+        (left.content, right.content)
     } else {
-        (
-            left.content,
-            Column::concat([Column::blank(above_filler, ctx.half_width()), right.content]),
-        )
+        right.content.prepend_blank(above_filler);
+        (left.content, right.content)
     };
 
     // Append bottom filler to the side with fewer lines below
     let (left_col, right_col) = if left.lines_below < right.lines_below {
-        (
-            Column::concat([left_col, Column::blank(below_filler, ctx.half_width())]),
-            right_col,
-        )
+        left_col.append_blank(below_filler);
+        (left_col, right_col)
     } else {
-        (
-            left_col,
-            Column::concat([right_col, Column::blank(below_filler, ctx.half_width())]),
-        )
+        right_col.append_blank(below_filler);
+        (left_col, right_col)
     };
 
-    let body = left_col.zip_with(right_col, ctx.half_width()).join("\n");
+    let body = pair.zip(left_col, right_col).join("\n");
 
     format!("{title}\n{body}")
 }
 
 fn render_changed_pair(
     ctx: &RenderContext,
+    pair: &ColumnPair,
     left: MarkedYamlOwned,
     left_doc: &YamlSource,
     right: MarkedYamlOwned,
@@ -989,19 +983,21 @@ fn render_changed_pair(
         (None, None)
     };
 
-    let left = render_changed_snippet(ctx, left_doc, left, left_parts);
-    let right = render_changed_snippet(ctx, right_doc, right, right_parts);
+    let left_col = pair.column();
+    let right_col = pair.column();
+
+    let left = render_changed_snippet(ctx, left_doc, left_col, left, left_parts);
+    let right = render_changed_snippet(ctx, right_doc, right_col, right, right_parts);
     (left, right)
 }
 
 fn render_changed_snippet(
     ctx: &RenderContext,
     source: &YamlSource,
+    mut column: LColumn,
     changed_yaml: MarkedYamlOwned,
     inline_parts: Option<Vec<InlinePart>>,
 ) -> Rendered {
-    use crate::wrapping::{SourceLineGroup, WrappedLineUsize, format_with_inline_highlights};
-
     let start_line_of_document = source.yaml.span.start.line();
 
     let lines: Vec<_> = source.content.lines().map(|s| s.to_string()).collect();
@@ -1014,37 +1010,58 @@ fn render_changed_snippet(
 
     let lines_above = changed_line - start;
     let lines_below = end - changed_line;
+    let changed = std::sync::Arc::new(ctx.theme.changed);
+    let dimmed = std::sync::Arc::new(ctx.theme.dimmed);
 
-    let width = ctx.temp_column_width;
-
-    let groups: Vec<SourceLineGroup> = left_snippet
+    left_snippet
         .iter()
         .zip(start..end)
         .map(|(line, line_nr)| {
-            if line_nr == changed_line {
-                if let Some(parts) = &inline_parts {
-                    let prefix = extract_yaml_prefix(line);
-                    return format_with_inline_highlights(line_nr, prefix, parts, ctx.theme, width);
-                }
+            if line_nr == changed_line
+                && let Some(parts) = &inline_parts
+            {
+                let prefix = extract_yaml_prefix(line);
+                return format_with_inline_highlights(line_nr, prefix, parts, ctx.theme);
             }
             let highlight = if line_nr == changed_line {
-                ctx.theme.changed
+                Arc::clone(&changed)
             } else {
-                ctx.theme.dimmed
+                Arc::clone(&dimmed)
             };
-            WrappedLineUsize {
-                line_nr,
-                segments: crate::wrapping::wrap_text(line, width),
-            }
-            .format_with_usize(highlight, width)
+            let l = LLine::new(Highlighted::new(line, highlight));
+            l.with_nr(line_nr)
         })
-        .collect();
+        .for_each(|l| column.push(l));
 
     Rendered {
-        content: Column(groups),
+        content: column,
         lines_above,
         lines_below,
     }
+}
+
+pub fn format_with_inline_highlights(
+    _line_nr: usize,
+    _prefix: &str,
+    parts: &[InlinePart],
+    theme: Theme,
+) -> LLine {
+    let mut x = LInlineParts::new();
+
+    let dimmed = std::sync::Arc::new(theme.dimmed);
+    let changed = std::sync::Arc::new(theme.changed);
+
+    for part in parts {
+        x = x.push(
+            &part.text,
+            if part.emphasized {
+                changed.clone()
+            } else {
+                dimmed.clone()
+            },
+        );
+    }
+    LLine::new(x)
 }
 
 /// Render an entire [`YamlSource`] document as a [`Column`].

@@ -197,6 +197,10 @@ pub fn format_with_inline_highlights(
     theme: Theme,
     width: usize,
 ) -> SourceLineGroup {
+    /// let parts = InlineParts::new()
+    ///     .push("key: ",     Arc::new(|s: &str| format!("[dim]{s}[/]")))
+    ///     .push("new_value", Arc::new(|s: &str| format!("[bold]{s}[/]")))
+    ///     .push(" # note",   Arc::new(|s: &str| format!("[dim]{s}[/]")));
     // Build the styled content by applying different styles to each part
     let mut styled_content = String::new();
 
