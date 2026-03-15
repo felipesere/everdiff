@@ -1,6 +1,7 @@
 use std::{io::IsTerminal, io::Write};
 
 use everdiff_diff::{Difference, path::IgnorePath};
+use everdiff_layout::ColumnPair;
 use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
 use owo_colors::OwoColorize;
 

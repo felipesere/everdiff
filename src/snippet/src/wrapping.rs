@@ -127,7 +127,7 @@ impl WrappedLine {
 
     /// Style the segments and format them into rows with line number widgets and padding.
     /// The first segment gets the real line number; continuation segments get a blank line widget.
-    pub fn format(self, highlight: Highlight, half_width: usize) -> SourceLineGroup {
+    pub fn format(self, highlight: Highlight, column_width: usize) -> SourceLineGroup {
         let rows = self
             .segments
             .into_iter()
@@ -144,7 +144,7 @@ impl WrappedLine {
 
                 FormattedRow(format!(
                     "{line_widget}│ {styled:<width$}",
-                    width = half_width + extras
+                    width = column_width + extras
                 ))
             })
             .collect();
@@ -237,9 +237,9 @@ pub fn format_with_inline_highlights(
 
 impl FormattedRow {
     /// Create a blank padded row (for gaps).
-    pub fn blank(half_width: usize) -> Self {
+    pub fn blank(column_width: usize) -> Self {
         let line_widget = LineWidget::Filler;
-        FormattedRow(format!("{line_widget}│ {blank:<half_width$}", blank = ""))
+        FormattedRow(format!("{line_widget}│ {blank:<column_width$}", blank = ""))
     }
 }
 
@@ -292,7 +292,7 @@ impl Column {
     /// Each source line group is paired; when one side has more rows in a group,
     /// the other side is padded with blank rows. Stops at the shorter column
     /// Returns the combined lines as strings.
-    pub fn zip_with(self, other: Column, half_width: usize) -> Vec<String> {
+    pub fn zip_with(self, other: Column, column_width: usize) -> Vec<String> {
         let min_groups = self.0.len().min(other.0.len());
         // Each FormattedRow already contains its own prefix before the content:
         //   line widget: "{:>3} "  → 4 chars
@@ -300,7 +300,7 @@ impl Column {
         // Total fixed prefix: 6 chars. The outer format pads to this full width.
         let line_widget_width = 4;
         let separator_width = 2;
-        let width = half_width + line_widget_width + separator_width;
+        let width = column_width + line_widget_width + separator_width;
 
         let mut result = Vec::new();
 
@@ -315,7 +315,7 @@ impl Column {
             let right_rows = right_group.0;
             let max_rows = left_rows.len().max(right_rows.len());
 
-            let blank = FormattedRow::blank(half_width);
+            let blank = FormattedRow::blank(column_width);
             for i in 0..max_rows {
                 let left = left_rows.get(i).map(|r| r.0.as_str()).unwrap_or(&blank.0);
                 let right = right_rows.get(i).map(|r| r.0.as_str()).unwrap_or(&blank.0);
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn column_zip_with_symmetric() {
-        let half_width = 20;
+        let column_width = 20;
         let left = Column(vec![
             SourceLineGroup(vec![FormattedRow("   1 │ left line 1      ".to_string())]),
             SourceLineGroup(vec![FormattedRow("   2 │ left line 2      ".to_string())]),
@@ -437,13 +437,13 @@ mod tests {
             SourceLineGroup(vec![FormattedRow("   2 │ right line 2     ".to_string())]),
         ]);
 
-        let result = left.zip_with(right, half_width);
+        let result = left.zip_with(right, column_width);
         assert_eq!(result.len(), 2);
     }
 
     #[test]
     fn column_zip_with_asymmetric_wrapping() {
-        let half_width = 20;
+        let column_width = 20;
         // Left side: first source line wraps to 2 rows
         let left = Column(vec![
             SourceLineGroup(vec![
@@ -458,7 +458,7 @@ mod tests {
             SourceLineGroup(vec![FormattedRow("   2 │ right line 2     ".to_string())]),
         ]);
 
-        let result = left.zip_with(right, half_width);
+        let result = left.zip_with(right, column_width);
         // First group: 2 rows (left wrapped), second group: 1 row each
         assert_eq!(result.len(), 3);
     }

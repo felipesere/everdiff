@@ -285,6 +285,7 @@ dependencies = [
  "camino",
  "either",
  "everdiff-diff",
+ "everdiff-layout",
  "everdiff-line",
  "everdiff-multidoc",
  "expect-test",
