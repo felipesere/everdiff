@@ -1,7 +1,10 @@
-use std::{io::IsTerminal, io::Write};
+use std::{
+    io::{IsTerminal, Write},
+    sync::Arc,
+};
 
 use everdiff_diff::{Difference, path::IgnorePath};
-use everdiff_layout::ColumnPair;
+use everdiff_layout::{ColumnPair, Highlighted};
 use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
 use owo_colors::OwoColorize;
 
@@ -15,8 +18,6 @@ pub use snippet::{
     render_difference, render_removal,
 };
 pub use wrapping::Column;
-
-use crate::snippet::unchanged_highlight;
 
 // TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
 #[allow(clippy::too_many_arguments)]
@@ -33,6 +34,20 @@ pub fn render_multidoc_diff<W: Write>(
     if differences.is_empty() {
         writeln!(writer, "No differences found")?;
     }
+
+    // WARN: Go through these numbers at some point...
+    let max_width = if std::io::stdout().is_terminal() {
+        // Format for terminal
+        terminal_size::terminal_size()
+            .map(|(terminal_size::Width(n), _)| n)
+            .unwrap_or(80)
+    } else {
+        // When piped, assume wider or no limit
+        terminal_size::terminal_size_of(std::io::stderr())
+            .map(|(terminal_size::Width(n), _)| n)
+            .unwrap_or(80)
+    } - 8;
+    let half_width = ((max_width.saturating_sub(12)) / 2) as usize;
 
     differences.sort();
 
@@ -70,38 +85,29 @@ pub fn render_multidoc_diff<W: Write>(
                         .collect()
                 };
 
-                writeln!(writer)?;
-                writeln!(writer, "{}", "Changed document:".bold().underline())?;
-                let actual_left_doc = &left[l.1];
-                let actual_right_doc = &right[r.1];
-                let max_width = if std::io::stdout().is_terminal() {
-                    // Format for terminal
-                    terminal_size::terminal_size()
-                        .map(|(terminal_size::Width(n), _)| n)
-                        .unwrap_or(80)
-                } else {
-                    // When piped, assume wider or no limit
-                    terminal_size::terminal_size_of(std::io::stderr())
-                        .map(|(terminal_size::Width(n), _)| n)
-                        .unwrap_or(80)
-                };
-                // CHROME = outer "│ " (2) + line_widget (4) + inner "│ " (2) = 8 per side × 2
-                let half_width = ((max_width.saturating_sub(16)) / 2) as usize;
+                let pair = ColumnPair::new_plain(max_width as usize);
+                let mut left_column = pair.column();
+                let mut right_column = pair.column();
+                left_column.new_push(Highlighted::new(
+                    "Changed document:",
+                    Arc::new(|s| s.bold().underline().to_string()),
+                ));
+                let dimmed = Arc::new(|s: &str| s.dimmed().to_string());
+                for (k, v) in &fields.0 {
+                    if let Some(v) = v {
+                        left_column
+                            .new_push(Highlighted::new(format!("{k} -> {v}"), dimmed.clone()))
+                    }
+                }
+                right_column.append_blank(left_column.row_count());
 
-                let left_column = Column::from_lines(
-                    fields
-                        .to_string()
-                        .lines()
-                        .enumerate()
-                        .map(|(idx, line)| (idx, line, unchanged_highlight())),
-                    half_width,
-                );
-                let right_column = left_column.clone();
-
-                for line in left_column.zip_with(right_column, half_width) {
-                    writeln!(writer, "{line}")?;
+                for l in pair.zip(left_column, right_column) {
+                    let _ = writeln!(writer, "{l}");
                 }
                 writeln!(writer)?;
+
+                let actual_left_doc = &left[l.1];
+                let actual_right_doc = &right[r.1];
 
                 let ctx = RenderContext::new(
                     max_width,

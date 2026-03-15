@@ -41,8 +41,8 @@ impl StyledContent for &'static str {
 /// Because highlighting is applied per segment, ANSI codes are always
 /// self-contained within a segment — no reset/reopen across line breaks needed.
 pub struct Highlighted {
-    text: String,
-    highlight: Highlight,
+    pub text: String,
+    pub highlight: Highlight,
 }
 
 impl Highlighted {
