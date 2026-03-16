@@ -1,7 +1,7 @@
 use std::io::{ErrorKind, Read};
 
 use anyhow::Context;
-use bpaf::{Parser, construct, short};
+use bpaf::{Parser, construct, long, short};
 use camino::Utf8Path;
 use everdiff_diff::path::IgnorePath;
 use everdiff_multidoc::{
@@ -46,14 +46,13 @@ fn args() -> impl Parser<Args> {
         .argument::<IgnorePath>("PATH")
         .many();
 
-    let watch = short('w')
-        .long("watch")
+    let watch = long("watch")
         .help("Watch the `left` and `right` files for changes and re-run")
         .switch();
 
     let word_wise_diff = short('w')
         .long("word-wise-diff")
-        .help("Highlight character based differences where possible") // TODO: this needs a better description
+        .help("Highlight character based differences where possible")
         .switch();
 
     let lines_before = short('B')
@@ -91,12 +90,12 @@ fn args() -> impl Parser<Args> {
         ignore_changes,
         watch,
         verbosity,
-        left,
-        right,
         word_wise_diff,
         lines_before,
         lines_after,
         lines_context,
+        left,
+        right,
     })
 }
 
@@ -121,7 +120,10 @@ fn main() -> anyhow::Result<()> {
 
     let (lines_before, lines_after) = match args.lines_context {
         Some(c) => (c, c),
-        None => (args.lines_before.unwrap_or(5), args.lines_after.unwrap_or(5)),
+        None => (
+            args.lines_before.unwrap_or(5),
+            args.lines_after.unwrap_or(5),
+        ),
     };
 
     log::debug!("Starting everdiff with args: {:?}", args);
