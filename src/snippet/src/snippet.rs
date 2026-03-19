@@ -384,10 +384,12 @@ fn render_change(
         secondary.row_count()
     );
 
+    let pair = ColumnPair::new(ctx.max_width as usize);
+
     // Combine the two sides based on change type
     let lines = match change_type {
-        ChangeType::Removal => primary.zip_with(secondary, ctx.half_width()),
-        ChangeType::Addition => secondary.zip_with(primary, ctx.half_width()),
+        ChangeType::Removal => pair.zip(primary, secondary),
+        ChangeType::Addition => pair.zip(secondary, primary),
     };
 
     lines.join("\n")
@@ -398,7 +400,14 @@ fn render_primary_side(
     primary_doc: &YamlSource,
     item: &Entry,
     (highlighting, unchanged): (Highlight, Highlight),
-) -> Column {
+) -> LColumn {
+    // TODO: pull up or directly in to the theme!
+    let highlighted = Arc::new(Box::new(highlighting));
+    let unchanged = Arc::new(Box::new(unchanged));
+
+    let pair = ColumnPair::new(ctx.max_width as usize);
+    let mut column = pair.column();
+
     // Extract lines from primary document
     let primary_lines = primary_doc.lines();
 
@@ -424,17 +433,17 @@ fn render_primary_side(
     log::debug!("We will highlight {change_start}..={change_end}");
 
     // line_nr.get() - 1 mirrors LineWidget::from(Line) which subtracts 1 for 0-based display
-    Column::from_lines(
-        primary_snippet.iter().map(move |(line_nr, line)| {
-            let style = if changed_range.contains(&line_nr) {
-                highlighting
-            } else {
-                unchanged
-            };
-            (line_nr.get() - 1, line, style)
-        }),
-        ctx.half_width(),
-    )
+    for (nr, line) in primary_snippet.iter() {
+        let style = if changed_range.contains(&nr) {
+            highlighted.clone()
+        } else {
+            unchanged.clone()
+        };
+        let l = LLine::new(Highlighted::new(line, style)).with_nr(nr.get() - 1);
+        column.push(l);
+    }
+
+    column
 }
 
 fn render_secondary_side(
@@ -445,8 +454,12 @@ fn render_secondary_side(
     primary_row_count: usize,
     gap_size: usize,
     unchanged: Highlight,
-) -> Column {
+) -> LColumn {
     log::debug!("changed_node: {path_to_changed_node}");
+    let unchanged = Arc::new(Box::new(unchanged));
+
+    let pair = ColumnPair::new(ctx.max_width as usize);
+    let mut column = pair.column();
 
     let gap_start =
         gap_start(primary_doc, secondary_doc, path_to_changed_node).unwrap_or(Line::one());
@@ -471,24 +484,18 @@ fn render_secondary_side(
     };
     log::debug!("Filler will be {filler_len}");
 
-    let width = ctx.half_width();
-    // line_nr.get() - 1 mirrors LineWidget::from(Line) which subtracts 1 for 0-based display
-    Column::concat([
-        Column::blank(filler_len, width),
-        Column::from_lines(
-            before_gap
-                .iter()
-                .map(|(line_nr, line)| (line_nr.get() - 1, line, unchanged)),
-            width,
-        ),
-        Column::blank(gap_size, width),
-        Column::from_lines(
-            after_gap
-                .iter()
-                .map(|(line_nr, line)| (line_nr.get() - 1, line, unchanged)),
-            width,
-        ),
-    ])
+    column.append_blank(filler_len);
+    for (nr, line) in before_gap.iter() {
+        let line = LLine::new(Highlighted::new(line, unchanged.clone())).with_nr(nr.get() - 1);
+        column.push(line);
+    }
+    column.append_blank(gap_size);
+    for (nr, line) in after_gap.iter() {
+        let line = LLine::new(Highlighted::new(line, unchanged.clone())).with_nr(nr.get() - 1);
+        column.push(line);
+    }
+
+    column
 }
 
 /// Adjusts a path from primary document indexing to secondary document indexing.
@@ -1041,18 +1048,26 @@ fn render_changed_snippet(
 }
 
 pub fn format_with_inline_highlights(
-    _line_nr: usize,
-    _prefix: &str,
+    line_nr: usize,
+    prefix: &str,
     parts: &[InlinePart],
     theme: Theme,
 ) -> LLine {
-    let mut x = LInlineParts::new();
+    let mut inline_parts = LInlineParts::new();
 
     let dimmed = std::sync::Arc::new(theme.dimmed);
     let changed = std::sync::Arc::new(theme.changed);
+    if let Some(key_part) = prefix.strip_suffix(": ") {
+        let key_start = key_part.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+        inline_parts.push(&key_part[..key_start], dimmed.clone());
+        inline_parts.push(&key_part[key_start..], changed.clone());
+        inline_parts.push(": ", dimmed.clone());
+    } else {
+        inline_parts.push(prefix, dimmed.clone());
+    }
 
     for part in parts {
-        x = x.push(
+        inline_parts.push(
             &part.text,
             if part.emphasized {
                 changed.clone()
@@ -1061,7 +1076,7 @@ pub fn format_with_inline_highlights(
             },
         );
     }
-    LLine::new(x)
+    LLine::new(inline_parts).with_nr(line_nr)
 }
 
 /// Render an entire [`YamlSource`] document as a [`Column`].

@@ -102,7 +102,7 @@ impl InlineParts {
     }
 
     /// Append a text span with its associated highlight function.
-    pub fn push(mut self, text: impl Into<String>, highlight: Highlight) -> Self {
+    pub fn push(&mut self, text: impl Into<String>, highlight: Highlight) -> &Self {
         self.parts.push((text.into(), highlight));
         self
     }
@@ -180,9 +180,9 @@ mod tests {
 
     #[test]
     fn inline_parts_no_wrap_needed() {
-        let parts = InlineParts::new()
-            .push("key: ", Arc::new(|s: &str| dim(s)))
-            .push("val", Arc::new(|s: &str| bold(s)));
+        let mut parts = InlineParts::new();
+        parts.push("key: ", Arc::new(|s: &str| dim(s)));
+        parts.push("val", Arc::new(|s: &str| bold(s)));
         let segs = parts.styled_segments(20);
         assert_eq!(segs, vec!["[dim]key: [/][bold]val[/]"]);
     }
@@ -190,10 +190,10 @@ mod tests {
     #[test]
     fn inline_parts_wraps_across_part_boundary() {
         // width=10, parts: "key: "(5) + "old  new"(8) + " # note"(7)
-        let parts = InlineParts::new()
-            .push("key: ", Arc::new(|s: &str| dim(s)))
-            .push("old  new", Arc::new(|s: &str| bold(s)))
-            .push(" # note", Arc::new(|s: &str| dim(s)));
+        let mut parts = InlineParts::new();
+        parts.push("key: ", Arc::new(|s: &str| dim(s)));
+        parts.push("old  new", Arc::new(|s: &str| bold(s)));
+        parts.push(" # note", Arc::new(|s: &str| dim(s)));
         let segs = parts.styled_segments(10);
         assert_eq!(
             segs,
@@ -204,7 +204,8 @@ mod tests {
     #[test]
     fn inline_parts_part_split_mid_word() {
         // width=4, one part "hello" → split into "hell" + "o"
-        let parts = InlineParts::new().push("hello", Arc::new(|s: &str| bold(s)));
+        let mut parts = InlineParts::new();
+        parts.push("hello", Arc::new(|s: &str| bold(s)));
         let segs = parts.styled_segments(4);
         assert_eq!(segs, vec!["[bold]hell[/]", "[bold]o[/]"]);
     }

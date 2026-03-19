@@ -61,8 +61,7 @@
 
 use everdiff_line::Line;
 
-use crate::inline_diff::InlinePart;
-use crate::snippet::{Highlight, LineWidget, Theme};
+use crate::snippet::{Highlight, LineWidget};
 
 /// A plain text chunk that fits within the column width, containing no ANSI codes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,57 +187,6 @@ impl WrappedLineUsize {
     }
 }
 
-/// Format a line with inline highlights where only certain parts are emphasized.
-/// This builds a pre-styled string with ANSI codes applied per-part.
-pub fn format_with_inline_highlights(
-    line_nr: usize,
-    prefix: &str,
-    parts: &[InlinePart],
-    theme: Theme,
-    width: usize,
-) -> SourceLineGroup {
-    /// let parts = InlineParts::new()
-    ///     .push("key: ",     Arc::new(|s: &str| format!("[dim]{s}[/]")))
-    ///     .push("new_value", Arc::new(|s: &str| format!("[bold]{s}[/]")))
-    ///     .push(" # note",   Arc::new(|s: &str| format!("[dim]{s}[/]")));
-    // Build the styled content by applying different styles to each part
-    let mut styled_content = String::new();
-
-    if let Some(key_part) = prefix.strip_suffix(": ") {
-        let key_start = key_part.find(|c: char| !c.is_whitespace()).unwrap_or(0);
-        styled_content.push_str(&theme.dimmed(&key_part[..key_start]));
-        styled_content.push_str(&theme.changed(&key_part[key_start..]));
-        styled_content.push_str(&theme.dimmed(": "));
-    } else {
-        styled_content.push_str(&theme.dimmed(prefix));
-    }
-
-    // Then add each part with appropriate styling
-    for part in parts {
-        if part.emphasized {
-            styled_content.push_str(&theme.changed(&part.text));
-        } else {
-            styled_content.push_str(&theme.dimmed(&part.text));
-        }
-    }
-
-    // Calculate visible width using ansi_width
-    let visible_width = ansi_width::ansi_width(&styled_content);
-
-    // Calculate extras for format padding (difference between byte length and visible width)
-    let extras = styled_content.len() - visible_width;
-
-    let line_widget = LineWidget::Nr(line_nr);
-
-    // Format with proper padding
-    let row = FormattedRow(format!(
-        "{line_widget}│ {styled_content:<width$}",
-        width = width + extras
-    ));
-
-    SourceLineGroup(vec![row])
-}
-
 impl FormattedRow {
     /// Create a blank padded row (for gaps).
     pub fn blank(column_width: usize) -> Self {
@@ -338,7 +286,6 @@ impl Column {
 mod tests {
     use super::*;
     use crate::snippet::Theme;
-    use expect_test::expect;
 
     #[test]
     fn wrap_text_short_line_no_wrapping() {
@@ -520,28 +467,5 @@ mod tests {
         assert!(row.0.contains("│"));
         // Should be padded to the right width
         assert!(row.0.len() >= 20);
-    }
-
-    #[test]
-    fn key_and_value_diff_are_highlighted() {
-        let parts = vec![
-            InlinePart {
-                text: "Steve ".to_string(),
-                emphasized: false,
-            },
-            InlinePart {
-                text: "E. ".to_string(),
-                emphasized: true,
-            },
-            InlinePart {
-                text: "Anderson".to_string(),
-                emphasized: false,
-            },
-        ];
-        let group = format_with_inline_highlights(1, "  name: ", &parts, Theme::markers(), 40);
-        expect![
-            "  2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve [/][yellow]E. [/][dim]Anderson[/]"
-        ]
-        .assert_eq(&group.0[0].0);
     }
 }
