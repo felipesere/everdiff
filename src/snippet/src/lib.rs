@@ -11,13 +11,11 @@ use owo_colors::OwoColorize;
 mod inline_diff;
 mod node;
 mod snippet;
-pub mod wrapping;
 
 pub use snippet::{
-    Highlight, LineWidget, RenderContext, Theme, column_from_source, gap_start, render_added,
-    render_difference, render_removal,
+    Highlight, LineWidget, RenderContext, Theme, gap_start, render_added, render_difference,
+    render_removal,
 };
-pub use wrapping::Column;
 
 // TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
 #[allow(clippy::too_many_arguments)]

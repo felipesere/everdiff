@@ -5,7 +5,6 @@ use std::{
     sync::Arc,
 };
 
-use crate::wrapping::Column;
 use everdiff_diff::{
     Entry,
     path::{NonEmptyPath, Path, Segment},
@@ -1077,21 +1076,6 @@ pub fn format_with_inline_highlights(
         );
     }
     LLine::new(inline_parts).with_nr(line_nr)
-}
-
-/// Render an entire [`YamlSource`] document as a [`Column`].
-///
-/// Every line is styled with `highlight`. Line numbers are 0-based, matching
-/// the convention used by the rest of the side-by-side rendering.
-pub fn column_from_source(source: &YamlSource, highlight: Highlight, width: usize) -> Column {
-    Column::from_lines(
-        source
-            .lines()
-            .into_iter()
-            .enumerate()
-            .map(|(i, line)| (i, line, highlight)),
-        width,
-    )
 }
 
 // pub struct LineWidget(pub Option<usize>);
