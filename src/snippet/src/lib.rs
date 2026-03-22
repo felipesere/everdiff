@@ -45,7 +45,6 @@ pub fn render_multidoc_diff<W: Write>(
             .map(|(terminal_size::Width(n), _)| n)
             .unwrap_or(80)
     } - 8;
-    let half_width = ((max_width.saturating_sub(12)) / 2) as usize;
 
     differences.sort();
 
@@ -107,13 +106,7 @@ pub fn render_multidoc_diff<W: Write>(
                 let actual_left_doc = &left[l.1];
                 let actual_right_doc = &right[r.1];
 
-                let ctx = RenderContext::new(
-                    max_width,
-                    half_width,
-                    word_wise_diff,
-                    lines_before,
-                    lines_after,
-                );
+                let ctx = RenderContext::new(max_width, word_wise_diff, lines_before, lines_after);
                 write!(
                     writer,
                     "{}",
