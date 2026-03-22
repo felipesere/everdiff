@@ -9,9 +9,7 @@ use everdiff_diff::{
     Entry,
     path::{NonEmptyPath, Path, Segment},
 };
-use everdiff_layout::{
-    Column as LColumn, ColumnPair, Highlighted, InlineParts as LInlineParts, Line as LLine,
-};
+use everdiff_layout::{Column, ColumnPair, Highlighted, InlineParts, Line as LLine};
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
@@ -84,7 +82,6 @@ impl Theme {
 #[derive(Clone)]
 pub struct RenderContext {
     pub max_width: u16,
-    pub temp_column_width: usize,
     pub word_wise_diff: bool,
     pub lines_before: usize,
     pub lines_after: usize,
@@ -94,27 +91,17 @@ pub struct RenderContext {
 impl RenderContext {
     pub fn new(
         max_width: u16,
-        temp_column_width: usize, // FIXME: temporarily keep track of the half width to later eliminate it
         word_wise_diff: bool,
         lines_before: usize,
         lines_after: usize,
     ) -> Self {
         RenderContext {
             max_width,
-            temp_column_width,
             word_wise_diff,
             lines_before,
             lines_after,
             theme: Theme::colored(),
         }
-    }
-
-    pub fn half_width(&self) -> usize {
-        // Fixed chrome per side: outer "│ " (2) + line widget "{:>3} " (4) + inner "│ " (2) = 8
-        // Two sides: 16 chars of total non-content width.
-        // const CHROME: u16 = 8 * 2;
-        // ((self.max_width - CHROME) / 2) as usize
-        self.temp_column_width
     }
 }
 
@@ -283,7 +270,7 @@ mod snippet_tests {
 }
 
 struct Rendered {
-    content: LColumn,
+    content: Column,
     lines_above: usize,
     lines_below: usize,
 }
@@ -399,7 +386,7 @@ fn render_primary_side(
     primary_doc: &YamlSource,
     item: &Entry,
     (highlighting, unchanged): (Highlight, Highlight),
-) -> LColumn {
+) -> Column {
     // TODO: pull up or directly in to the theme!
     let highlighted = Arc::new(Box::new(highlighting));
     let unchanged = Arc::new(Box::new(unchanged));
@@ -453,7 +440,7 @@ fn render_secondary_side(
     primary_row_count: usize,
     gap_size: usize,
     unchanged: Highlight,
-) -> LColumn {
+) -> Column {
     log::debug!("changed_node: {path_to_changed_node}");
     let unchanged = Arc::new(Box::new(unchanged));
 
@@ -488,7 +475,9 @@ fn render_secondary_side(
         let line = LLine::new(Highlighted::new(line, unchanged.clone())).with_nr(nr.get() - 1);
         column.push(line);
     }
-    column.append_blank(gap_size);
+    for _ in 0..gap_size {
+        column.push(LLine::blank().filler_nr());
+    }
     for (nr, line) in after_gap.iter() {
         let line = LLine::new(Highlighted::new(line, unchanged.clone())).with_nr(nr.get() - 1);
         column.push(line);
@@ -1000,7 +989,7 @@ fn render_changed_pair(
 fn render_changed_snippet(
     ctx: &RenderContext,
     source: &YamlSource,
-    mut column: LColumn,
+    mut column: Column,
     changed_yaml: MarkedYamlOwned,
     inline_parts: Option<Vec<InlinePart>>,
 ) -> Rendered {
@@ -1052,7 +1041,7 @@ pub fn format_with_inline_highlights(
     parts: &[InlinePart],
     theme: Theme,
 ) -> LLine {
-    let mut inline_parts = LInlineParts::new();
+    let mut inline_parts = InlineParts::new();
 
     let dimmed = std::sync::Arc::new(theme.dimmed);
     let changed = std::sync::Arc::new(theme.changed);
@@ -1164,7 +1153,6 @@ mod test {
         RenderContext {
             word_wise_diff: true,
             max_width,
-            temp_column_width: ((max_width - 16) / 2) as usize,
             theme: super::Theme::markers(),
             lines_before: 5,
             lines_after: 5,

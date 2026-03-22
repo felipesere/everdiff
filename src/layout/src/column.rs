@@ -45,6 +45,13 @@ impl FormattedRow {
 pub struct LineGroup(pub Vec<FormattedRow>);
 
 // --- Line ------------------------------------------------------------------------
+#[derive(Clone, Copy)]
+pub enum LineNr {
+    Nr(usize),
+    // Take the space and add borders as if there was a number
+    FillerNumber,
+    None,
+}
 
 /// A single logical line of content, optionally carrying a line number.
 ///
@@ -53,21 +60,33 @@ pub struct LineGroup(pub Vec<FormattedRow>);
 /// [`Column::push`] after wrapping.
 pub struct Line {
     /// 0-based line index. Displayed as `nr + 1`. `None` → no line number widget.
-    pub nr: Option<usize>,
+    pub nr: LineNr,
     pub content: Box<dyn StyledContent>,
 }
 
 impl Line {
+    pub fn blank() -> Self {
+        Line {
+            nr: LineNr::None,
+            content: Box::new(""),
+        }
+    }
+
     pub fn new(content: impl StyledContent + 'static) -> Self {
         Line {
-            nr: None,
+            nr: LineNr::None,
             content: Box::new(content),
         }
     }
 
     /// Attach a 0-based line index (displayed as `nr + 1`).
     pub fn with_nr(mut self, nr: usize) -> Self {
-        self.nr = Some(nr);
+        self.nr = LineNr::Nr(nr);
+        self
+    }
+
+    pub fn filler_nr(mut self) -> Self {
+        self.nr = LineNr::FillerNumber;
         self
     }
 }
@@ -96,7 +115,6 @@ impl Column {
     pub fn push(&mut self, line: Line) {
         let nr = line.nr;
         let segments = line.content.styled_segments(self.content_width);
-        let has_nr = nr.is_some();
 
         let rows = segments
             .into_iter()
@@ -106,9 +124,9 @@ impl Column {
                 let extras = styled.len() - ansi_width::ansi_width(&styled);
 
                 let widget = match (i, nr) {
-                    (0, Some(n)) => LineWidget::Nr(n),
-                    (0, None) => LineWidget::Filler,
-                    _ if has_nr => LineWidget::Continuation,
+                    (0, LineNr::Nr(n)) => LineWidget::Nr(n),
+                    (0, LineNr::None) => LineWidget::Filler,
+                    (_, LineNr::Nr(_)) => LineWidget::Continuation,
                     _ => LineWidget::Filler,
                 };
 
