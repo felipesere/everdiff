@@ -4,7 +4,7 @@ use std::{
 };
 
 use everdiff_diff::{Difference, path::IgnorePath};
-use everdiff_layout::{ColumnPair, Highlighted};
+use everdiff_layout::{ColumnPair, Highlighted, Line};
 use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
 use owo_colors::OwoColorize;
 
@@ -82,13 +82,16 @@ pub fn render_multidoc_diff<W: Write>(
                         .collect()
                 };
 
-                let pair = ColumnPair::new_plain(max_width as usize);
+                let pair = ColumnPair::new_plain(max_width);
                 let mut left_column = pair.column();
                 let mut right_column = pair.column();
                 left_column.new_push(Highlighted::new(
                     "Changed document:",
                     Arc::new(|s| s.bold().underline().to_string()),
                 ));
+                left_column.new_push(format!("{}", l.0));
+                right_column.append_blank(1);
+                right_column.new_push(format!("{}", r.0));
                 let dimmed = Arc::new(|s: &str| s.dimmed().to_string());
                 for (k, v) in &fields.0 {
                     if let Some(v) = v {

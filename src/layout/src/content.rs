@@ -16,19 +16,19 @@ pub type Highlight = Arc<dyn Fn(&str) -> String + Send + Sync>;
 pub trait StyledContent: Send + Sync {
     /// Return one styled string per display row, each fitting within `width` visible columns.
     /// Strings may contain ANSI codes; visible width ≤ `width` for all returned strings.
-    fn styled_segments(&self, width: usize) -> Vec<String>;
+    fn styled_segments(&self, width: u16) -> Vec<String>;
 }
 
 // --- Plain string ----------------------------------------------------------------
 
 impl StyledContent for String {
-    fn styled_segments(&self, width: usize) -> Vec<String> {
+    fn styled_segments(&self, width: u16) -> Vec<String> {
         wrap_plain(self, width)
     }
 }
 
 impl StyledContent for &'static str {
-    fn styled_segments(&self, width: usize) -> Vec<String> {
+    fn styled_segments(&self, width: u16) -> Vec<String> {
         wrap_plain(self, width)
     }
 }
@@ -55,7 +55,7 @@ impl Highlighted {
 }
 
 impl StyledContent for Highlighted {
-    fn styled_segments(&self, width: usize) -> Vec<String> {
+    fn styled_segments(&self, width: u16) -> Vec<String> {
         wrap_plain(&self.text, width)
             .into_iter()
             .map(|seg| (self.highlight)(&seg))
@@ -97,11 +97,12 @@ impl Default for InlineParts {
 }
 
 impl StyledContent for InlineParts {
-    fn styled_segments(&self, width: usize) -> Vec<String> {
+    fn styled_segments(&self, width: u16) -> Vec<String> {
         if width == 0 {
             return vec![String::new()];
         }
 
+        let width_usize = width as usize;
         let mut segments: Vec<String> = Vec::new();
         let mut current = String::new();
         let mut current_width = 0usize;
@@ -109,8 +110,8 @@ impl StyledContent for InlineParts {
         for (text, highlight) in &self.parts {
             let mut remaining = text.as_str();
             while !remaining.is_empty() {
-                let remaining_available_space = width.saturating_sub(current_width);
-                let (fits, rest) = split_at_width(remaining, remaining_available_space);
+                let remaining_available_space = width_usize.saturating_sub(current_width);
+                let (fits, rest) = split_at_width(remaining, remaining_available_space as u16);
 
                 if !fits.is_empty() {
                     current.push_str(&highlight(fits));
@@ -120,7 +121,7 @@ impl StyledContent for InlineParts {
                 remaining = rest;
 
                 // Close the segment when full and there is still more text to place.
-                if current_width >= width && !remaining.is_empty() {
+                if current_width >= width_usize && !remaining.is_empty() {
                     segments.push(std::mem::take(&mut current));
                     current_width = 0;
                 }

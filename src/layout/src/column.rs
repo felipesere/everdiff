@@ -36,8 +36,9 @@ impl fmt::Display for LineWidget {
 pub struct FormattedRow(pub String);
 
 impl FormattedRow {
-    fn blank(content_width: usize) -> Self {
-        FormattedRow(format!("{blank:<content_width$}", blank = "",))
+    fn blank(content_width: u16) -> Self {
+        let w = content_width as usize;
+        FormattedRow(format!("{blank:<w$}", blank = "",))
     }
 }
 
@@ -98,12 +99,12 @@ impl Line {
 /// Build by calling [`push`](Column::push) and [`blank`](Column::blank).
 /// Zip two columns together with [`ColumnPair::zip`].
 pub struct Column {
-    pub content_width: usize,
+    pub content_width: u16,
     pub(crate) groups: Vec<LineGroup>,
 }
 
 impl Column {
-    pub fn new(content_width: usize) -> Self {
+    pub fn new(content_width: u16) -> Self {
         Column {
             content_width,
             groups: Vec::new(),
@@ -115,6 +116,7 @@ impl Column {
     pub fn push(&mut self, line: Line) {
         let nr = line.nr;
         let segments = line.content.styled_segments(self.content_width);
+        let content_width = self.content_width as usize;
 
         let rows = segments
             .into_iter()
@@ -132,7 +134,7 @@ impl Column {
 
                 FormattedRow(format!(
                     "{widget}│ {styled:<width$}",
-                    width = self.content_width + extras,
+                    width = content_width + extras,
                 ))
             })
             .collect();
@@ -142,6 +144,7 @@ impl Column {
 
     pub fn push_without_widget(&mut self, line: Line) {
         let segments = line.content.styled_segments(self.content_width);
+        let content_width = self.content_width as usize;
 
         let rows = segments
             .into_iter()
@@ -149,10 +152,7 @@ impl Column {
                 // Measure ANSI overhead so the padding format fills visible columns correctly.
                 let extras = styled.len() - ansi_width::ansi_width(&styled);
 
-                FormattedRow(format!(
-                    "{styled:<width$}",
-                    width = self.content_width + extras,
-                ))
+                FormattedRow(format!("{styled:<width$}", width = content_width + extras,))
             })
             .collect();
 
@@ -190,11 +190,11 @@ impl Column {
 }
 
 pub trait Lineable {
-    fn do_thing(self, content_width: usize) -> LineGroup;
+    fn do_thing(self, content_width: u16) -> LineGroup;
 }
 
 impl Lineable for String {
-    fn do_thing(self, content_width: usize) -> LineGroup {
+    fn do_thing(self, content_width: u16) -> LineGroup {
         let group = wrap_plain(&self, content_width)
             .into_iter()
             .map(FormattedRow)
@@ -205,7 +205,7 @@ impl Lineable for String {
 }
 
 impl Lineable for &str {
-    fn do_thing(self, content_width: usize) -> LineGroup {
+    fn do_thing(self, content_width: u16) -> LineGroup {
         let group = wrap_plain(self, content_width)
             .into_iter()
             .map(FormattedRow)
@@ -216,7 +216,7 @@ impl Lineable for &str {
 }
 
 impl Lineable for Highlighted {
-    fn do_thing(self, content_width: usize) -> LineGroup {
+    fn do_thing(self, content_width: u16) -> LineGroup {
         let group = wrap_plain(&self.text, content_width)
             .into_iter()
             .map(|seg| FormattedRow((self.highlight)(&seg)))
@@ -232,23 +232,24 @@ impl Lineable for Highlighted {
 // NOTE: consider if I need some kind of builder here
 #[derive(Debug)]
 pub struct ColumnPair {
-    pub content_width: usize,
+    pub content_width: u16,
     borders: Option<&'static str>,
     separator: Option<&'static str>,
 }
 
 impl ColumnPair {
-    pub fn new(terminal_width: usize) -> Self {
+    pub fn new(terminal_width: u16) -> Self {
         let separator = " │ ";
         let border = "│";
+        let overhead = (separator.len() + 2 * border.len()) as u16;
         ColumnPair {
-            content_width: terminal_width.saturating_sub(separator.len() + 2 * border.len()) / 2,
+            content_width: terminal_width.saturating_sub(overhead) / 2,
             separator: Some(separator),
             borders: Some(border),
         }
     }
 
-    pub fn new_plain(terminal_width: usize) -> Self {
+    pub fn new_plain(terminal_width: u16) -> Self {
         ColumnPair {
             content_width: terminal_width / 2,
             separator: None,
@@ -267,7 +268,7 @@ impl ColumnPair {
     /// group, the other side is padded with blank rows. Stops at the shorter
     /// column (caller is responsible for equalising heights beforehand).
     pub fn zip(&self, left: Column, right: Column) -> Vec<String> {
-        let content_width = self.content_width;
+        let content_width = self.content_width as usize;
 
         let min_groups = left.groups.len().min(right.groups.len());
         let mut result = Vec::new();

@@ -1,6 +1,7 @@
 /// Split plain text into segments that each fit within `max_width` visible columns.
 /// Unicode-aware: uses `unicode-width` for character measurement.
-pub(crate) fn wrap_plain(text: &str, max_width: usize) -> Vec<String> {
+pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
+    let max_width = max_width as usize;
     if max_width == 0 || text.is_empty() {
         return vec![String::new()];
     }
@@ -31,7 +32,8 @@ pub(crate) fn wrap_plain(text: &str, max_width: usize) -> Vec<String> {
 
 /// Split `text` at the boundary where `max_width` visible columns are consumed.
 /// Returns `(fitting_part, remainder)`. Both are slices into the original.
-pub(crate) fn split_at_width(text: &str, max_width: usize) -> (&str, &str) {
+pub(crate) fn split_at_width(text: &str, max_width: u16) -> (&str, &str) {
+    let max_width = max_width as usize;
     let mut width = 0usize;
     let mut byte_pos = 0usize;
     for ch in text.chars() {

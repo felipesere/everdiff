@@ -370,7 +370,7 @@ fn render_change(
         secondary.row_count()
     );
 
-    let pair = ColumnPair::new(ctx.max_width as usize);
+    let pair = ColumnPair::new(ctx.max_width);
 
     // Combine the two sides based on change type
     let lines = match change_type {
@@ -391,7 +391,7 @@ fn render_primary_side(
     let highlighted = Arc::new(Box::new(highlighting));
     let unchanged = Arc::new(Box::new(unchanged));
 
-    let pair = ColumnPair::new(ctx.max_width as usize);
+    let pair = ColumnPair::new(ctx.max_width);
     let mut column = pair.column();
 
     // Extract lines from primary document
@@ -444,7 +444,7 @@ fn render_secondary_side(
     log::debug!("changed_node: {path_to_changed_node}");
     let unchanged = Arc::new(Box::new(unchanged));
 
-    let pair = ColumnPair::new(ctx.max_width as usize);
+    let pair = ColumnPair::new(ctx.max_width);
     let mut column = pair.column();
 
     let gap_start =
@@ -925,7 +925,7 @@ pub fn render_difference(
     right: MarkedYamlOwned,
     right_doc: &YamlSource,
 ) -> String {
-    let pair = ColumnPair::new(ctx.max_width as usize);
+    let pair = ColumnPair::new(ctx.max_width);
 
     let title = match &path_to_change {
         Some(path) => format!("Changed: {}:", ctx.theme.header(&path.to_string())),
