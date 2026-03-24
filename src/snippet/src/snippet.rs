@@ -1189,9 +1189,9 @@ mod test {
 
         expect![[r#"
             Changed: [bold].person.name[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  [/][yellow]name[/][dim]: [/][yellow]S[/][dim]t[/][yellow]eve E.[/][dim] Anderson[/]│   2 │ [dim]  [/][yellow]name[/][dim]: [/][yellow]Rober[/][dim]t Anderson[/]
-            │   3 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               "#]]
+            │   1 │ [dim]person:[/]                    │    1 │ [dim]person:[/]                   │
+            │   2 │ [dim]  [/][yellow]name[/][dim]: [/][yellow]S[/][dim]t[/][yellow]eve E.[/][dim] Anderson[/] │    2 │ [dim]  [/][yellow]name[/][dim]: [/][yellow]Rober[/][dim]t Anderson[/]│
+            │   3 │ [dim]  age: 12[/]                  │    3 │ [dim]  age: 12[/]                 │"#]]
         .assert_eq(content.as_str());
     }
 
@@ -1224,14 +1224,14 @@ mod test {
 
         expect![[r#"
             Removed: .person.address:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  name: Robert Anderson[/] │   2 │ [dim]  name: Robert Anderson[/] 
-            │   3 │ [red]  address:[/]              │     │                                 
-            │   4 │ [red]    street: foo bar[/]     │     │                                 
-            │   5 │ [red]    nr: 1[/]               │     │                                 
-            │   6 │ [red]    postcode: ABC123[/]    │     │                                 
-            │   7 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               
-            │   8 │ [dim]  foo: bar[/]              │   4 │ [dim]  foo: bar[/]              
+            │   1 │ [dim]person:[/]                    │    1 │ [dim]person:[/]                   │
+            │   2 │ [dim]  name: Robert Anderson[/]    │    2 │ [dim]  name: Robert Anderson[/]   │
+            │   3 │ [red]  address:[/]                 │      │                                   │
+            │   4 │ [red]    street: foo bar[/]        │      │                                   │
+            │   5 │ [red]    nr: 1[/]                  │      │                                   │
+            │   6 │ [red]    postcode: ABC123[/]       │      │                                   │
+            │   7 │ [dim]  age: 12[/]                  │    3 │ [dim]  age: 12[/]                 │
+            │   8 │ [dim]  foo: bar[/]                 │    4 │ [dim]  foo: bar[/]                │
 
         "#]]
         .assert_eq(content.as_str());
@@ -1266,14 +1266,14 @@ mod test {
 
         expect![[r#"
             Added: [bold].person.address[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  name: Robert Anderson[/] │   2 │ [dim]  name: Robert Anderson[/] 
-            │     │                                 │   3 │ [green]  address:[/]            
-            │     │                                 │   4 │ [green]    street: foo bar[/]   
-            │     │                                 │   5 │ [green]    nr: 1[/]             
-            │     │                                 │   6 │ [green]    postcode: ABC123[/]  
-            │   3 │ [dim]  age: 12[/]               │   7 │ [dim]  age: 12[/]               
-            │   4 │ [dim]  foo: bar[/]              │   8 │ [dim]  foo: bar[/]              
+            │   1 │ [dim]person:[/]                    │    1 │ [dim]person:[/]                   │
+            │   2 │ [dim]  name: Robert Anderson[/]    │    2 │ [dim]  name: Robert Anderson[/]   │
+            │     │                                    │    3 │ [green]  address:[/]              │
+            │     │                                    │    4 │ [green]    street: foo bar[/]     │
+            │     │                                    │    5 │ [green]    nr: 1[/]               │
+            │     │                                    │    6 │ [green]    postcode: ABC123[/]    │
+            │   3 │ [dim]  age: 12[/]                  │    7 │ [dim]  age: 12[/]                 │
+            │   4 │ [dim]  foo: bar[/]                 │    8 │ [dim]  foo: bar[/]                │
 
         "#]]
         .assert_eq(content.as_str());
@@ -1314,13 +1314,13 @@ mod test {
         let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]people:[/]                 │   1 │ [dim]people:[/]                 
-            │   2 │ [dim]  - name: Robert Anderson[/]│   2 │ [dim]  - name: Robert Anderson[/]
-            │   3 │ [dim]    age: 20[/]             │   3 │ [dim]    age: 20[/]             
-            │     │                                 │   4 │ [green]  - name: Adam Bar[/]    
-            │     │                                 │   5 │ [green]    age: 32[/]           
-            │   4 │ [dim]  - name: Sarah Foo[/]     │   6 │ [dim]  - name: Sarah Foo[/]     
-            │   5 │ [dim]    age: 31[/]             │   7 │ [dim]    age: 31[/]             "#]]
+            │   1 │ [dim]people:[/]                    │    1 │ [dim]people:[/]                   │
+            │   2 │ [dim]  - name: Robert Anderson[/]  │    2 │ [dim]  - name: Robert Anderson[/] │
+            │   3 │ [dim]    age: 20[/]                │    3 │ [dim]    age: 20[/]               │
+            │     │                                    │    4 │ [green]  - name: Adam Bar[/]      │
+            │     │                                    │    5 │ [green]    age: 32[/]             │
+            │   4 │ [dim]  - name: Sarah Foo[/]        │    6 │ [dim]  - name: Sarah Foo[/]       │
+            │   5 │ [dim]    age: 31[/]                │    7 │ [dim]    age: 31[/]               │"#]]
         .assert_eq(content.as_str());
     }
 
@@ -1361,13 +1361,13 @@ mod test {
         // The gap on the left should align with the new element on the right
         // Both sides should show the `people:` array context
         expect![[r#"
-            │   1 │ [dim]people:[/]                 │   1 │ [dim]people:[/]                 
-            │     │                                 │   2 │ [green]  - name: New First Person[/]
-            │     │                                 │   3 │ [green]    age: 25[/]           
-            │   2 │ [dim]  - name: Robert Anderson[/]│   4 │ [dim]  - name: Robert Anderson[/]
-            │   3 │ [dim]    age: 20[/]             │   5 │ [dim]    age: 20[/]             
-            │   4 │ [dim]  - name: Sarah Foo[/]     │   6 │ [dim]  - name: Sarah Foo[/]     
-            │   5 │ [dim]    age: 31[/]             │   7 │ [dim]    age: 31[/]             "#]]
+            │   1 │ [dim]people:[/]                    │    1 │ [dim]people:[/]                   │
+            │     │                                    │    2 │ [green]  - name: New First Person[/]│
+            │     │                                    │    3 │ [green]    age: 25[/]             │
+            │   2 │ [dim]  - name: Robert Anderson[/]  │    4 │ [dim]  - name: Robert Anderson[/] │
+            │   3 │ [dim]    age: 20[/]                │    5 │ [dim]    age: 20[/]               │
+            │   4 │ [dim]  - name: Sarah Foo[/]        │    6 │ [dim]  - name: Sarah Foo[/]       │
+            │   5 │ [dim]    age: 31[/]                │    7 │ [dim]    age: 31[/]               │"#]]
         .assert_eq(content.as_str());
     }
 
@@ -1428,15 +1428,15 @@ mod test {
         // The left side should show the area around the `env:` array,
         // NOT the beginning of the file (line 1)
         expect![[r#"
-            │   6 │ [dim]  template:[/]             │   6 │ [dim]  template:[/]             
-            │   7 │ [dim]    spec:[/]               │   7 │ [dim]    spec:[/]               
-            │   8 │ [dim]      containers:[/]       │   8 │ [dim]      containers:[/]       
-            │   9 │ [dim]      - name: app[/]       │   9 │ [dim]      - name: app[/]       
-            │  10 │ [dim]        env:[/]            │  10 │ [dim]        env:[/]            
-            │     │                                 │  11 │ [green]        - name: NEW_FIRST_VAR[/]
-            │     │                                 │  12 │ [green]          value: "new"[/]
-            │  11 │ [dim]        - name: EXISTING_VAR[/]│  13 │ [dim]        - name: EXISTING_VAR[/]
-            │  12 │ [dim]          value: "existing"[/]│  14 │ [dim]          value: "existing"[/]"#]]
+            │   6 │ [dim]  template:[/]                │    6 │ [dim]  template:[/]               │
+            │   7 │ [dim]    spec:[/]                  │    7 │ [dim]    spec:[/]                 │
+            │   8 │ [dim]      containers:[/]          │    8 │ [dim]      containers:[/]         │
+            │   9 │ [dim]      - name: app[/]          │    9 │ [dim]      - name: app[/]         │
+            │  10 │ [dim]        env:[/]               │   10 │ [dim]        env:[/]              │
+            │     │                                    │   11 │ [green]        - name: NEW_FIRST_VAR[/]│
+            │     │                                    │   12 │ [green]          value: "new"[/]  │
+            │  11 │ [dim]        - name: EXISTING_VAR[/] │   13 │ [dim]        - name: EXISTING_VAR[/]│
+            │  12 │ [dim]          value: "existing"[/] │   14 │ [dim]          value: "existing"[/]│"#]]
         .assert_eq(content.as_str());
     }
 
@@ -1466,28 +1466,28 @@ mod test {
 
         expect![[r#"
             Changed: [bold].person.name[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve[/][yellow] E.[/][dim] Anderson[/]│   2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve[/][yellow]n[/][dim] Anderson[/]
-            │   3 │ [dim]  age: 12[/]               │   3 │ [dim]  location:[/]             
-            │     │                                 │   4 │ [dim]    street: 1 Kentish Street[/]
-            │     │                                 │   5 │ [dim]    postcode: KS87JJ[/]    
-            │     │                                 │   6 │ [dim]  age: 34[/]               
+            │   1 │ [dim]person:[/]                    │    1 │ [dim]person:[/]                   │
+            │   2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve[/][yellow] E.[/][dim] Anderson[/] │    2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve[/][yellow]n[/][dim] Anderson[/]│
+            │   3 │ [dim]  age: 12[/]                  │    3 │ [dim]  location:[/]               │
+            │                                   │    4 │ [dim]    street: 1 Kentish Street[/]│
+            │                                   │    5 │ [dim]    postcode: KS87JJ[/]      │
+            │                                   │    6 │ [dim]  age: 34[/]                 │
 
             Changed: [bold].person.age[/]:
-            │     │                                 │   1 │ [dim]person:[/]                 
-            │     │                                 │   2 │ [dim]  name: Steven Anderson[/] 
-            │     │                                 │   3 │ [dim]  location:[/]             
-            │   1 │ [dim]person:[/]                 │   4 │ [dim]    street: 1 Kentish Street[/]
-            │   2 │ [dim]  name: Steve E. Anderson[/]│   5 │ [dim]    postcode: KS87JJ[/]    
-            │   3 │ [yellow]  age: 12[/]            │   6 │ [yellow]  age: 34[/]            
+            │                                   │    1 │ [dim]person:[/]                   │
+            │                                   │    2 │ [dim]  name: Steven Anderson[/]   │
+            │                                   │    3 │ [dim]  location:[/]               │
+            │   1 │ [dim]person:[/]                    │    4 │ [dim]    street: 1 Kentish Street[/]│
+            │   2 │ [dim]  name: Steve E. Anderson[/]  │    5 │ [dim]    postcode: KS87JJ[/]      │
+            │   3 │ [yellow]  age: 12[/]               │    6 │ [yellow]  age: 34[/]              │
 
             Added: [bold].person.location[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  name: Steve E. Anderson[/]│   2 │ [dim]  name: Steven Anderson[/] 
-            │     │                                 │   3 │ [green]  location:[/]           
-            │     │                                 │   4 │ [green]    street: 1 Kentish Street[/]
-            │     │                                 │   5 │ [green]    postcode: KS87JJ[/]  
-            │   3 │ [dim]  age: 12[/]               │   6 │ [dim]  age: 34[/]               
+            │   1 │ [dim]person:[/]                    │    1 │ [dim]person:[/]                   │
+            │   2 │ [dim]  name: Steve E. Anderson[/]  │    2 │ [dim]  name: Steven Anderson[/]   │
+            │     │                                    │    3 │ [green]  location:[/]             │
+            │     │                                    │    4 │ [green]    street: 1 Kentish Street[/]│
+            │     │                                    │    5 │ [green]    postcode: KS87JJ[/]    │
+            │   3 │ [dim]  age: 12[/]                  │    6 │ [dim]  age: 34[/]                 │
 
         "#]]
         .assert_eq(content.as_str());
@@ -1550,29 +1550,29 @@ mod test {
 
         expect![[r#"
             Added: [bold].metadata.annotations.this_is[/]:
-            │   9 │ [dim]    app: flux-engine-steam[/]                                 │   9 │ [dim]    app: flux-engine-steam[/]                                 
-            │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                 │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                 
-            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   
-            │  12 │ [dim]  annotations:[/]                                             │  12 │ [dim]  annotations:[/]                                             
-            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]
-            │     │                                                                    │  14 │ [green]    this_is: new[/]                                         
-            │  14 │ [dim]spec:[/]                                                      │  15 │ [dim]spec:[/]                                                      
-            │  15 │ [dim]  ports:[/]                                                   │  16 │ [dim]  ports:[/]                                                   
-            │  16 │ [dim]    - targetPort: 8501[/]                                     │  17 │ [dim]    - targetPort: 8502[/]                                     
-            │  17 │ [dim]      port: 3000[/]                                           │  18 │ [dim]      port: 3000[/]                                           
-            │  18 │ [dim]      name: https[/]                                          │  19 │ [dim]      name: https[/]                                          
+            │   9 │ [dim]    app: flux-engine-steam[/]                                    │    9 │ [dim]    app: flux-engine-steam[/]                                   │
+            │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                    │   10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                   │
+            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                      │   11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                     │
+            │  12 │ [dim]  annotations:[/]                                                │   12 │ [dim]  annotations:[/]                                               │
+            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/] │   13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│
+            │     │                                                                       │   14 │ [green]    this_is: new[/]                                           │
+            │  14 │ [dim]spec:[/]                                                         │   15 │ [dim]spec:[/]                                                        │
+            │  15 │ [dim]  ports:[/]                                                      │   16 │ [dim]  ports:[/]                                                     │
+            │  16 │ [dim]    - targetPort: 8501[/]                                        │   17 │ [dim]    - targetPort: 8502[/]                                       │
+            │  17 │ [dim]      port: 3000[/]                                              │   18 │ [dim]      port: 3000[/]                                             │
+            │  18 │ [dim]      name: https[/]                                             │   19 │ [dim]      name: https[/]                                            │
 
             Changed: [bold].spec.ports[0].targetPort[/]:
-            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   │  12 │ [dim]  annotations:[/]                                             
-            │  12 │ [dim]  annotations:[/]                                             │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]
-            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│  14 │ [dim]    this_is: new[/]                                           
-            │  14 │ [dim]spec:[/]                                                      │  15 │ [dim]spec:[/]                                                      
-            │  15 │ [dim]  ports:[/]                                                   │  16 │ [dim]  ports:[/]                                                   
-            │  16 │ [yellow]    - targetPort: 8501[/]                                  │  17 │ [yellow]    - targetPort: 8502[/]                                  
-            │  17 │ [dim]      port: 3000[/]                                           │  18 │ [dim]      port: 3000[/]                                           
-            │  18 │ [dim]      name: https[/]                                          │  19 │ [dim]      name: https[/]                                          
-            │  19 │ [dim]  selector:[/]                                                │  20 │ [dim]  selector:[/]                                                
-            │  20 │ [dim]    app: flux-engine-steam[/]                                 │  21 │ [dim]    app: flux-engine-steam[/]                                 
+            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                      │   12 │ [dim]  annotations:[/]                                               │
+            │  12 │ [dim]  annotations:[/]                                                │   13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│
+            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/] │   14 │ [dim]    this_is: new[/]                                             │
+            │  14 │ [dim]spec:[/]                                                         │   15 │ [dim]spec:[/]                                                        │
+            │  15 │ [dim]  ports:[/]                                                      │   16 │ [dim]  ports:[/]                                                     │
+            │  16 │ [yellow]    - targetPort: 8501[/]                                     │   17 │ [yellow]    - targetPort: 8502[/]                                    │
+            │  17 │ [dim]      port: 3000[/]                                              │   18 │ [dim]      port: 3000[/]                                             │
+            │  18 │ [dim]      name: https[/]                                             │   19 │ [dim]      name: https[/]                                            │
+            │  19 │ [dim]  selector:[/]                                                   │   20 │ [dim]  selector:[/]                                                  │
+            │  20 │ [dim]    app: flux-engine-steam[/]                                    │   21 │ [dim]    app: flux-engine-steam[/]                                   │
 
         "#]].assert_eq(content.as_str());
     }
@@ -1612,13 +1612,13 @@ mod test {
         let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]people:[/]                 │   1 │ [dim]people:[/]                 
-            │   2 │ [dim]  - name: Alice[/]         │   2 │ [dim]  - name: Alice[/]         
-            │   3 │ [dim]    age: 25[/]             │   3 │ [dim]    age: 25[/]             
-            │   4 │ [dim]  - name: Bob[/]           │   4 │ [dim]  - name: Charlie[/]       
-            │   5 │ [dim]    age: 30[/]             │   5 │ [dim]    age: 35[/]             
-            │   6 │ [red]  - name: Charlie[/]       │     │                                 
-            │   7 │ [red]    age: 35[/]             │     │                                 "#]]
+            │   1 │ [dim]people:[/]                    │    1 │ [dim]people:[/]                   │
+            │   2 │ [dim]  - name: Alice[/]            │    2 │ [dim]  - name: Alice[/]           │
+            │   3 │ [dim]    age: 25[/]                │    3 │ [dim]    age: 25[/]               │
+            │   4 │ [dim]  - name: Bob[/]              │    4 │ [dim]  - name: Charlie[/]         │
+            │   5 │ [dim]    age: 30[/]                │    5 │ [dim]    age: 35[/]               │
+            │   6 │ [red]  - name: Charlie[/]          │      │                                   │
+            │   7 │ [red]    age: 35[/]                │      │                                   │"#]]
         .assert_eq(content.as_str());
     }
 
@@ -1658,13 +1658,13 @@ mod test {
         let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]people:[/]                 │   1 │ [dim]people:[/]                 
-            │   2 │ [dim]  - name: First Person[/]  │   2 │ [dim]  - name: Second Person[/] 
-            │   3 │ [dim]    age: 20[/]             │   3 │ [dim]    age: 30[/]             
-            │   4 │ [dim]  - name: Second Person[/] │   4 │ [dim]  - name: Third Person[/]  
-            │   5 │ [dim]    age: 30[/]             │   5 │ [dim]    age: 40[/]             
-            │   6 │ [red]  - name: Third Person[/]  │     │                                 
-            │   7 │ [red]    age: 40[/]             │     │                                 "#]]
+            │   1 │ [dim]people:[/]                    │    1 │ [dim]people:[/]                   │
+            │   2 │ [dim]  - name: First Person[/]     │    2 │ [dim]  - name: Second Person[/]   │
+            │   3 │ [dim]    age: 20[/]                │    3 │ [dim]    age: 30[/]               │
+            │   4 │ [dim]  - name: Second Person[/]    │    4 │ [dim]  - name: Third Person[/]    │
+            │   5 │ [dim]    age: 30[/]                │    5 │ [dim]    age: 40[/]               │
+            │   6 │ [red]  - name: Third Person[/]     │      │                                   │
+            │   7 │ [red]    age: 40[/]                │      │                                   │"#]]
         .assert_eq(content.as_str());
     }
 
@@ -1706,16 +1706,16 @@ mod test {
         // Both sides should start at the same line number
         expect![[r#"
             Removed: .metadata.annotations:
-            │   2 │ [dim]  name: my-service[/]      │   2 │ [dim]  name: my-service[/]      
-            │   3 │ [dim]  labels:[/]               │   3 │ [dim]  labels:[/]               
-            │   4 │ [dim]    app: my-app[/]         │   4 │ [dim]    app: my-app[/]         
-            │   5 │ [dim]    version: "1.0"[/]      │   5 │ [dim]    version: "1.0"[/]      
-            │   6 │ [dim]    environment: production[/]│   6 │ [dim]    environment: production[/]
-            │   7 │ [red]  annotations:[/]          │     │                                 
-            │   8 │ [red]    description: "My service des[/]│     │                                 
-            │   ┆ │ [red]cription"[/]               │     │                                 
-            │   9 │ [dim]spec:[/]                   │   7 │ [dim]spec:[/]                   
-            │  10 │ [dim]  replicas: 3[/]           │   8 │ [dim]  replicas: 3[/]           
+            │   2 │ [dim]  name: my-service[/]         │    2 │ [dim]  name: my-service[/]        │
+            │   3 │ [dim]  labels:[/]                  │    3 │ [dim]  labels:[/]                 │
+            │   4 │ [dim]    app: my-app[/]            │    4 │ [dim]    app: my-app[/]           │
+            │   5 │ [dim]    version: "1.0"[/]         │    5 │ [dim]    version: "1.0"[/]        │
+            │   6 │ [dim]    environment: production[/] │    6 │ [dim]    environment: production[/]│
+            │   7 │ [red]  annotations:[/]             │      │                                   │
+            │   8 │ [red]    description: "My service descr[/] │      │                                   │
+            │   ┆ │ [red]iption"[/]                    │                                   │
+            │   9 │ [dim]spec:[/]                      │    7 │ [dim]spec:[/]                     │
+            │  10 │ [dim]  replicas: 3[/]              │    8 │ [dim]  replicas: 3[/]             │
 
         "#]]
         .assert_eq(content.as_str());
@@ -1751,11 +1751,11 @@ mod test {
 
         expect![[r#"
             Changed: [bold].servers[1].port[/]:
-            │   1 │ [dim]servers:[/]                │   1 │ [dim]servers:[/]                
-            │   2 │ [dim]  - host: server1.example.com[/]│   2 │ [dim]  - host: server1.example.com[/]
-            │   3 │ [dim]    port: 8080[/]          │   3 │ [dim]    port: 8080[/]          
-            │   4 │ [dim]  - host: server2.example.com[/]│   4 │ [dim]  - host: server2.example.com[/]
-            │   5 │ [yellow]    port: 9090[/]       │   5 │ [yellow]    port: 9091[/]       
+            │   1 │ [dim]servers:[/]                   │    1 │ [dim]servers:[/]                  │
+            │   2 │ [dim]  - host: server1.example.com[/] │    2 │ [dim]  - host: server1.example.com[/]│
+            │   3 │ [dim]    port: 8080[/]             │    3 │ [dim]    port: 8080[/]            │
+            │   4 │ [dim]  - host: server2.example.com[/] │    4 │ [dim]  - host: server2.example.com[/]│
+            │   5 │ [yellow]    port: 9090[/]          │    5 │ [yellow]    port: 9091[/]         │
 
         "#]]
         .assert_eq(content.as_str());
@@ -1789,13 +1789,13 @@ mod test {
 
         expect![[r#"
             Removed: .config.cache:
-            │   1 │ [dim]config:[/]                 │   1 │ [dim]config:[/]                 
-            │   2 │ [dim]  database:[/]             │   2 │ [dim]  database:[/]             
-            │   3 │ [dim]    host: localhost[/]     │   3 │ [dim]    host: localhost[/]     
-            │   4 │ [dim]    port: 5432[/]          │   4 │ [dim]    port: 5432[/]          
-            │   5 │ [red]  cache:[/]                │     │                                 
-            │   6 │ [red]    enabled: true[/]       │     │                                 
-            │   7 │ [red]    ttl: 3600[/]           │     │                                 
+            │   1 │ [dim]config:[/]                    │    1 │ [dim]config:[/]                   │
+            │   2 │ [dim]  database:[/]                │    2 │ [dim]  database:[/]               │
+            │   3 │ [dim]    host: localhost[/]        │    3 │ [dim]    host: localhost[/]       │
+            │   4 │ [dim]    port: 5432[/]             │    4 │ [dim]    port: 5432[/]            │
+            │   5 │ [red]  cache:[/]                   │      │                                   │
+            │   6 │ [red]    enabled: true[/]          │      │                                   │
+            │   7 │ [red]    ttl: 3600[/]              │      │                                   │
 
         "#]]
         .assert_eq(content.as_str());
@@ -1829,13 +1829,13 @@ mod test {
 
         expect![[r#"
             Added: [bold].config.cache[/]:
-            │   1 │ [dim]config:[/]                 │   1 │ [dim]config:[/]                 
-            │   2 │ [dim]  database:[/]             │   2 │ [dim]  database:[/]             
-            │   3 │ [dim]    host: localhost[/]     │   3 │ [dim]    host: localhost[/]     
-            │   4 │ [dim]    port: 5432[/]          │   4 │ [dim]    port: 5432[/]          
-            │     │                                 │   5 │ [green]  cache:[/]              
-            │     │                                 │   6 │ [green]    enabled: true[/]     
-            │     │                                 │   7 │ [green]    ttl: 3600[/]         
+            │   1 │ [dim]config:[/]                    │    1 │ [dim]config:[/]                   │
+            │   2 │ [dim]  database:[/]                │    2 │ [dim]  database:[/]               │
+            │   3 │ [dim]    host: localhost[/]        │    3 │ [dim]    host: localhost[/]       │
+            │   4 │ [dim]    port: 5432[/]             │    4 │ [dim]    port: 5432[/]            │
+            │     │                                    │    5 │ [green]  cache:[/]                │
+            │     │                                    │    6 │ [green]    enabled: true[/]       │
+            │     │                                    │    7 │ [green]    ttl: 3600[/]           │
 
         "#]]
         .assert_eq(content.as_str());
@@ -1866,10 +1866,10 @@ mod test {
 
         expect![[r#"
             Added: [bold].person.city[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  name: Alice[/]           │   2 │ [dim]  name: Alice[/]           
-            │   3 │ [dim]  age: 30[/]               │   3 │ [dim]  age: 30[/]               
-            │     │                                 │   4 │ [green]  city: London[/]        
+            │   1 │ [dim]person:[/]                    │    1 │ [dim]person:[/]                   │
+            │   2 │ [dim]  name: Alice[/]              │    2 │ [dim]  name: Alice[/]             │
+            │   3 │ [dim]  age: 30[/]                  │    3 │ [dim]  age: 30[/]                 │
+            │     │                                    │    4 │ [green]  city: London[/]          │
 
         "#]]
         .assert_eq(content.as_str());
@@ -1906,10 +1906,10 @@ mod test {
         let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]items:[/]                  │   1 │ [dim]items:[/]                  
-            │   2 │ [dim]  - first[/]               │   2 │ [dim]  - first[/]               
-            │   3 │ [dim]  - second[/]              │   3 │ [dim]  - second[/]              
-            │   4 │ [red]  - third[/]               │     │                                 "#]]
+            │   1 │ [dim]items:[/]                     │    1 │ [dim]items:[/]                    │
+            │   2 │ [dim]  - first[/]                  │    2 │ [dim]  - first[/]                 │
+            │   3 │ [dim]  - second[/]                 │    3 │ [dim]  - second[/]                │
+            │   4 │ [red]  - third[/]                  │      │                                   │"#]]
         .assert_eq(content.as_str());
     }
 
@@ -1946,8 +1946,8 @@ mod test {
         // Only 1 line before the changed line, no lines after
         expect![[r#"
             Changed: [bold].person.name[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [yellow]  name: Steve E. Anderson[/]│   2 │ [yellow]  name: Robert Anderson[/]"#]]
+            │   1 │ [dim]person:[/]                    │    1 │ [dim]person:[/]                   │
+            │   2 │ [yellow]  name: Steve E. Anderson[/] │    2 │ [yellow]  name: Robert Anderson[/]│"#]]
         .assert_eq(content.as_str());
     }
 
@@ -1984,8 +1984,8 @@ mod test {
         // No lines before, 1 line after the changed line
         expect![[r#"
             Changed: [bold].person.name[/]:
-            │   2 │ [yellow]  name: Steve E. Anderson[/]│   2 │ [yellow]  name: Robert Anderson[/]
-            │   3 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               "#]]
+            │   2 │ [yellow]  name: Steve E. Anderson[/] │    2 │ [yellow]  name: Robert Anderson[/]│
+            │   3 │ [dim]  age: 12[/]                  │    3 │ [dim]  age: 12[/]                 │"#]]
         .assert_eq(content.as_str());
     }
 
@@ -2024,12 +2024,12 @@ mod test {
         // Only 1 line before and 1 line after the removed block
         expect![[r#"
             Removed: .person.address:
-            │   2 │ [dim]  name: Robert Anderson[/] │   2 │ [dim]  name: Robert Anderson[/] 
-            │   3 │ [red]  address:[/]              │     │                                 
-            │   4 │ [red]    street: foo bar[/]     │     │                                 
-            │   5 │ [red]    nr: 1[/]               │     │                                 
-            │   6 │ [red]    postcode: ABC123[/]    │     │                                 
-            │   7 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               
+            │   2 │ [dim]  name: Robert Anderson[/]    │    2 │ [dim]  name: Robert Anderson[/]   │
+            │   3 │ [red]  address:[/]                 │      │                                   │
+            │   4 │ [red]    street: foo bar[/]        │      │                                   │
+            │   5 │ [red]    nr: 1[/]                  │      │                                   │
+            │   6 │ [red]    postcode: ABC123[/]       │      │                                   │
+            │   7 │ [dim]  age: 12[/]                  │    3 │ [dim]  age: 12[/]                 │
 
         "#]]
         .assert_eq(content.as_str());
@@ -2066,10 +2066,10 @@ mod test {
         let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]items:[/]                  │   1 │ [dim]items:[/]                  
-            │   2 │ [dim]  - first[/]               │   2 │ [dim]  - first[/]               
-            │   3 │ [dim]  - second[/]              │   3 │ [dim]  - second[/]              
-            │     │                                 │   4 │ [green]  - third[/]             "#]]
+            │   1 │ [dim]items:[/]                     │    1 │ [dim]items:[/]                    │
+            │   2 │ [dim]  - first[/]                  │    2 │ [dim]  - first[/]                 │
+            │   3 │ [dim]  - second[/]                 │    3 │ [dim]  - second[/]                │
+            │     │                                    │    4 │ [green]  - third[/]               │"#]]
         .assert_eq(content.as_str());
     }
 }

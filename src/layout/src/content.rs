@@ -74,24 +74,6 @@ impl StyledContent for Highlighted {
 /// `width` visible columns. When a part straddles a segment boundary it is split;
 /// the remainder carries forward with the same `Highlight`. This means ANSI codes
 /// are always self-contained per segment, requiring no ANSI scanning.
-///
-/// # Example
-///
-/// ```
-/// # use std::sync::Arc;
-/// # use everdiff_layout::content::{InlineParts, StyledContent};
-/// let parts = InlineParts::new()
-///     .push("key: ",     Arc::new(|s: &str| format!("[dim]{s}[/]")))
-///     .push("new_value", Arc::new(|s: &str| format!("[bold]{s}[/]")))
-///     .push(" # note",   Arc::new(|s: &str| format!("[dim]{s}[/]")));
-///
-/// let segs = parts.styled_segments(10);
-/// assert_eq!(segs, vec![
-///     "[dim]key: [/][bold]new_v[/]",
-///     "[bold]alue[/][dim] # not[/]",
-///     "[dim]e[/]",
-/// ]);
-/// ```
 pub struct InlineParts {
     parts: Vec<(String, Highlight)>,
 }

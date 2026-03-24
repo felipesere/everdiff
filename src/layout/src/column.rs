@@ -320,7 +320,7 @@ mod tests {
         col.push(plain("hello"));
         assert_eq!(col.row_count(), 1);
         let row = &col.groups[0].0[0].0;
-        assert!(row.starts_with("    │ hello"));
+        assert!(row.starts_with("     │ hello"), "got: {row:?}");
     }
 
     #[test]
@@ -329,7 +329,7 @@ mod tests {
         col.push(plain("hello").with_nr(4));
         let row = &col.groups[0].0[0].0;
         // nr=4 (0-based) → displayed as 5
-        assert!(row.starts_with("  5 │ hello"), "got: {row:?}");
+        assert!(row.starts_with("   5 │ hello"), "got: {row:?}");
     }
 
     #[test]
@@ -339,12 +339,12 @@ mod tests {
         let group = &col.groups[0].0;
         assert_eq!(group.len(), 3); // "hello", " worl", "d"
         assert!(
-            group[0].0.starts_with("  1 │"),
+            group[0].0.starts_with("   1 │"),
             "first row: {:?}",
             group[0].0
         );
         assert!(
-            group[1].0.starts_with("  ┆ │"),
+            group[1].0.starts_with("   ┆ │"),
             "cont row: {:?}",
             group[1].0
         );
@@ -356,7 +356,9 @@ mod tests {
         col.append_blank(3);
         assert_eq!(col.row_count(), 3);
         for g in &col.groups {
-            assert!(g.0[0].0.starts_with("    │"), "got: {:?}", g.0[0].0);
+            // blank rows have no widget prefix, just padded spaces
+            assert_eq!(g.0[0].0.len(), 10, "got: {:?}", g.0[0].0);
+            assert!(g.0[0].0.trim().is_empty(), "got: {:?}", g.0[0].0);
         }
     }
 
@@ -378,10 +380,10 @@ mod tests {
 
     #[test]
     fn column_pair_zip_asymmetric_wrapping() {
-        let pair = ColumnPair::new(15); // content_width = (15-5)/2 = 5
+        let pair = ColumnPair::new(23); // content_width = (23-11)/2 = 6
         let mut left = pair.column();
         let mut right = pair.column();
-        // "hello world" at width 8 wraps to 2 rows
+        // "hello world" at width 6 wraps to 2 rows
         left.push(plain("hello world"));
         right.push(plain("short"));
 
@@ -392,9 +394,9 @@ mod tests {
 
     #[test]
     fn column_pair_content_width() {
-        assert_eq!(ColumnPair::new(120).content_width, 52);
-        assert_eq!(ColumnPair::new(80).content_width, 32);
-        assert_eq!(ColumnPair::new(16).content_width, 0);
+        assert_eq!(ColumnPair::new(120).content_width, 54);
+        assert_eq!(ColumnPair::new(80).content_width, 34);
+        assert_eq!(ColumnPair::new(16).content_width, 2);
         assert_eq!(ColumnPair::new(10).content_width, 0); // saturating
     }
 
