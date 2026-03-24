@@ -75,7 +75,7 @@ impl StyledContent for Highlighted {
 /// the remainder carries forward with the same `Highlight`. This means ANSI codes
 /// are always self-contained per segment, requiring no ANSI scanning.
 pub struct InlineParts {
-    parts: Vec<(String, Highlight)>,
+    pub(crate) parts: Vec<(String, Highlight)>,
 }
 
 impl InlineParts {

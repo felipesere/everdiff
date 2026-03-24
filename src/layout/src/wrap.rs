@@ -6,8 +6,6 @@ pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
         return vec![String::new()];
     }
 
-    unicode_width::UnicodeWidthStr::width(text);
-
     let mut segments = Vec::new();
     let mut current = String::new();
     let mut current_width = 0usize;
@@ -15,7 +13,7 @@ pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
     for ch in text.chars() {
         let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
         if current_width + ch_width > max_width && !current.is_empty() {
-            segments.push(current);
+            segments.push(format!("{current:>width$}", width = max_width));
             current = String::new();
             current_width = 0;
         }
@@ -24,7 +22,7 @@ pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
     }
 
     if !current.is_empty() || segments.is_empty() {
-        segments.push(current);
+        segments.push(format!("{current:<max_width$}"));
     }
 
     segments
@@ -32,7 +30,7 @@ pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
 
 /// Split `text` at the boundary where `max_width` visible columns are consumed.
 /// Returns `(fitting_part, remainder)`. Both are slices into the original.
-pub(crate) fn split_at_width(text: &str, max_width: u16) -> (&str, &str) {
+pub fn split_at_width(text: &str, max_width: u16) -> (&str, &str) {
     let max_width = max_width as usize;
     let mut width = 0usize;
     let mut byte_pos = 0usize;
@@ -53,7 +51,7 @@ mod tests {
 
     #[test]
     fn plain_short_line_no_wrap() {
-        assert_eq!(wrap_plain("hello", 10), vec!["hello"]);
+        assert_eq!(wrap_plain("hello", 10), vec!["hello     "]);
     }
 
     #[test]
@@ -68,7 +66,7 @@ mod tests {
 
     #[test]
     fn plain_empty_string() {
-        assert_eq!(wrap_plain("", 10), vec![""]);
+        assert_eq!(wrap_plain("", 10), vec!["          "]);
     }
 
     #[test]

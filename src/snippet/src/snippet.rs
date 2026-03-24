@@ -426,7 +426,7 @@ fn render_primary_side(
             unchanged.clone()
         };
         let l = LLine::new(Highlighted::new(line, style)).with_nr(nr.get() - 1);
-        column.push(l);
+        column.new_push(l);
     }
 
     column
@@ -473,14 +473,14 @@ fn render_secondary_side(
     column.append_blank(filler_len);
     for (nr, line) in before_gap.iter() {
         let line = LLine::new(Highlighted::new(line, unchanged.clone())).with_nr(nr.get() - 1);
-        column.push(line);
+        column.new_push(line);
     }
     for _ in 0..gap_size {
-        column.push(LLine::blank().filler_nr());
+        column.new_push(LLine::blank().filler_nr());
     }
     for (nr, line) in after_gap.iter() {
         let line = LLine::new(Highlighted::new(line, unchanged.clone())).with_nr(nr.get() - 1);
-        column.push(line);
+        column.new_push(line);
     }
 
     column
@@ -1026,7 +1026,7 @@ fn render_changed_snippet(
             let l = LLine::new(Highlighted::new(line, highlight));
             l.with_nr(line_nr)
         })
-        .for_each(|l| column.push(l));
+        .for_each(|l| column.new_push(l));
 
     Rendered {
         content: column,

@@ -4,7 +4,7 @@ use std::{
 };
 
 use everdiff_diff::{Difference, path::IgnorePath};
-use everdiff_layout::{ColumnPair, Highlighted, Line};
+use everdiff_layout::{ColumnPair, Highlighted, InlineParts};
 use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
 use owo_colors::OwoColorize;
 
@@ -82,29 +82,38 @@ pub fn render_multidoc_diff<W: Write>(
                         .collect()
                 };
 
-                let pair = ColumnPair::new_plain(max_width);
-                let mut left_column = pair.column();
-                let mut right_column = pair.column();
-                left_column.new_push(Highlighted::new(
-                    "Changed document:",
-                    Arc::new(|s| s.bold().underline().to_string()),
-                ));
-                left_column.new_push(format!("{}", l.0));
-                right_column.append_blank(1);
-                right_column.new_push(format!("{}", r.0));
-                let dimmed = Arc::new(|s: &str| s.dimmed().to_string());
-                for (k, v) in &fields.0 {
-                    if let Some(v) = v {
-                        left_column
-                            .new_push(Highlighted::new(format!("{k} -> {v}"), dimmed.clone()))
+                {
+                    let dimmed = Arc::new(Box::new(|s: &str| s.dimmed().to_string()));
+                    let bold_underline =
+                        Arc::new(Box::new(|s: &str| s.bold().underline().to_string()));
+
+                    let header_pair = ColumnPair::new_plain(max_width);
+                    let mut left = header_pair.column();
+                    let mut right = header_pair.column();
+                    let mut inline_style = InlineParts::new();
+                    inline_style.push("Changed document", bold_underline);
+                    // left.new_push(Highlighted::new("Changed document:", bold_underline)); // this is meh
+                    left.new_push(inline_style);
+                    right.append_blank(1);
+
+                    left.new_push(l.0.to_string());
+                    right.new_push(r.0.to_string());
+
+                    left.append_blank(1);
+                    right.append_blank(1);
+
+                    for (k, v) in &fields.0 {
+                        if let Some(v) = v {
+                            left.new_push(Highlighted::new(format!("{k} -> {v}"), dimmed.clone()));
+                        }
+                    }
+                    left.append_blank(1);
+                    right.append_blank(1 + fields.0.len());
+
+                    for l in header_pair.zip(left, right) {
+                        writeln!(writer, "{l}")?;
                     }
                 }
-                right_column.append_blank(left_column.row_count());
-
-                for l in pair.zip(left_column, right_column) {
-                    let _ = writeln!(writer, "{l}");
-                }
-                writeln!(writer)?;
 
                 let actual_left_doc = &left[l.1];
                 let actual_right_doc = &right[r.1];

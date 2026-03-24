@@ -1,6 +1,13 @@
-use std::fmt::{self};
+use std::{
+    cmp::Ordering,
+    fmt::{self},
+};
 
-use crate::{Highlighted, content::StyledContent, wrap::wrap_plain};
+use crate::{
+    Highlighted, InlineParts,
+    content::StyledContent,
+    wrap::{split_at_width, wrap_plain},
+};
 
 // --- Line widget -----------------------------------------------------------------
 
@@ -111,54 +118,6 @@ impl Column {
         }
     }
 
-    /// Append a logical line. Wraps its content to `content_width` and
-    /// formats each segment with the appropriate line widget.
-    pub fn push(&mut self, line: Line) {
-        let nr = line.nr;
-        let segments = line.content.styled_segments(self.content_width);
-        let content_width = self.content_width as usize;
-
-        let rows = segments
-            .into_iter()
-            .enumerate()
-            .map(|(i, styled)| {
-                // Measure ANSI overhead so the padding format fills visible columns correctly.
-                let extras = styled.len() - ansi_width::ansi_width(&styled);
-
-                let widget = match (i, nr) {
-                    (0, LineNr::Nr(n)) => LineWidget::Nr(n),
-                    (0, LineNr::None) => LineWidget::Filler,
-                    (_, LineNr::Nr(_)) => LineWidget::Continuation,
-                    _ => LineWidget::Filler,
-                };
-
-                FormattedRow(format!(
-                    "{widget}│ {styled:<width$}",
-                    width = content_width + extras,
-                ))
-            })
-            .collect();
-
-        self.groups.push(LineGroup(rows));
-    }
-
-    pub fn push_without_widget(&mut self, line: Line) {
-        let segments = line.content.styled_segments(self.content_width);
-        let content_width = self.content_width as usize;
-
-        let rows = segments
-            .into_iter()
-            .map(|styled| {
-                // Measure ANSI overhead so the padding format fills visible columns correctly.
-                let extras = styled.len() - ansi_width::ansi_width(&styled);
-
-                FormattedRow(format!("{styled:<width$}", width = content_width + extras,))
-            })
-            .collect();
-
-        self.groups.push(LineGroup(rows));
-    }
-
     // This should be the future. `do_thing`
     pub fn new_push(&mut self, line: impl Lineable) {
         let group = line.do_thing(self.content_width);
@@ -226,6 +185,95 @@ impl Lineable for Highlighted {
     }
 }
 
+impl Lineable for Line {
+    fn do_thing(self, content_width: u16) -> LineGroup {
+        let line = self;
+        let nr = line.nr;
+        let segments = line.content.styled_segments(content_width);
+        let content_width = content_width as usize;
+
+        let rows = segments
+            .into_iter()
+            .enumerate()
+            .map(|(i, styled)| {
+                // Measure ANSI overhead so the padding format fills visible columns correctly.
+                let extras = styled.len() - ansi_width::ansi_width(&styled);
+
+                let widget = match (i, nr) {
+                    (0, LineNr::Nr(n)) => LineWidget::Nr(n),
+                    (0, LineNr::None) => LineWidget::Filler,
+                    (_, LineNr::Nr(_)) => LineWidget::Continuation,
+                    _ => LineWidget::Filler,
+                };
+
+                FormattedRow(format!(
+                    "{widget}│ {styled:<width$}",
+                    width = content_width + extras,
+                ))
+            })
+            .collect();
+
+        LineGroup(rows)
+    }
+}
+
+impl Lineable for InlineParts {
+    fn do_thing(self, width: u16) -> LineGroup {
+        if width == 0 {
+            return LineGroup(vec![]);
+        }
+
+        let width_usize = width as usize;
+        let mut segments: Vec<FormattedRow> = Vec::new();
+        let mut current = String::new();
+        let mut current_width = 0usize;
+
+        for (text, highlight) in &self.parts {
+            let mut remaining = text.as_str();
+            while !remaining.is_empty() {
+                let remaining_available_space = width_usize.saturating_sub(current_width);
+                let (fits, rest) = split_at_width(remaining, remaining_available_space as u16);
+
+                if !fits.is_empty() {
+                    current.push_str(&highlight(fits));
+                    current_width += unicode_width::UnicodeWidthStr::width(fits);
+                }
+
+                remaining = rest;
+
+                // Close the segment when full and there is still more text to place.
+                if current_width >= width_usize && !remaining.is_empty() {
+                    let p = std::mem::take(&mut current);
+                    segments.push(FormattedRow(pad(&p, width)));
+                    current_width = 0;
+                }
+            }
+        }
+
+        // Emit whatever remains in the buffer (always at least one segment).
+        if !current.is_empty() || segments.is_empty() {
+            segments.push(FormattedRow(pad(&current, width)));
+        }
+
+        LineGroup(segments)
+    }
+}
+
+fn pad(original: &str, width: u16) -> String {
+    let visible_width = unicode_width::UnicodeWidthStr::width(original);
+    match visible_width.cmp(&original.len()) {
+        Ordering::Less => {
+            let extras = original.len() - visible_width;
+
+            format!("{original:<w$}", w = width as usize + extras)
+        }
+        Ordering::Equal => original.to_string(),
+        Ordering::Greater => {
+            unreachable!("the visible width can't be greater than teh normal one?")
+        }
+    }
+}
+
 // --- ColumnPair ------------------------------------------------------------------
 
 /// Owns the terminal-width-to-content-width conversion and zips two [`Column`]s.
@@ -262,6 +310,18 @@ impl ColumnPair {
         Column::new(self.content_width)
     }
 
+    /// Format a plain two-column line (no borders, no line numbers) whose right
+    /// side aligns with this pair's bordered right column.
+    pub fn format_plain_row(&self, left: &str, right: &str) -> String {
+        // In a bordered layout each row is:
+        //   border(1) + widget(5) + "│ "(2) + content(content_width) + separator(3) + …
+        // The right column starts at content_width + 11 visible columns from the left.
+        // Without borders we position the right text at that same offset.
+        let left_half = self.content_width as usize + 10;
+        let extras = left.len() - ansi_width::ansi_width(left);
+        format!("{left:<w$}{right}", w = left_half + extras)
+    }
+
     /// Zip a left and right [`Column`] into final output lines.
     ///
     /// Groups are paired one-to-one. When one side has more wrapped rows in a
@@ -285,10 +345,20 @@ impl ColumnPair {
             let max_rows = left_rows.len().max(right_rows.len());
 
             for i in 0..max_rows {
-                let l = left_rows.get(i).map(|r| r.0.as_str()).unwrap_or_default();
-                let r = right_rows.get(i).map(|r| r.0.as_str()).unwrap_or_default();
+                let left = left_rows
+                    .get(i)
+                    .map(|row| row.0.as_str())
+                    .unwrap_or_default();
+                let right = right_rows
+                    .get(i)
+                    .map(|row| row.0.as_str())
+                    .unwrap_or_default();
+                let l_extras = left.len() - ansi_width::ansi_width(left);
+                let r_extras = right.len() - ansi_width::ansi_width(right);
+                let l_width = content_width + l_extras;
+                let r_width = content_width + r_extras;
                 result.push(format!(
-                    "{border}{l:<content_width$}{separator}{r:<content_width$}{border}",
+                    "{border}{left:<l_width$}{separator}{right:<r_width$}{border}",
                 ));
             }
         }
@@ -318,7 +388,7 @@ mod tests {
     #[test]
     fn column_push_plain_no_wrap() {
         let mut col = Column::new(20);
-        col.push(plain("hello"));
+        col.new_push(plain("hello"));
         assert_eq!(col.row_count(), 1);
         let row = &col.groups[0].0[0].0;
         assert!(row.starts_with("     │ hello"), "got: {row:?}");
@@ -327,7 +397,7 @@ mod tests {
     #[test]
     fn column_push_with_nr() {
         let mut col = Column::new(20);
-        col.push(plain("hello").with_nr(4));
+        col.new_push(plain("hello").with_nr(4));
         let row = &col.groups[0].0[0].0;
         // nr=4 (0-based) → displayed as 5
         assert!(row.starts_with("   5 │ hello"), "got: {row:?}");
@@ -336,7 +406,7 @@ mod tests {
     #[test]
     fn column_push_wraps_into_continuation_rows() {
         let mut col = Column::new(5);
-        col.push(plain("hello world").with_nr(0));
+        col.new_push(plain("hello world").with_nr(0));
         let group = &col.groups[0].0;
         assert_eq!(group.len(), 3); // "hello", " worl", "d"
         assert!(
@@ -368,10 +438,10 @@ mod tests {
         let pair = ColumnPair::new(40);
         let mut left = pair.column();
         let mut right = pair.column();
-        left.push(plain("left line 1"));
-        left.push(plain("left line 2"));
-        right.push(plain("right line 1"));
-        right.push(plain("right line 2"));
+        left.new_push(plain("left line 1"));
+        left.new_push(plain("left line 2"));
+        right.new_push(plain("right line 1"));
+        right.new_push(plain("right line 2"));
 
         let lines = pair.zip(left, right);
         assert_eq!(lines.len(), 2);
@@ -385,8 +455,8 @@ mod tests {
         let mut left = pair.column();
         let mut right = pair.column();
         // "hello world" at width 6 wraps to 2 rows
-        left.push(plain("hello world"));
-        right.push(plain("short"));
+        left.new_push(plain("hello world"));
+        right.new_push(plain("short"));
 
         let lines = pair.zip(left, right);
         // left wraps to 2 rows, right has 1 → group produces 2 output lines
@@ -404,7 +474,7 @@ mod tests {
     #[test]
     fn highlighted_line_segments_are_styled() {
         let mut col = Column::new(20);
-        col.push(highlighted("hello"));
+        col.new_push(highlighted("hello"));
         let row = &col.groups[0].0[0].0;
         assert!(row.contains("[hl]hello[/]"), "got: {row:?}");
     }
