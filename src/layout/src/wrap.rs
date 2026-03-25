@@ -2,8 +2,9 @@
 /// Unicode-aware: uses `unicode-width` for character measurement.
 pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
     let max_width = max_width as usize;
-    if max_width == 0 || text.is_empty() {
-        return vec![String::new()];
+    debug_assert!(max_width > 0, "wrapping to zero width makes no sense.");
+    if text.is_empty() {
+        return vec![format!("{:<max_width$}", "")];
     }
 
     let mut segments = Vec::new();
@@ -13,7 +14,7 @@ pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
     for ch in text.chars() {
         let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
         if current_width + ch_width > max_width && !current.is_empty() {
-            segments.push(format!("{current:>width$}", width = max_width));
+            segments.push(format!("{current:<width$}", width = max_width));
             current = String::new();
             current_width = 0;
         }
@@ -70,14 +71,9 @@ mod tests {
     }
 
     #[test]
-    fn plain_zero_width() {
-        assert_eq!(wrap_plain("hello", 0), vec![""]);
-    }
-
-    #[test]
     fn plain_unicode_wide_chars() {
         // Each CJK char is 2 columns wide; 3 fit in width 6
-        assert_eq!(wrap_plain("漢字テスト", 6), vec!["漢字テ", "スト"]);
+        assert_eq!(wrap_plain("漢字テスト", 6), vec!["漢字テ   ", "スト    "]);
     }
 
     #[test]

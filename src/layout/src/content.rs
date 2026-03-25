@@ -151,14 +151,14 @@ mod tests {
     #[test]
     fn string_plain_wrap() {
         let segs = "hello world".to_string().styled_segments(5);
-        assert_eq!(segs, vec!["hello", " worl", "d"]);
+        assert_eq!(segs, vec!["hello", " worl", "d    "]);
     }
 
     #[test]
     fn highlighted_applies_to_each_segment() {
         let h = Highlighted::new("hello world", Arc::new(|s: &str| format!("[x]{s}[/x]")));
         let segs = h.styled_segments(5);
-        assert_eq!(segs, vec!["[x]hello[/x]", "[x] worl[/x]", "[x]d[/x]"]);
+        assert_eq!(segs, vec!["[x]hello[/x]", "[x] worl[/x]", "[x]d    [/x]"]);
     }
 
     #[test]

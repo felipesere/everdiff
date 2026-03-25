@@ -93,18 +93,18 @@ pub fn render_multidoc_diff<W: Write>(
                     let mut inline_style = InlineParts::new();
                     inline_style.push("Changed document", bold_underline);
                     // left.new_push(Highlighted::new("Changed document:", bold_underline)); // this is meh
-                    left.new_push(inline_style);
+                    left.push(inline_style);
                     right.append_blank(1);
 
-                    left.new_push(l.0.to_string());
-                    right.new_push(r.0.to_string());
+                    left.push(l.0.to_string());
+                    right.push(r.0.to_string());
 
                     left.append_blank(1);
                     right.append_blank(1);
 
                     for (k, v) in &fields.0 {
                         if let Some(v) = v {
-                            left.new_push(Highlighted::new(format!("{k} -> {v}"), dimmed.clone()));
+                            left.push(Highlighted::new(format!("{k} -> {v}"), dimmed.clone()));
                         }
                     }
                     left.append_blank(1);

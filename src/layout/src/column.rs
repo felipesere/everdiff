@@ -52,50 +52,37 @@ impl FormattedRow {
 /// All display rows produced from one logical [`Line`] (≥1 when the line wraps).
 pub struct LineGroup(pub Vec<FormattedRow>);
 
-// --- Line ------------------------------------------------------------------------
-#[derive(Clone, Copy)]
-pub enum LineNr {
-    Nr(usize),
-    // Take the space and add borders as if there was a number
-    FillerNumber,
-    None,
-}
-
-/// A single logical line of content, optionally carrying a line number.
+/// A single logical line of content carrying a line number.
 ///
 /// May wrap into multiple display rows depending on the column width.
 /// The `content` produces styled segments; the line widget is applied by
 /// [`Column::push`] after wrapping.
-pub struct Line {
-    /// 0-based line index. Displayed as `nr + 1`. `None` → no line number widget.
-    pub nr: LineNr,
+pub struct WithLineNumber {
+    /// 0-based line index. Displayed as `nr + 1`
+    pub nr: usize,
     pub content: Box<dyn StyledContent>,
 }
 
-impl Line {
-    pub fn blank() -> Self {
-        Line {
-            nr: LineNr::None,
-            content: Box::new(""),
-        }
-    }
-
-    pub fn new(content: impl StyledContent + 'static) -> Self {
-        Line {
-            nr: LineNr::None,
+impl WithLineNumber {
+    pub fn new(nr: usize, content: impl StyledContent + 'static) -> Self {
+        WithLineNumber {
+            nr,
             content: Box::new(content),
         }
     }
+}
 
-    /// Attach a 0-based line index (displayed as `nr + 1`).
-    pub fn with_nr(mut self, nr: usize) -> Self {
-        self.nr = LineNr::Nr(nr);
-        self
-    }
+pub struct WithLineNumberFiller;
 
-    pub fn filler_nr(mut self) -> Self {
-        self.nr = LineNr::FillerNumber;
-        self
+impl Lineable for WithLineNumberFiller {
+    fn do_thing(self, content_width: u16) -> LineGroup {
+        let w = content_width as usize;
+
+        LineGroup(vec![FormattedRow(format!(
+            "{widget}│ {blank:<w$}",
+            widget = LineWidget::Filler,
+            blank = "",
+        ))])
     }
 }
 
@@ -118,8 +105,7 @@ impl Column {
         }
     }
 
-    // This should be the future. `do_thing`
-    pub fn new_push(&mut self, line: impl Lineable) {
+    pub fn push(&mut self, line: impl Lineable) {
         let group = line.do_thing(self.content_width);
         self.groups.push(group);
     }
@@ -185,7 +171,7 @@ impl Lineable for Highlighted {
     }
 }
 
-impl Lineable for Line {
+impl Lineable for WithLineNumber {
     fn do_thing(self, content_width: u16) -> LineGroup {
         let line = self;
         let nr = line.nr;
@@ -199,11 +185,10 @@ impl Lineable for Line {
                 // Measure ANSI overhead so the padding format fills visible columns correctly.
                 let extras = styled.len() - ansi_width::ansi_width(&styled);
 
-                let widget = match (i, nr) {
-                    (0, LineNr::Nr(n)) => LineWidget::Nr(n),
-                    (0, LineNr::None) => LineWidget::Filler,
-                    (_, LineNr::Nr(_)) => LineWidget::Continuation,
-                    _ => LineWidget::Filler,
+                let widget = if 0 == i {
+                    LineWidget::Nr(nr)
+                } else {
+                    LineWidget::Continuation
                 };
 
                 FormattedRow(format!(
@@ -374,30 +359,21 @@ mod tests {
     use super::*;
     use crate::content::Highlighted;
 
-    fn plain(s: &str) -> Line {
-        Line::new(s.to_string())
+    fn with_nr(n: usize, s: &str) -> WithLineNumber {
+        WithLineNumber::new(n, s.to_string())
     }
 
-    fn highlighted(s: &str) -> Line {
-        Line::new(Highlighted::new(
-            s,
-            Arc::new(|t: &str| format!("[hl]{t}[/]")),
-        ))
-    }
-
-    #[test]
-    fn column_push_plain_no_wrap() {
-        let mut col = Column::new(20);
-        col.new_push(plain("hello"));
-        assert_eq!(col.row_count(), 1);
-        let row = &col.groups[0].0[0].0;
-        assert!(row.starts_with("     │ hello"), "got: {row:?}");
+    fn highlighted(s: &str) -> WithLineNumber {
+        WithLineNumber::new(
+            1,
+            Highlighted::new(s, Arc::new(|t: &str| format!("[hl]{t}[/]"))),
+        )
     }
 
     #[test]
     fn column_push_with_nr() {
         let mut col = Column::new(20);
-        col.new_push(plain("hello").with_nr(4));
+        col.push(with_nr(4, "hello"));
         let row = &col.groups[0].0[0].0;
         // nr=4 (0-based) → displayed as 5
         assert!(row.starts_with("   5 │ hello"), "got: {row:?}");
@@ -406,7 +382,7 @@ mod tests {
     #[test]
     fn column_push_wraps_into_continuation_rows() {
         let mut col = Column::new(5);
-        col.new_push(plain("hello world").with_nr(0));
+        col.push(with_nr(0, "hello world"));
         let group = &col.groups[0].0;
         assert_eq!(group.len(), 3); // "hello", " worl", "d"
         assert!(
@@ -438,10 +414,10 @@ mod tests {
         let pair = ColumnPair::new(40);
         let mut left = pair.column();
         let mut right = pair.column();
-        left.new_push(plain("left line 1"));
-        left.new_push(plain("left line 2"));
-        right.new_push(plain("right line 1"));
-        right.new_push(plain("right line 2"));
+        left.push(with_nr(1, "left line 1"));
+        left.push(with_nr(2, "left line 2"));
+        right.push(with_nr(1, "right line 1"));
+        right.push(with_nr(2, "right line 2"));
 
         let lines = pair.zip(left, right);
         assert_eq!(lines.len(), 2);
@@ -455,8 +431,8 @@ mod tests {
         let mut left = pair.column();
         let mut right = pair.column();
         // "hello world" at width 6 wraps to 2 rows
-        left.new_push(plain("hello world"));
-        right.new_push(plain("short"));
+        left.push(with_nr(1, "hello world"));
+        right.push(with_nr(2, "short"));
 
         let lines = pair.zip(left, right);
         // left wraps to 2 rows, right has 1 → group produces 2 output lines
@@ -474,8 +450,8 @@ mod tests {
     #[test]
     fn highlighted_line_segments_are_styled() {
         let mut col = Column::new(20);
-        col.new_push(highlighted("hello"));
+        col.push(highlighted("hello"));
         let row = &col.groups[0].0[0].0;
-        assert!(row.contains("[hl]hello[/]"), "got: {row:?}");
+        assert_eq!(row, "   2 │ [hl]hello               [/]")
     }
 }
