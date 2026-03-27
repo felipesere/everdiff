@@ -2,6 +2,7 @@
 /// Unicode-aware: uses `unicode-width` for character measurement.
 pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
     let max_width = max_width as usize;
+    dbg!(&max_width);
     debug_assert!(max_width > 0, "wrapping to zero width makes no sense.");
     if text.is_empty() {
         return vec![format!("{:<max_width$}", "")];

@@ -94,6 +94,7 @@ impl Lineable for WithLineNumberFiller {
 /// Zip two columns together with [`ColumnPair::zip`].
 pub struct Column {
     pub content_width: u16,
+    // TODO: consider VecDeq here to be able to push easily
     pub(crate) groups: Vec<LineGroup>,
 }
 
@@ -108,6 +109,11 @@ impl Column {
     pub fn push(&mut self, line: impl Lineable) {
         let group = line.do_thing(self.content_width);
         self.groups.push(group);
+    }
+
+    pub fn prepend(&mut self, line: impl Lineable) {
+        let group = line.do_thing(self.content_width);
+        self.groups.insert(0, group);
     }
 
     /// Append `count` blank rows (no content, no line number).
@@ -175,7 +181,8 @@ impl Lineable for WithLineNumber {
     fn do_thing(self, content_width: u16) -> LineGroup {
         let line = self;
         let nr = line.nr;
-        let segments = line.content.styled_segments(content_width);
+        // we need to substract the chrome from this...
+        let segments = line.content.styled_segments(content_width - 6);
         let content_width = content_width as usize;
 
         let rows = segments
@@ -275,16 +282,20 @@ impl ColumnPair {
         let separator = " │ ";
         let border = "│";
         let overhead = (separator.len() + 2 * border.len()) as u16;
+        let content_width = terminal_width.saturating_sub(overhead) / 2;
+        dbg!(&content_width);
         ColumnPair {
-            content_width: terminal_width.saturating_sub(overhead) / 2,
+            content_width,
             separator: Some(separator),
             borders: Some(border),
         }
     }
 
     pub fn new_plain(terminal_width: u16) -> Self {
+        let content_width = terminal_width / 2;
+        dbg!(&content_width);
         ColumnPair {
-            content_width: terminal_width / 2,
+            content_width,
             separator: None,
             borders: None,
         }

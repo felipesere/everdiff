@@ -948,6 +948,10 @@ pub fn render_difference(
         (left.content, right.content)
     };
 
+    // TODO: This is messed up!
+    left_col.prepend(title);
+    right_col.prepend_blank(1);
+
     // Append bottom filler to the side with fewer lines below
     let (left_col, right_col) = if left.lines_below < right.lines_below {
         left_col.append_blank(below_filler);
@@ -957,9 +961,7 @@ pub fn render_difference(
         (left_col, right_col)
     };
 
-    let body = pair.zip(left_col, right_col).join("\n");
-
-    format!("{title}\n{body}")
+    pair.zip(left_col, right_col).join("\n")
 }
 
 fn render_changed_pair(

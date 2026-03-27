@@ -172,3 +172,81 @@ pub fn render(
     }
     buf
 }
+
+#[cfg(test)]
+mod test {
+    use everdiff_diff::{ArrayOrdering, Context, diff};
+    use everdiff_layout::ColumnPair;
+    use everdiff_multidoc::source::{YamlSource, read_doc};
+    use expect_test::expect;
+    use indoc::indoc;
+
+    use crate::{RenderContext, Theme, render};
+
+    fn yaml_source(yaml: &'static str) -> YamlSource {
+        let mut docs =
+            read_doc(yaml, &camino::Utf8PathBuf::new()).expect("to have parsed properly");
+        docs.remove(0)
+    }
+
+    #[test]
+    fn why_does_this_not_align() {
+        let max_width = 100;
+
+        let header_pair = ColumnPair::new_plain(max_width);
+        let mut left = header_pair.column();
+        let mut right = header_pair.column();
+        left.push("Changed document");
+        right.append_blank(1);
+
+        left.push("left file path...");
+        right.push("right file path...");
+
+        let mut ctx = RenderContext::new(max_width, false, 2, 2);
+        ctx.theme = Theme::plain();
+        let left_doc = yaml_source(indoc! {r#"
+            ---
+            servers:
+              - host: server1.example.com
+                port: 8080
+              - host: server2.example.com
+                port: 9090
+        "#});
+
+        let right_doc = yaml_source(indoc! {r#"
+            ---
+            servers:
+              - host: server1.example.com
+                port: 8080
+              - host: server2.example.com
+                port: 9091
+        "#});
+
+        let mut diff_ctx = Context::default();
+        diff_ctx.array_ordering = ArrayOrdering::Dynamic;
+
+        let differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
+
+        let content = render(ctx, &left_doc, &right_doc, differences);
+
+        let rendered = header_pair.zip(left, right).join("\n");
+
+        let complete = format!("{rendered}\n{content}\n");
+
+        complete.lines().enumerate().for_each(|(nr, l)| {
+            dbg!((nr, l.len()));
+        });
+
+        expect![[r#"
+            Changed document                                                                                    
+            left file path...                                 right file path...                                
+            Changed: .servers[1].port:
+            │   3 │     port: 8080                            │    3 │     port: 8080                          │
+            │   4 │   - host: server2.example.com             │    4 │   - host: server2.example.com           │
+            │   5 │     port: 9090                            │    5 │     port: 9091                          │
+
+
+        "#]]
+        .assert_eq(&complete);
+    }
+}

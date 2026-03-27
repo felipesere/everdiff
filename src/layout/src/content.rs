@@ -29,7 +29,9 @@ impl StyledContent for String {
 
 impl StyledContent for &'static str {
     fn styled_segments(&self, width: u16) -> Vec<String> {
-        wrap_plain(self, width)
+        let n = wrap_plain(self, width);
+        dbg!(&n);
+        n
     }
 }
 
