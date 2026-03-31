@@ -76,10 +76,11 @@ pub struct WithLineNumberFiller;
 
 impl Lineable for WithLineNumberFiller {
     fn do_thing(self, content_width: u16) -> LineGroup {
+        let content_width = content_width - 2 - 5 - 2;
         let w = content_width as usize;
 
         LineGroup(vec![FormattedRow(format!(
-            "{widget}│ {blank:<w$}",
+            "│{widget}│ {blank:<w$} ",
             widget = LineWidget::Filler,
             blank = "",
         ))])
@@ -94,7 +95,6 @@ impl Lineable for WithLineNumberFiller {
 /// Zip two columns together with [`ColumnPair::zip`].
 pub struct Column {
     pub content_width: u16,
-    // TODO: consider VecDeq here to be able to push easily
     pub(crate) groups: Vec<LineGroup>,
 }
 
@@ -181,9 +181,15 @@ impl Lineable for WithLineNumber {
     fn do_thing(self, content_width: u16) -> LineGroup {
         let line = self;
         let nr = line.nr;
+        let widget_length = 5;
+        let surrounding_empty_cells = 2;
+        let chrome = 2 + widget_length + surrounding_empty_cells;
+
+        let actual_width = content_width.saturating_sub(chrome as u16);
+
         // we need to substract the chrome from this...
-        let segments = line.content.styled_segments(content_width - 6);
-        let content_width = content_width as usize;
+        let segments = line.content.styled_segments(actual_width);
+        let actual_width = actual_width as usize;
 
         let rows = segments
             .into_iter()
@@ -197,11 +203,20 @@ impl Lineable for WithLineNumber {
                 } else {
                     LineWidget::Continuation
                 };
+                let used_width = actual_width + extras;
+                let l = format!("│{widget}│ {styled:<width$} ", width = used_width,);
 
-                FormattedRow(format!(
-                    "{widget}│ {styled:<width$}",
-                    width = content_width + extras,
-                ))
+                tracing::info!(
+                    content_width,
+                    actual_width,
+                    extras,
+                    used_width,
+                    l = l.len(),
+                    styled.len = styled.len(),
+                    "FormattedRow",
+                );
+
+                FormattedRow(l)
             })
             .collect();
 
@@ -273,49 +288,19 @@ fn pad(original: &str, width: u16) -> String {
 #[derive(Debug)]
 pub struct ColumnPair {
     pub content_width: u16,
-    borders: Option<&'static str>,
-    separator: Option<&'static str>,
 }
 
 impl ColumnPair {
     pub fn new(terminal_width: u16) -> Self {
-        let separator = " │ ";
-        let border = "│";
-        let overhead = (separator.len() + 2 * border.len()) as u16;
-        let content_width = terminal_width.saturating_sub(overhead) / 2;
-        dbg!(&content_width);
-        ColumnPair {
-            content_width,
-            separator: Some(separator),
-            borders: Some(border),
-        }
-    }
-
-    pub fn new_plain(terminal_width: u16) -> Self {
+        // let separator = " │ ";
+        // let border = "│";
         let content_width = terminal_width / 2;
-        dbg!(&content_width);
-        ColumnPair {
-            content_width,
-            separator: None,
-            borders: None,
-        }
+        ColumnPair { content_width }
     }
 
     /// Create a fresh [`Column`] sized for this pair.
     pub fn column(&self) -> Column {
         Column::new(self.content_width)
-    }
-
-    /// Format a plain two-column line (no borders, no line numbers) whose right
-    /// side aligns with this pair's bordered right column.
-    pub fn format_plain_row(&self, left: &str, right: &str) -> String {
-        // In a bordered layout each row is:
-        //   border(1) + widget(5) + "│ "(2) + content(content_width) + separator(3) + …
-        // The right column starts at content_width + 11 visible columns from the left.
-        // Without borders we position the right text at that same offset.
-        let left_half = self.content_width as usize + 10;
-        let extras = left.len() - ansi_width::ansi_width(left);
-        format!("{left:<w$}{right}", w = left_half + extras)
     }
 
     /// Zip a left and right [`Column`] into final output lines.
@@ -332,9 +317,6 @@ impl ColumnPair {
         let mut left_iter = left.groups.into_iter();
         let mut right_iter = right.groups.into_iter();
 
-        let border = &self.borders.unwrap_or_default();
-        let separator = &self.separator.unwrap_or_default();
-
         for _ in 0..min_groups {
             let left_rows = left_iter.next().unwrap().0;
             let right_rows = right_iter.next().unwrap().0;
@@ -349,13 +331,11 @@ impl ColumnPair {
                     .get(i)
                     .map(|row| row.0.as_str())
                     .unwrap_or_default();
-                let l_extras = left.len() - ansi_width::ansi_width(left);
-                let r_extras = right.len() - ansi_width::ansi_width(right);
+                let l_extras = left.chars().count() - ansi_width::ansi_width(left);
+                let r_extras = right.chars().count() - ansi_width::ansi_width(right);
                 let l_width = content_width + l_extras;
                 let r_width = content_width + r_extras;
-                result.push(format!(
-                    "{border}{left:<l_width$}{separator}{right:<r_width$}{border}",
-                ));
+                result.push(format!("{left:<l_width$}{right:<r_width$}",));
             }
         }
 

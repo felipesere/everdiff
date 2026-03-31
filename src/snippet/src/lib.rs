@@ -4,7 +4,7 @@ use std::{
 };
 
 use everdiff_diff::{Difference, path::IgnorePath};
-use everdiff_layout::{ColumnPair, Highlighted, InlineParts};
+use everdiff_layout::{Column, ColumnPair, Highlighted, InlineParts};
 use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
 use owo_colors::OwoColorize;
 
@@ -44,7 +44,7 @@ pub fn render_multidoc_diff<W: Write>(
         terminal_size::terminal_size_of(std::io::stderr())
             .map(|(terminal_size::Width(n), _)| n)
             .unwrap_or(80)
-    } - 8;
+    } - 10;
 
     differences.sort();
 
@@ -87,7 +87,7 @@ pub fn render_multidoc_diff<W: Write>(
                     let bold_underline =
                         Arc::new(Box::new(|s: &str| s.bold().underline().to_string()));
 
-                    let header_pair = ColumnPair::new_plain(max_width);
+                    let header_pair = ColumnPair::new(max_width);
                     let mut left = header_pair.column();
                     let mut right = header_pair.column();
                     let mut inline_style = InlineParts::new();
@@ -180,6 +180,7 @@ mod test {
     use everdiff_multidoc::source::{YamlSource, read_doc};
     use expect_test::expect;
     use indoc::indoc;
+    use tracing_test::traced_test;
 
     use crate::{RenderContext, Theme, render};
 
@@ -189,11 +190,12 @@ mod test {
         docs.remove(0)
     }
 
+    #[traced_test]
     #[test]
     fn why_does_this_not_align() {
         let max_width = 100;
 
-        let header_pair = ColumnPair::new_plain(max_width);
+        let header_pair = ColumnPair::new(max_width);
         let mut left = header_pair.column();
         let mut right = header_pair.column();
         left.push("Changed document");
@@ -232,10 +234,6 @@ mod test {
         let rendered = header_pair.zip(left, right).join("\n");
 
         let complete = format!("{rendered}\n{content}\n");
-
-        complete.lines().enumerate().for_each(|(nr, l)| {
-            dbg!((nr, l.len()));
-        });
 
         expect![[r#"
             Changed document                                                                                    

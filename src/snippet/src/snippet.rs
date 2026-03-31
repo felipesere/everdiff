@@ -413,12 +413,12 @@ fn render_primary_side(
     // Show a few more lines before and after the lines that have changed
     let start = change_start.saturating_sub(ctx.lines_before);
     let end = min(change_end + ctx.lines_after, primary_doc.last_line);
-    log::debug!("Snippet for primary document");
+    tracing::debug!("Snippet for primary document");
     let primary_snippet = Snippet::new_clamped(&primary_lines, start, end);
 
     // Format the primary side. change_end is inclusive, so use +1 for the exclusive range end.
     let changed_range = change_start..(change_end + 1);
-    log::debug!("We will highlight {change_start}..={change_end}");
+    tracing::debug!("We will highlight {change_start}..={change_end}");
 
     // line_nr.get() - 1 mirrors LineWidget::from(Line) which subtracts 1 for 0-based display
     for (nr, line) in primary_snippet.iter() {

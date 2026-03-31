@@ -18,9 +18,11 @@ owo-colors.workspace = true
 saphyr.workspace = true
 terminal_size.workspace = true
 unicode-width.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 indoc.workspace = true
 pretty_assertions.workspace = true
 expect-test.workspace = true
 test-log.workspace = true
+tracing-test = { workspace = true, features = ["no-env-filter"] }

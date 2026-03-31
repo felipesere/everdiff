@@ -29,9 +29,7 @@ impl StyledContent for String {
 
 impl StyledContent for &'static str {
     fn styled_segments(&self, width: u16) -> Vec<String> {
-        let n = wrap_plain(self, width);
-        dbg!(&n);
-        n
+        wrap_plain(self, width)
     }
 }
 
@@ -61,6 +59,7 @@ impl StyledContent for Highlighted {
         wrap_plain(&self.text, width)
             .into_iter()
             .map(|seg| (self.highlight)(&seg))
+            .inspect(|l| tracing::info!(l.len = l.len()))
             .collect()
     }
 }
