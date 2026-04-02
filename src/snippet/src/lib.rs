@@ -238,10 +238,10 @@ mod test {
         expect![[r#"
             Changed document                                                                                    
             left file path...                                 right file path...                                
-            Changed: .servers[1].port:
-            │   3 │     port: 8080                            │    3 │     port: 8080                          │
-            │   4 │   - host: server2.example.com             │    4 │   - host: server2.example.com           │
-            │   5 │     port: 9090                            │    5 │     port: 9091                          │
+            Changed: .servers[1].port:                                                                          
+            │   3 │     port: 8080                            │   3 │     port: 8080                            
+            │   4 │   - host: server2.example.com             │   4 │   - host: server2.example.com             
+            │   5 │     port: 9090                            │   5 │     port: 9091                            
 
 
         "#]]
