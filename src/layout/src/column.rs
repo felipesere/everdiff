@@ -1,15 +1,27 @@
-use std::{
-    cmp::Ordering,
-    fmt::{self},
-};
+use std::fmt::{self};
 
-use crate::{
-    Highlighted, InlineParts,
-    content::StyledContent,
-    wrap::{split_at_width, wrap_plain},
-};
+use crate::{content::StyledContent, wrap::wrap_plain};
 
-// --- Line widget -----------------------------------------------------------------
+/// All display rows produced from one logical [`Line`] (≥1 when the line wraps).
+pub struct LineGroup(pub Vec<FormattedRow>);
+
+pub struct FormattedRow(pub String);
+
+impl FormattedRow {
+    fn blank(content_width: u16) -> Self {
+        let w = content_width as usize;
+        FormattedRow(format!("{blank:<w$}", blank = "",))
+    }
+}
+
+// --- Lineable trait --------------------------------------------------------------
+
+/// A value that can render itself into a [`LineGroup`] at a given column width.
+pub trait Lineable {
+    fn into_line_group(self, content_width: u16) -> LineGroup;
+}
+
+// --- Supporting types ------------------------------------------------------------
 
 /// The 4-character prefix shown before the `│` separator in each display row.
 ///
@@ -37,20 +49,31 @@ impl fmt::Display for LineWidget {
     }
 }
 
-// --- FormattedRow / LineGroup ----------------------------------------------------
+// --- Lineable impls for primitive types ------------------------------------------
 
-/// A single fully-rendered display row: `"WIDGET│ content<padding>"`.
-pub struct FormattedRow(pub String);
+impl Lineable for String {
+    fn into_line_group(self, content_width: u16) -> LineGroup {
+        let group = wrap_plain(&self, content_width)
+            .into_iter()
+            .map(FormattedRow)
+            .collect();
 
-impl FormattedRow {
-    fn blank(content_width: u16) -> Self {
-        let w = content_width as usize;
-        FormattedRow(format!("{blank:<w$}", blank = "",))
+        LineGroup(group)
     }
 }
 
-/// All display rows produced from one logical [`Line`] (≥1 when the line wraps).
-pub struct LineGroup(pub Vec<FormattedRow>);
+impl Lineable for &str {
+    fn into_line_group(self, content_width: u16) -> LineGroup {
+        let group = wrap_plain(self, content_width)
+            .into_iter()
+            .map(FormattedRow)
+            .collect();
+
+        LineGroup(group)
+    }
+}
+
+// --- WithLineNumber --------------------------------------------------------------
 
 /// A single logical line of content carrying a line number.
 ///
@@ -72,113 +95,8 @@ impl WithLineNumber {
     }
 }
 
-pub struct WithLineNumberFiller;
-
-impl Lineable for WithLineNumberFiller {
-    fn do_thing(self, content_width: u16) -> LineGroup {
-        let content_width = content_width - 2 - 5 - 2;
-        let w = content_width as usize;
-
-        LineGroup(vec![FormattedRow(format!(
-            "│{widget}│ {blank:<w$} ",
-            widget = LineWidget::Filler,
-            blank = "",
-        ))])
-    }
-}
-
-// --- Column ----------------------------------------------------------------------
-
-/// One side of a two-column layout. Knows its own `content_width`.
-///
-/// Build by calling [`push`](Column::push) and [`blank`](Column::blank).
-/// Zip two columns together with [`ColumnPair::zip`].
-pub struct Column {
-    pub content_width: u16,
-    pub(crate) groups: Vec<LineGroup>,
-}
-
-impl Column {
-    pub fn new(content_width: u16) -> Self {
-        Column {
-            content_width,
-            groups: Vec::new(),
-        }
-    }
-
-    pub fn push(&mut self, line: impl Lineable) {
-        let group = line.do_thing(self.content_width);
-        self.groups.push(group);
-    }
-
-    pub fn prepend(&mut self, line: impl Lineable) {
-        let group = line.do_thing(self.content_width);
-        self.groups.insert(0, group);
-    }
-
-    /// Append `count` blank rows (no content, no line number).
-    pub fn append_blank(&mut self, count: usize) {
-        for _ in 0..count {
-            self.groups
-                .push(LineGroup(vec![FormattedRow::blank(self.content_width)]));
-        }
-    }
-
-    // TODO: Is this the most efficient way to do this?
-    pub fn prepend_blank(&mut self, count: usize) {
-        let mut new_line_group = Vec::with_capacity(self.groups.len() + count);
-        for _ in 0..count {
-            new_line_group.push(LineGroup(vec![FormattedRow::blank(self.content_width)]));
-        }
-        new_line_group.append(&mut self.groups);
-        self.groups = new_line_group;
-    }
-
-    /// Total number of display rows across all groups.
-    pub fn row_count(&self) -> usize {
-        self.groups.iter().map(|g| g.0.len()).sum()
-    }
-}
-
-pub trait Lineable {
-    fn do_thing(self, content_width: u16) -> LineGroup;
-}
-
-impl Lineable for String {
-    fn do_thing(self, content_width: u16) -> LineGroup {
-        let group = wrap_plain(&self, content_width)
-            .into_iter()
-            .map(FormattedRow)
-            .collect();
-
-        LineGroup(group)
-    }
-}
-
-impl Lineable for &str {
-    fn do_thing(self, content_width: u16) -> LineGroup {
-        let group = wrap_plain(self, content_width)
-            .into_iter()
-            .map(FormattedRow)
-            .collect();
-
-        LineGroup(group)
-    }
-}
-
-impl Lineable for Highlighted {
-    fn do_thing(self, content_width: u16) -> LineGroup {
-        let group = wrap_plain(&self.text, content_width)
-            .into_iter()
-            .map(|seg| FormattedRow((self.highlight)(&seg)))
-            .collect();
-
-        LineGroup(group)
-    }
-}
-
 impl Lineable for WithLineNumber {
-    fn do_thing(self, content_width: u16) -> LineGroup {
+    fn into_line_group(self, content_width: u16) -> LineGroup {
         let line = self;
         let nr = line.nr;
         let widget_length = 5;
@@ -224,60 +142,73 @@ impl Lineable for WithLineNumber {
     }
 }
 
-impl Lineable for InlineParts {
-    fn do_thing(self, width: u16) -> LineGroup {
-        if width == 0 {
-            return LineGroup(vec![]);
-        }
+// --- WithLineNumberFiller --------------------------------------------------------
 
-        let width_usize = width as usize;
-        let mut segments: Vec<FormattedRow> = Vec::new();
-        let mut current = String::new();
-        let mut current_width = 0usize;
+pub struct WithLineNumberFiller;
 
-        for (text, highlight) in &self.parts {
-            let mut remaining = text.as_str();
-            while !remaining.is_empty() {
-                let remaining_available_space = width_usize.saturating_sub(current_width);
-                let (fits, rest) = split_at_width(remaining, remaining_available_space as u16);
+impl Lineable for WithLineNumberFiller {
+    fn into_line_group(self, content_width: u16) -> LineGroup {
+        let content_width = content_width - 2 - 5 - 2;
+        let w = content_width as usize;
 
-                if !fits.is_empty() {
-                    current.push_str(&highlight(fits));
-                    current_width += unicode_width::UnicodeWidthStr::width(fits);
-                }
-
-                remaining = rest;
-
-                // Close the segment when full and there is still more text to place.
-                if current_width >= width_usize && !remaining.is_empty() {
-                    let p = std::mem::take(&mut current);
-                    segments.push(FormattedRow(pad(&p, width)));
-                    current_width = 0;
-                }
-            }
-        }
-
-        // Emit whatever remains in the buffer (always at least one segment).
-        if !current.is_empty() || segments.is_empty() {
-            segments.push(FormattedRow(pad(&current, width)));
-        }
-
-        LineGroup(segments)
+        LineGroup(vec![FormattedRow(format!(
+            "│{widget}│ {blank:<w$} ",
+            widget = LineWidget::Filler,
+            blank = "",
+        ))])
     }
 }
 
-fn pad(original: &str, width: u16) -> String {
-    let visible_width = unicode_width::UnicodeWidthStr::width(original);
-    match visible_width.cmp(&original.len()) {
-        Ordering::Less => {
-            let extras = original.len() - visible_width;
+// --- Column ----------------------------------------------------------------------
 
-            format!("{original:<w$}", w = width as usize + extras)
+/// One side of a two-column layout. Knows its own `content_width`.
+///
+/// Build by calling [`push`](Column::push) and [`blank`](Column::blank).
+/// Zip two columns together with [`ColumnPair::zip`].
+pub struct Column {
+    pub content_width: u16,
+    pub(crate) groups: Vec<LineGroup>,
+}
+
+impl Column {
+    pub fn new(content_width: u16) -> Self {
+        Column {
+            content_width,
+            groups: Vec::new(),
         }
-        Ordering::Equal => original.to_string(),
-        Ordering::Greater => {
-            unreachable!("the visible width can't be greater than teh normal one?")
+    }
+
+    pub fn push(&mut self, line: impl Lineable) {
+        let group = line.into_line_group(self.content_width);
+        self.groups.push(group);
+    }
+
+    pub fn prepend(&mut self, line: impl Lineable) {
+        let group = line.into_line_group(self.content_width);
+        self.groups.insert(0, group);
+    }
+
+    /// Append `count` blank rows (no content, no line number).
+    pub fn append_blank(&mut self, count: usize) {
+        for _ in 0..count {
+            self.groups
+                .push(LineGroup(vec![FormattedRow::blank(self.content_width)]));
         }
+    }
+
+    // TODO: Is this the most efficient way to do this?
+    pub fn prepend_blank(&mut self, count: usize) {
+        let mut new_line_group = Vec::with_capacity(self.groups.len() + count);
+        for _ in 0..count {
+            new_line_group.push(LineGroup(vec![FormattedRow::blank(self.content_width)]));
+        }
+        new_line_group.append(&mut self.groups);
+        self.groups = new_line_group;
+    }
+
+    /// Total number of display rows across all groups.
+    pub fn row_count(&self) -> usize {
+        self.groups.iter().map(|g| g.0.len()).sum()
     }
 }
 

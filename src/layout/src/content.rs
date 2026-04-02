@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::wrap::{split_at_width, wrap_plain};
+use crate::{
+    column::{FormattedRow, LineGroup, Lineable},
+    wrap::{split_at_width, wrap_plain},
+};
 
 /// A styling function: takes a plain-text slice, returns a styled string (may contain ANSI codes).
 /// Provided by the caller; the layout crate never constructs one itself.
@@ -135,6 +138,50 @@ impl StyledContent for InlineParts {
         }
 
         segments
+    }
+}
+
+// --- Lineable impls --------------------------------------------------------------
+
+impl Lineable for Highlighted {
+    fn into_line_group(self, content_width: u16) -> LineGroup {
+        let group = wrap_plain(&self.text, content_width)
+            .into_iter()
+            .map(|seg| FormattedRow((self.highlight)(&seg)))
+            .collect();
+
+        LineGroup(group)
+    }
+}
+
+fn pad(original: &str, width: u16) -> String {
+    use std::cmp::Ordering;
+    let visible_width = unicode_width::UnicodeWidthStr::width(original);
+    match visible_width.cmp(&original.len()) {
+        Ordering::Less => {
+            let extras = original.len() - visible_width;
+            format!("{original:<w$}", w = width as usize + extras)
+        }
+        Ordering::Equal => original.to_string(),
+        Ordering::Greater => {
+            unreachable!("the visible width can't be greater than teh normal one?")
+        }
+    }
+}
+
+impl Lineable for InlineParts {
+    fn into_line_group(self, width: u16) -> LineGroup {
+        if width == 0 {
+            return LineGroup(vec![]);
+        }
+
+        let segments = self
+            .styled_segments(width)
+            .into_iter()
+            .map(|s| FormattedRow(pad(&s, width)))
+            .collect();
+
+        LineGroup(segments)
     }
 }
 
