@@ -10,7 +10,7 @@ use everdiff_diff::{
     path::{NonEmptyPath, Path, Segment},
 };
 use everdiff_layout::{
-    Column, ColumnPair, Highlighted, InlineParts, WithLineNumber, WithLineNumberFiller,
+    Column, ColumnPair, Highlighted, InlineParts, PrefixedLine,
 };
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
@@ -427,7 +427,7 @@ fn render_primary_side(
         } else {
             unchanged.clone()
         };
-        let l = WithLineNumber::new(nr.get() - 1, Highlighted::new(line, style));
+        let l = PrefixedLine::numbered(nr.get() - 1, Highlighted::new(line, style));
         column.push(l);
     }
 
@@ -474,14 +474,14 @@ fn render_secondary_side(
 
     column.append_blank(filler_len);
     for (nr, line) in before_gap.iter() {
-        let line = WithLineNumber::new(nr.get() - 1, Highlighted::new(line, unchanged.clone()));
+        let line = PrefixedLine::numbered(nr.get() - 1, Highlighted::new(line, unchanged.clone()));
         column.push(line);
     }
     for _ in 0..gap_size {
-        column.push(WithLineNumberFiller);
+        column.push(PrefixedLine::Filler);
     }
     for (nr, line) in after_gap.iter() {
-        let line = WithLineNumber::new(nr.get() - 1, Highlighted::new(line, unchanged.clone()));
+        let line = PrefixedLine::numbered(nr.get() - 1, Highlighted::new(line, unchanged.clone()));
         column.push(line);
     }
 
@@ -1027,7 +1027,7 @@ fn render_changed_snippet(
             } else {
                 Arc::clone(&dimmed)
             };
-            WithLineNumber::new(line_nr, Highlighted::new(line, highlight))
+            PrefixedLine::numbered(line_nr, Highlighted::new(line, highlight))
         })
         .for_each(|l| column.push(l));
 
@@ -1043,7 +1043,7 @@ pub fn format_with_inline_highlights(
     prefix: &str,
     parts: &[InlinePart],
     theme: Theme,
-) -> WithLineNumber {
+) -> PrefixedLine {
     let mut inline_parts = InlineParts::new();
 
     let dimmed = std::sync::Arc::new(theme.dimmed);
@@ -1067,7 +1067,7 @@ pub fn format_with_inline_highlights(
             },
         );
     }
-    WithLineNumber::new(line_nr, inline_parts)
+    PrefixedLine::numbered(line_nr, inline_parts)
 }
 
 // pub struct LineWidget(pub Option<usize>);

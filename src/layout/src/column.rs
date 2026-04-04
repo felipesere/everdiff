@@ -2,15 +2,17 @@ use std::fmt::{self};
 
 use crate::{content::StyledContent, wrap::wrap_plain};
 
-/// All display rows produced from one logical [`Line`] (≥1 when the line wraps).
+/// All display rows produced from one logical line (≥1 when the line wraps).
 pub struct LineGroup(pub Vec<FormattedRow>);
 
+/// A single terminal output row: a padded, optionally ANSI-styled string
+/// ready to be printed as-is.
 pub struct FormattedRow(pub String);
 
 impl FormattedRow {
     fn blank(content_width: u16) -> Self {
         let w = content_width as usize;
-        FormattedRow(format!("{blank:<w$}", blank = "",))
+        FormattedRow(format!("{blank:<w$}", blank = ""))
     }
 }
 
@@ -21,9 +23,9 @@ pub trait Lineable {
     fn into_line_group(self, content_width: u16) -> LineGroup;
 }
 
-// --- Supporting types ------------------------------------------------------------
+// --- LineWidget ------------------------------------------------------------------
 
-/// The 4-character prefix shown before the `│` separator in each display row.
+/// The 5-character prefix shown between the `│` separators in each display row.
 ///
 /// ```text
 /// "  3 │ content"   ← Nr(2)       (0-based index, displayed as idx+1)
@@ -46,6 +48,70 @@ impl fmt::Display for LineWidget {
             Self::Continuation => write!(f, "   ┆ "),
             Self::Filler => write!(f, "     "),
         }
+    }
+}
+
+// --- Chrome helpers --------------------------------------------------------------
+
+/// Columns consumed by the line-number chrome:
+/// `│`(1) + widget(5) + `│`(1) + space(1) + trailing space(1) = 9.
+const CHROME: u16 = 9;
+
+fn format_chrome_row(widget: LineWidget, value: &str, visual_width: usize) -> FormattedRow {
+    let extras = value.len() - ansi_width::ansi_width(value);
+    let used_width = visual_width + extras;
+    FormattedRow(format!("│{widget}│ {value:<used_width$} "))
+}
+
+// --- PrefixedLine ----------------------------------------------------------------
+
+/// A line pushed into a [`Column`], rendered with line-number chrome (`│ nr │`).
+///
+/// - `Numbered` — real content with a 0-based line index. Displayed as `nr + 1`.
+/// - `Filler` — a blank row that still occupies the chrome columns, used to pad
+///   the shorter side of a [`ColumnPair`] when the two sides have different heights.
+pub enum PrefixedLine {
+    Numbered {
+        /// 0-based line index. Displayed as `nr + 1`.
+        nr: usize,
+        content: Box<dyn StyledContent>,
+    },
+    Filler,
+}
+
+impl PrefixedLine {
+    pub fn numbered(nr: usize, content: impl StyledContent + 'static) -> Self {
+        PrefixedLine::Numbered {
+            nr,
+            content: Box::new(content),
+        }
+    }
+}
+
+impl Lineable for PrefixedLine {
+    fn into_line_group(self, content_width: u16) -> LineGroup {
+        let actual_width_u16 = content_width.saturating_sub(CHROME);
+        let actual_width = actual_width_u16 as usize;
+
+        let rows = match self {
+            PrefixedLine::Numbered { nr, content } => content
+                .styled_segments(actual_width_u16)
+                .into_iter()
+                .enumerate()
+                .map(|(i, styled)| {
+                    let widget = if i == 0 {
+                        LineWidget::Nr(nr)
+                    } else {
+                        LineWidget::Continuation
+                    };
+                    format_chrome_row(widget, &styled, actual_width)
+                })
+                .collect(),
+
+            PrefixedLine::Filler => vec![format_chrome_row(LineWidget::Filler, "", actual_width)],
+        };
+
+        LineGroup(rows)
     }
 }
 
@@ -73,97 +139,11 @@ impl Lineable for &str {
     }
 }
 
-// --- WithLineNumber --------------------------------------------------------------
-
-/// A single logical line of content carrying a line number.
-///
-/// May wrap into multiple display rows depending on the column width.
-/// The `content` produces styled segments; the line widget is applied by
-/// [`Column::push`] after wrapping.
-pub struct WithLineNumber {
-    /// 0-based line index. Displayed as `nr + 1`
-    pub nr: usize,
-    pub content: Box<dyn StyledContent>,
-}
-
-impl WithLineNumber {
-    pub fn new(nr: usize, content: impl StyledContent + 'static) -> Self {
-        WithLineNumber {
-            nr,
-            content: Box::new(content),
-        }
-    }
-}
-
-impl Lineable for WithLineNumber {
-    fn into_line_group(self, content_width: u16) -> LineGroup {
-        let line = self;
-        let nr = line.nr;
-        let widget_length = 5;
-        let surrounding_empty_cells = 2;
-        let chrome = 2 + widget_length + surrounding_empty_cells;
-
-        let actual_width = content_width.saturating_sub(chrome as u16);
-
-        // we need to substract the chrome from this...
-        let segments = line.content.styled_segments(actual_width);
-        let actual_width = actual_width as usize;
-
-        let rows = segments
-            .into_iter()
-            .enumerate()
-            .map(|(i, styled)| {
-                // Measure ANSI overhead so the padding format fills visible columns correctly.
-                let extras = styled.len() - ansi_width::ansi_width(&styled);
-
-                let widget = if 0 == i {
-                    LineWidget::Nr(nr)
-                } else {
-                    LineWidget::Continuation
-                };
-                let used_width = actual_width + extras;
-                let l = format!("│{widget}│ {styled:<width$} ", width = used_width,);
-
-                tracing::info!(
-                    content_width,
-                    actual_width,
-                    extras,
-                    used_width,
-                    l = l.len(),
-                    styled.len = styled.len(),
-                    "FormattedRow",
-                );
-
-                FormattedRow(l)
-            })
-            .collect();
-
-        LineGroup(rows)
-    }
-}
-
-// --- WithLineNumberFiller --------------------------------------------------------
-
-pub struct WithLineNumberFiller;
-
-impl Lineable for WithLineNumberFiller {
-    fn into_line_group(self, content_width: u16) -> LineGroup {
-        let content_width = content_width - 2 - 5 - 2;
-        let w = content_width as usize;
-
-        LineGroup(vec![FormattedRow(format!(
-            "│{widget}│ {blank:<w$} ",
-            widget = LineWidget::Filler,
-            blank = "",
-        ))])
-    }
-}
-
 // --- Column ----------------------------------------------------------------------
 
 /// One side of a two-column layout. Knows its own `content_width`.
 ///
-/// Build by calling [`push`](Column::push) and [`blank`](Column::blank).
+/// Build by calling [`push`](Column::push) and [`append_blank`](Column::append_blank).
 /// Zip two columns together with [`ColumnPair::zip`].
 pub struct Column {
     pub content_width: u16,
@@ -178,11 +158,13 @@ impl Column {
         }
     }
 
+    /// Append a line to the bottom of the column.
     pub fn push(&mut self, line: impl Lineable) {
         let group = line.into_line_group(self.content_width);
         self.groups.push(group);
     }
 
+    /// Insert a line at the top of the column.
     pub fn prepend(&mut self, line: impl Lineable) {
         let group = line.into_line_group(self.content_width);
         self.groups.insert(0, group);
@@ -264,7 +246,7 @@ impl ColumnPair {
                 let r_extras = right.chars().count() - ansi_width::ansi_width(right);
                 let l_width = content_width + l_extras;
                 let r_width = content_width + r_extras;
-                result.push(format!("{left:<l_width$}{right:<r_width$}",));
+                result.push(format!("{left:<l_width$}{right:<r_width$}"));
             }
         }
 
@@ -279,12 +261,12 @@ mod tests {
     use super::*;
     use crate::content::Highlighted;
 
-    fn with_nr(n: usize, s: &str) -> WithLineNumber {
-        WithLineNumber::new(n, s.to_string())
+    fn with_nr(n: usize, s: &str) -> PrefixedLine {
+        PrefixedLine::numbered(n, s.to_string())
     }
 
-    fn highlighted(s: &str) -> WithLineNumber {
-        WithLineNumber::new(
+    fn highlighted(s: &str) -> PrefixedLine {
+        PrefixedLine::numbered(
             1,
             Highlighted::new(s, Arc::new(|t: &str| format!("[hl]{t}[/]"))),
         )
