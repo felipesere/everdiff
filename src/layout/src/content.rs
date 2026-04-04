@@ -5,24 +5,47 @@ use crate::{
     wrap::{split_at_width, wrap_plain},
 };
 
-/// A styling function: takes a plain-text slice, returns a styled string (may contain ANSI codes).
-/// Provided by the caller; the layout crate never constructs one itself.
+// --- Highlight -------------------------------------------------------------------
+
+/// A thread-safe, cloneable styling function.
+///
+/// Takes a plain-text slice and returns a string that may contain ANSI escape
+/// codes. The `Arc` makes it cheap to share a single highlight function across
+/// many lines (e.g. the same "dimmed" style applied to every context line in a
+/// diff hunk) without cloning the closure body.
+///
+/// The layout crate never constructs a `Highlight` itself — callers in
+/// `everdiff-snippet` provide them.
 pub type Highlight = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
-/// Produces styled display segments for a given column width.
+// --- StyledContent trait ---------------------------------------------------------
+
+/// A content type that wraps long text into fixed-width segments and applies
+/// ANSI colour styling, ensuring codes never straddle a line boundary.
 ///
-/// Each implementor owns its own wrapping logic. Segments are ready to be placed
-/// into a [`FormattedRow`](crate::column::FormattedRow) without further transformation.
+/// This trait operates at the *string* level: it borrows `&self` and returns
+/// `Vec<String>`. It knows nothing about [`FormattedRow`], [`LineGroup`], or
+/// line-number chrome — that is [`Lineable`]'s concern.
 ///
-/// [`crate::column::Column::push`] calls `styled_segments(content_width)` and
-/// prefixes each result with a line widget and separator.
+/// [`PrefixedLine::Numbered`](crate::PrefixedLine) is the bridge between the two
+/// traits: it holds a `Box<dyn StyledContent>`, calls `styled_segments` to obtain
+/// styled strings, and then frames each one with `│ nr │` chrome before wrapping
+/// it in a [`FormattedRow`].
+///
+/// Implementors are responsible for their own wrapping: each returned `String`
+/// must have a *visible* width of at most `width` columns. Strings may contain
+/// ANSI codes; visible width is measured separately from `str::len` because ANSI
+/// escape bytes inflate the byte count without advancing the cursor.
 pub trait StyledContent: Send + Sync {
-    /// Return one styled string per display row, each fitting within `width` visible columns.
-    /// Strings may contain ANSI codes; visible width ≤ `width` for all returned strings.
+    /// Return one styled string per display row, each fitting within `width`
+    /// visible terminal columns.
+    ///
+    /// Always returns at least one element — a zero-width `width` should produce
+    /// a single empty string rather than an empty `Vec`.
     fn styled_segments(&self, width: u16) -> Vec<String>;
 }
 
-// --- Plain string ----------------------------------------------------------------
+// --- Plain string impls ----------------------------------------------------------
 
 impl StyledContent for String {
     fn styled_segments(&self, width: u16) -> Vec<String> {
@@ -36,19 +59,27 @@ impl StyledContent for &'static str {
     }
 }
 
-// --- Uniform highlight -----------------------------------------------------------
+// --- Highlighted -----------------------------------------------------------------
 
-/// A line whose entire content is styled with a single [`Highlight`] function.
+/// Content styled uniformly with a single [`Highlight`] function.
 ///
-/// The plain text is wrapped first; each segment is then passed to `highlight`.
-/// Because highlighting is applied per segment, ANSI codes are always
-/// self-contained within a segment — no reset/reopen across line breaks needed.
+/// The plain text is wrapped first; each segment is then passed through
+/// `highlight`. Because highlighting is applied per segment, ANSI codes are
+/// always self-contained within one [`FormattedRow`] — no reset/reopen across
+/// line breaks is needed.
+///
+/// Use this for lines where the entire content shares one style (e.g. a line
+/// that was added, removed, or left unchanged as context).
+/// For lines where different *spans* carry different styles, use [`InlineParts`].
 pub struct Highlighted {
+    /// The plain text to display (no ANSI codes).
     pub text: String,
+    /// The styling function applied to each wrapped segment.
     pub highlight: Highlight,
 }
 
 impl Highlighted {
+    /// Create a [`Highlighted`] from any string-like value and a [`Highlight`] function.
     pub fn new(text: impl Into<String>, highlight: Highlight) -> Self {
         Highlighted {
             text: text.into(),
@@ -67,27 +98,29 @@ impl StyledContent for Highlighted {
     }
 }
 
-// --- Inline (per-part) highlights ------------------------------------------------
+// --- InlineParts -----------------------------------------------------------------
 
-/// A line assembled from parts, each with its own [`Highlight`] function.
+/// Content assembled from spans, each with its own [`Highlight`] function.
 ///
 /// Use this for word-wise diffs where different spans of the same line carry
-/// different styles. Built incrementally via [`InlineParts::push`].
+/// different styles — for example, a key rendered in a dimmed style followed by
+/// the changed value in a highlighted style.
 ///
-/// Wrapping is done by walking parts in order and filling segment buckets up to
-/// `width` visible columns. When a part straddles a segment boundary it is split;
-/// the remainder carries forward with the same `Highlight`. This means ANSI codes
-/// are always self-contained per segment, requiring no ANSI scanning.
+/// Build incrementally with [`push`](InlineParts::push). Wrapping walks the parts
+/// in order and fills fixed-width segment buckets. When a part straddles a segment
+/// boundary it is split; the remainder carries forward with the same [`Highlight`].
+/// ANSI codes are therefore always self-contained per segment.
 pub struct InlineParts {
     pub(crate) parts: Vec<(String, Highlight)>,
 }
 
 impl InlineParts {
+    /// Create an empty [`InlineParts`].
     pub fn new() -> Self {
         InlineParts { parts: Vec::new() }
     }
 
-    /// Append a text span with its associated highlight function.
+    /// Append a text span with its associated [`Highlight`] function.
     pub fn push(&mut self, text: impl Into<String>, highlight: Highlight) -> &Self {
         self.parts.push((text.into(), highlight));
         self
@@ -154,6 +187,12 @@ impl Lineable for Highlighted {
     }
 }
 
+/// Pad `original` to `width` *visible* columns, accounting for ANSI overhead.
+///
+/// `str::len` counts bytes, but ANSI escape sequences inflate byte length without
+/// advancing the cursor. When `visible_width < original.len()` the difference is
+/// ANSI overhead; the format-string padding target is widened by that amount so
+/// the output fills exactly `width` visible columns.
 fn pad(original: &str, width: u16) -> String {
     use std::cmp::Ordering;
     let visible_width = unicode_width::UnicodeWidthStr::width(original);

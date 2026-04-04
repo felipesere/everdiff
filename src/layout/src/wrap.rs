@@ -1,5 +1,10 @@
-/// Split plain text into segments that each fit within `max_width` visible columns.
-/// Unicode-aware: uses `unicode-width` for character measurement.
+/// Split plain text into padded segments that each fit within `max_width` visible columns.
+///
+/// Each segment is left-padded with spaces to exactly `max_width` columns, making
+/// it ready to be placed directly into a [`FormattedRow`](crate::FormattedRow).
+/// An empty `text` returns a single all-spaces segment. Unicode-aware: character
+/// widths are measured with [`unicode_width`], so CJK and other wide characters
+/// are counted as 2 columns each.
 pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
     let max_width = max_width as usize;
     debug_assert!(max_width > 0, "wrapping to zero width makes no sense.");
@@ -29,9 +34,13 @@ pub(crate) fn wrap_plain(text: &str, max_width: u16) -> Vec<String> {
     segments
 }
 
-/// Split `text` at the boundary where `max_width` visible columns are consumed.
-/// Returns `(fitting_part, remainder)`. Both are slices into the original.
-pub fn split_at_width(text: &str, max_width: u16) -> (&str, &str) {
+/// Split `text` at the byte boundary where `max_width` visible columns are consumed.
+///
+/// Returns `(fitting_part, remainder)` as slices into the original — no allocation.
+/// If `max_width` is zero, `fitting_part` is always `""` and `remainder` is the
+/// full input. Wide characters (e.g. CJK) that would straddle the boundary are
+/// left in `remainder`.
+pub(crate) fn split_at_width(text: &str, max_width: u16) -> (&str, &str) {
     let max_width = max_width as usize;
     let mut width = 0usize;
     let mut byte_pos = 0usize;

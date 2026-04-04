@@ -51,12 +51,36 @@ pub fn render_multidoc_diff<W: Write>(
     for d in differences {
         match d {
             DocDifference::Addition(AdditionalDoc { fields, .. }) => {
-                writeln!(writer, "{m}", m = "Additional document:".green())?;
-                writeln!(writer, "{fields}")?;
+                let pair = ColumnPair::new(max_width);
+                let mut left = pair.column();
+                let mut right = pair.column();
+                left.push(Highlighted::new(
+                    "Additional document:",
+                    Arc::new(|s: &str| s.green().to_string()),
+                ));
+                for (k, v) in &fields.0 {
+                    left.push(format!("{k} -> {}", v.as_deref().unwrap_or("∅")));
+                }
+                right.append_blank(1 + fields.0.len());
+                for l in pair.zip(left, right) {
+                    writeln!(writer, "{l}")?;
+                }
             }
             DocDifference::Missing(MissingDoc { fields, .. }) => {
-                writeln!(writer, "{m}", m = "Missing document:".red())?;
-                writeln!(writer, "{fields}")?;
+                let pair = ColumnPair::new(max_width);
+                let mut left = pair.column();
+                let mut right = pair.column();
+                left.push(Highlighted::new(
+                    "Missing document:",
+                    Arc::new(|s: &str| s.red().to_string()),
+                ));
+                for (k, v) in &fields.0 {
+                    left.push(format!("{k} -> {}", v.as_deref().unwrap_or("∅")));
+                }
+                right.append_blank(1 + fields.0.len());
+                for l in pair.zip(left, right) {
+                    writeln!(writer, "{l}")?;
+                }
             }
             DocDifference::Changed {
                 left: l,

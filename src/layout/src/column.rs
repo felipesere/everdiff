@@ -2,11 +2,60 @@ use std::fmt::{self};
 
 use crate::{content::StyledContent, wrap::wrap_plain};
 
-/// All display rows produced from one logical line (≥1 when the line wraps).
+// --- Lineable trait --------------------------------------------------------------
+
+/// A value that can be consumed and rendered into a [`LineGroup`] at a fixed
+/// column width.
+///
+/// This is the interface [`Column::push`] accepts. Implementors wrap long content
+/// into multiple [`FormattedRow`]s but are **not** responsible for chrome —
+/// chrome (`│ nr │`) is the specific concern of [`PrefixedLine`], which is one
+/// implementor among several.
+///
+/// The key distinction from [`StyledContent`](crate::StyledContent):
+///
+/// | | Signature | Output | Chrome |
+/// |---|---|---|---|
+/// | [`StyledContent`](crate::StyledContent) | `&self` | `Vec<String>` | No |
+/// | [`Lineable`] | `self` | [`LineGroup`] | Only in [`PrefixedLine`] |
+///
+/// `StyledContent` is borrowed because [`PrefixedLine`] needs to call it and then
+/// do further work (adding chrome) on the result. `Lineable` consumes `self`
+/// because once a value is pushed onto a [`Column`] it is fully rendered.
+///
+/// # Implementors
+///
+/// - [`PrefixedLine`] — calls [`StyledContent::styled_segments`] on its inner
+///   content, then frames each segment with `│ nr │` chrome.
+/// - `String` / `&str` — plain text, no styling, no chrome; used for headers and
+///   labels.
+/// - [`Highlighted`](crate::Highlighted) and [`InlineParts`](crate::InlineParts) —
+///   styled content without chrome; their `Lineable` impls delegate to their own
+///   [`StyledContent`](crate::StyledContent) impl and wrap the results in
+///   [`FormattedRow`].
+pub trait Lineable {
+    /// Consume `self` and produce all display rows for the given column width.
+    ///
+    /// If the content is wider than `content_width` it must wrap, producing
+    /// multiple [`FormattedRow`]s inside the returned [`LineGroup`].
+    fn into_line_group(self, content_width: u16) -> LineGroup;
+}
+
+// --- Output types ----------------------------------------------------------------
+
+/// All display rows produced from one logical line pushed onto a [`Column`].
+///
+/// A [`LineGroup`] contains exactly one [`FormattedRow`] when the line fits within
+/// the column width, or more when it wraps. [`ColumnPair::zip`] pairs groups from
+/// the left and right columns one-to-one and pads the shorter side with blank rows.
 pub struct LineGroup(pub Vec<FormattedRow>);
 
-/// A single terminal output row: a padded, optionally ANSI-styled string
-/// ready to be printed as-is.
+/// A single terminal output row: a string already padded to the column's visible
+/// width and optionally containing ANSI escape codes.
+///
+/// The string is ready to be printed as-is; no further padding or trimming is
+/// needed. ANSI codes are always self-contained within a single `FormattedRow` —
+/// no escape sequence ever straddles a row boundary.
 pub struct FormattedRow(pub String);
 
 impl FormattedRow {
@@ -16,28 +65,24 @@ impl FormattedRow {
     }
 }
 
-// --- Lineable trait --------------------------------------------------------------
-
-/// A value that can render itself into a [`LineGroup`] at a given column width.
-pub trait Lineable {
-    fn into_line_group(self, content_width: u16) -> LineGroup;
-}
-
 // --- LineWidget ------------------------------------------------------------------
 
-/// The 5-character prefix shown between the `│` separators in each display row.
+/// The 5-character slot between the `│` separators, carrying the line number or a
+/// decoration.
+///
+/// Rendered as part of the line-number chrome added by [`PrefixedLine`]:
 ///
 /// ```text
-/// "  3 │ content"   ← Nr(2)       (0-based index, displayed as idx+1)
-/// "  ┆ │ content"   ← Continuation
-/// "    │ content"   ← Filler       (plain text, blank rows)
+/// │   3 │ content    ← Nr(2)        (0-based stored; displayed as idx + 1)
+/// │   ┆ │ continued  ← Continuation (wrapped overflow of the line above)
+/// │     │ filler     ← Filler       (placeholder on the opposite side of a gap)
 /// ```
 pub(crate) enum LineWidget {
-    /// A real line number (0-based index; displayed as `idx + 1`).
+    /// A real line number. Stored 0-based; displayed as `idx + 1`.
     Nr(usize),
-    /// A wrapped continuation of the previous line.
+    /// A wrapped continuation of the previous line (`┆`).
     Continuation,
-    /// No line number (plain text or blank row).
+    /// No line number — blank placeholder used by [`PrefixedLine::Filler`].
     Filler,
 }
 
@@ -53,10 +98,15 @@ impl fmt::Display for LineWidget {
 
 // --- Chrome helpers --------------------------------------------------------------
 
-/// Columns consumed by the line-number chrome:
-/// `│`(1) + widget(5) + `│`(1) + space(1) + trailing space(1) = 9.
+/// Visible columns consumed by the line-number chrome on each side:
+/// `│`(1) + [`LineWidget`](5) + `│`(1) + space(1) + trailing space(1) = 9.
 const CHROME: u16 = 9;
 
+/// Format one [`FormattedRow`] with the full `│ widget │ content ` chrome.
+///
+/// `visual_width` is the number of *visible* columns available for `value`.
+/// ANSI overhead (bytes that don't advance the cursor) is measured and added to
+/// the format-string width so the padding fills exactly `visual_width` columns.
 fn format_chrome_row(widget: LineWidget, value: &str, visual_width: usize) -> FormattedRow {
     let extras = value.len() - ansi_width::ansi_width(value);
     let used_width = visual_width + extras;
@@ -65,21 +115,39 @@ fn format_chrome_row(widget: LineWidget, value: &str, visual_width: usize) -> Fo
 
 // --- PrefixedLine ----------------------------------------------------------------
 
-/// A line pushed into a [`Column`], rendered with line-number chrome (`│ nr │`).
+/// A line pushed into a [`Column`] that is rendered with `│ nr │` line-number chrome.
 ///
-/// - `Numbered` — real content with a 0-based line index. Displayed as `nr + 1`.
-/// - `Filler` — a blank row that still occupies the chrome columns, used to pad
-///   the shorter side of a [`ColumnPair`] when the two sides have different heights.
+/// This is the primary [`Lineable`] type in everdiff's code view. Two variants:
+///
+/// - `Numbered` — real content paired with a 0-based line index (displayed as
+///   `nr + 1`). The content is anything that implements [`StyledContent`], so it
+///   can carry ANSI colours without the chrome logic needing to know about them.
+/// - `Filler` — a blank row that still occupies the full chrome width. Used to
+///   pad the opposite side of a gap so [`ColumnPair::zip`] keeps the two sides
+///   aligned when one document has a block the other lacks.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// col.push(PrefixedLine::numbered(5, Highlighted::new("key: value", dimmed)));
+/// col.push(PrefixedLine::Filler);
+/// ```
 pub enum PrefixedLine {
+    /// A content line with a line number.
     Numbered {
-        /// 0-based line index. Displayed as `nr + 1`.
+        /// 0-based line index; rendered as `nr + 1`.
         nr: usize,
+        /// The styled content to display after the chrome.
         content: Box<dyn StyledContent>,
     },
+    /// A blank chrome-width placeholder, used to align gaps between documents.
     Filler,
 }
 
 impl PrefixedLine {
+    /// Construct a [`PrefixedLine::Numbered`] from any [`StyledContent`].
+    ///
+    /// `nr` is a **0-based** line index; it will be displayed as `nr + 1`.
     pub fn numbered(nr: usize, content: impl StyledContent + 'static) -> Self {
         PrefixedLine::Numbered {
             nr,
@@ -104,6 +172,12 @@ impl Lineable for PrefixedLine {
                     } else {
                         LineWidget::Continuation
                     };
+                    tracing::info!(
+                        content_width,
+                        actual_width,
+                        styled.len = styled.len(),
+                        "FormattedRow",
+                    );
                     format_chrome_row(widget, &styled, actual_width)
                 })
                 .collect(),
@@ -141,16 +215,23 @@ impl Lineable for &str {
 
 // --- Column ----------------------------------------------------------------------
 
-/// One side of a two-column layout. Knows its own `content_width`.
+/// One side of a two-column diff view.
 ///
-/// Build by calling [`push`](Column::push) and [`append_blank`](Column::append_blank).
-/// Zip two columns together with [`ColumnPair::zip`].
+/// Lines are pushed in order via [`push`](Column::push); each becomes a
+/// [`LineGroup`] (one or more [`FormattedRow`]s when a line wraps). Build both
+/// sides from a [`ColumnPair`] so their widths are guaranteed to match, then pass
+/// them to [`ColumnPair::zip`] to produce the final interleaved output.
+///
+/// Use [`append_blank`](Column::append_blank) or [`prepend_blank`](Column::prepend_blank)
+/// to add padding so the two sides have an equal number of groups before zipping.
 pub struct Column {
+    /// The number of visible terminal columns available for content in this column.
     pub content_width: u16,
     pub(crate) groups: Vec<LineGroup>,
 }
 
 impl Column {
+    /// Create an empty column with the given visible content width.
     pub fn new(content_width: u16) -> Self {
         Column {
             content_width,
@@ -170,7 +251,7 @@ impl Column {
         self.groups.insert(0, group);
     }
 
-    /// Append `count` blank rows (no content, no line number).
+    /// Append `count` blank rows to the bottom (no content, no line-number chrome).
     pub fn append_blank(&mut self, count: usize) {
         for _ in 0..count {
             self.groups
@@ -178,6 +259,7 @@ impl Column {
         }
     }
 
+    /// Insert `count` blank rows at the top.
     // TODO: Is this the most efficient way to do this?
     pub fn prepend_blank(&mut self, count: usize) {
         let mut new_line_group = Vec::with_capacity(self.groups.len() + count);
@@ -188,7 +270,7 @@ impl Column {
         self.groups = new_line_group;
     }
 
-    /// Total number of display rows across all groups.
+    /// Total number of display rows across all groups (accounting for wrapped lines).
     pub fn row_count(&self) -> usize {
         self.groups.iter().map(|g| g.0.len()).sum()
     }
@@ -196,29 +278,53 @@ impl Column {
 
 // --- ColumnPair ------------------------------------------------------------------
 
-/// Owns the terminal-width-to-content-width conversion and zips two [`Column`]s.
+/// Coordinates two [`Column`]s for a side-by-side diff view.
+///
+/// `ColumnPair` is the entry point for building two-column output:
+///
+/// 1. Create a pair from the terminal width: `ColumnPair::new(terminal_width)`.
+/// 2. Create both columns from it via [`column`](ColumnPair::column) — this
+///    guarantees they share the same `content_width`.
+/// 3. Fill each column with [`Lineable`] values.
+/// 4. Call [`zip`](ColumnPair::zip) to interleave the rows into a `Vec<String>`.
+///
+/// The pair splits the terminal width evenly: each column gets
+/// `terminal_width / 2` visible columns.
 // NOTE: consider if I need some kind of builder here
 #[derive(Debug)]
 pub struct ColumnPair {
+    /// Visible terminal columns available to each side.
     pub content_width: u16,
 }
 
 impl ColumnPair {
+    /// Create a pair sized for the given terminal width.
+    ///
+    /// Each column receives `terminal_width / 2` visible columns.
     pub fn new(terminal_width: u16) -> Self {
         let content_width = terminal_width / 2;
         ColumnPair { content_width }
     }
 
-    /// Create a fresh [`Column`] sized for this pair.
+    /// Create a fresh [`Column`] sized to this pair's `content_width`.
+    ///
+    /// Call this twice — once for each side — to get a matched left/right pair.
     pub fn column(&self) -> Column {
         Column::new(self.content_width)
     }
 
-    /// Zip a left and right [`Column`] into final output lines.
+    /// Interleave a left and right [`Column`] into final printable lines.
     ///
-    /// Groups are paired one-to-one. When one side has more wrapped rows in a
-    /// group, the other side is padded with blank rows. Stops at the shorter
-    /// column (caller is responsible for equalising heights beforehand).
+    /// Groups are paired one-to-one in order. Within each group, if one side has
+    /// more wrapped rows than the other, the shorter side is padded with empty
+    /// strings for that group only. The total number of output lines equals the
+    /// sum of `max(left_rows, right_rows)` across all groups.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the two columns have a different number of groups. Use
+    /// [`append_blank`](Column::append_blank) or [`prepend_blank`](Column::prepend_blank)
+    /// to equalise them beforehand.
     pub fn zip(&self, left: Column, right: Column) -> Vec<String> {
         let content_width = self.content_width as usize;
 
