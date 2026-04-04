@@ -141,13 +141,10 @@ pub fn render(
     for d in differences {
         match d {
             Difference::Added { path, value } => {
-                writeln!(&mut buf, "Added: {}:", ctx.theme.header(&path.to_string())).unwrap();
-
                 let added = render_added(&ctx, path, value, left_doc, right_doc);
                 writeln!(&mut buf, "{added}").unwrap();
             }
             Difference::Removed { path, value } => {
-                writeln!(&mut buf, "Removed: {path}:").unwrap();
                 let output = render_removal(&ctx, path, value, left_doc, right_doc);
                 writeln!(&mut buf, "{output}").unwrap();
             }
@@ -159,13 +156,20 @@ pub fn render(
                 original_path,
                 new_path,
             } => {
-                writeln!(
-                    &mut buf,
-                    "Moved: from {p} to {q}:",
-                    p = ctx.theme.changed(&original_path.to_string()),
-                    q = ctx.theme.changed(&new_path.to_string())
-                )
-                .unwrap();
+                let pair = ColumnPair::new(ctx.max_width);
+                let mut left = pair.column();
+                let mut right = pair.column();
+                left.push(format!(
+                    "Moved: from {}",
+                    ctx.theme.changed(&original_path.to_string())
+                ));
+                right.push(format!(
+                    "to {}:",
+                    ctx.theme.changed(&new_path.to_string())
+                ));
+                for line in pair.zip(left, right) {
+                    writeln!(&mut buf, "{line}").unwrap();
+                }
             }
         }
         writeln!(&mut buf).unwrap()

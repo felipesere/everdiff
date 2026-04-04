@@ -291,6 +291,7 @@ pub fn render_removal(
     left_doc: &YamlSource,
     right_doc: &YamlSource,
 ) -> String {
+    let title = format!("Removed: {path_to_change}:");
     render_change(
         ctx,
         path_to_change,
@@ -298,6 +299,7 @@ pub fn render_removal(
         left_doc,
         right_doc,
         ChangeType::Removal,
+        title,
     )
 }
 
@@ -308,6 +310,7 @@ pub fn render_added(
     left_doc: &YamlSource,
     right_doc: &YamlSource,
 ) -> String {
+    let title = format!("Added: {}:", ctx.theme.header(&path_to_change.to_string()));
     render_change(
         ctx,
         path_to_change,
@@ -315,6 +318,7 @@ pub fn render_added(
         left_doc,
         right_doc,
         ChangeType::Addition,
+        title,
     )
 }
 
@@ -331,6 +335,7 @@ fn render_change(
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     change_type: ChangeType,
+    title: String,
 ) -> String {
     log::debug!("Rendering change for {path_to_change}");
     log::debug!("The changed yaml node looks like: {:#?}", changed_yaml);
@@ -374,13 +379,16 @@ fn render_change(
 
     let pair = ColumnPair::new(ctx.max_width);
 
-    // Combine the two sides based on change type
-    let lines = match change_type {
-        ChangeType::Removal => pair.zip(primary, secondary),
-        ChangeType::Addition => pair.zip(secondary, primary),
+    // Combine the two sides based on change type, then prepend the title
+    let (mut left_col, mut right_col) = match change_type {
+        ChangeType::Removal => (primary, secondary),
+        ChangeType::Addition => (secondary, primary),
     };
 
-    lines.join("\n")
+    left_col.prepend(title);
+    right_col.prepend_blank(1);
+
+    pair.zip(left_col, right_col).join("\n")
 }
 
 fn render_primary_side(
@@ -1226,7 +1234,7 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Removed: .person.address:
+            Removed: .person.address:                                                       
             │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
             │   2 │ [dim]  name: Robert Anderson        [/] │   2 │ [dim]  name: Robert Anderson        [/] 
             │   3 │ [red]  address:                     [/] │     │                                 
@@ -1268,7 +1276,7 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Added: [bold].person.address[/]:
+            Added: [bold].person.address[/]:                                                
             │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
             │   2 │ [dim]  name: Robert Anderson        [/] │   2 │ [dim]  name: Robert Anderson        [/] 
             │     │                                 │   3 │ [green]  address:                     [/] 
@@ -1317,6 +1325,7 @@ mod test {
         let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
+            Added: [bold].people[1][/]:                                                     
             │   1 │ [dim]people:                        [/] │   1 │ [dim]people:                        [/] 
             │   2 │ [dim]  - name: Robert Anderson      [/] │   2 │ [dim]  - name: Robert Anderson      [/] 
             │   3 │ [dim]    age: 20                    [/] │   3 │ [dim]    age: 20                    [/] 
@@ -1364,6 +1373,7 @@ mod test {
         // The gap on the left should align with the new element on the right
         // Both sides should show the `people:` array context
         expect![[r#"
+            Added: [bold].people[0][/]:                                                     
             │   1 │ [dim]people:                        [/] │   1 │ [dim]people:                        [/] 
             │     │                                 │   2 │ [green]  - name: New First Person     [/] 
             │     │                                 │   3 │ [green]    age: 25                    [/] 
@@ -1431,6 +1441,8 @@ mod test {
         // The left side should show the area around the `env:` array,
         // NOT the beginning of the file (line 1)
         expect![[r#"
+            Added: [bold].spec.template.spec.contain                                        
+            ers[0].env[0][/]:                                                               
             │   6 │ [dim]  template:                    [/] │   6 │ [dim]  template:                    [/] 
             │   7 │ [dim]    spec:                      [/] │   7 │ [dim]    spec:                      [/] 
             │   8 │ [dim]      containers:              [/] │   8 │ [dim]      containers:              [/] 
@@ -1484,7 +1496,7 @@ mod test {
             │   2 │ [dim]  name: Steve E. Anderson      [/] │   5 │ [dim]    postcode: KS87JJ           [/] 
             │   3 │ [yellow]  age: 12                      [/] │   6 │ [yellow]  age: 34                      [/] 
 
-            Added: [bold].person.location[/]:
+            Added: [bold].person.location[/]:                                               
             │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
             │   2 │ [dim]  name: Steve E. Anderson      [/] │   2 │ [dim]  name: Steven Anderson        [/] 
             │     │                                 │   3 │ [green]  location:                    [/] 
@@ -1552,7 +1564,7 @@ mod test {
         let content = render(ctx_max_width(150), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Added: [bold].metadata.annotations.this_is[/]:
+            Added: [bold].metadata.annotations.this_is[/]:                                                                                                        
             │   9 │ [dim]    app: flux-engine-steam                                        [/] │   9 │ [dim]    app: flux-engine-steam                                        [/] 
             │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1                        [/] │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1                        [/] 
             │  11 │ [dim]    app.kubernetes.io/managed-by: batman                          [/] │  11 │ [dim]    app.kubernetes.io/managed-by: batman                          [/] 
@@ -1615,6 +1627,7 @@ mod test {
         let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
+            Removed: .people[2]:                                                            
             │   1 │ [dim]people:                        [/] │   1 │ [dim]people:                        [/] 
             │   2 │ [dim]  - name: Alice                [/] │   2 │ [dim]  - name: Alice                [/] 
             │   3 │ [dim]    age: 25                    [/] │   3 │ [dim]    age: 25                    [/] 
@@ -1661,6 +1674,7 @@ mod test {
         let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
+            Removed: .people[2]:                                                            
             │   1 │ [dim]people:                        [/] │   1 │ [dim]people:                        [/] 
             │   2 │ [dim]  - name: First Person         [/] │   2 │ [dim]  - name: Second Person        [/] 
             │   3 │ [dim]    age: 20                    [/] │   3 │ [dim]    age: 30                    [/] 
@@ -1708,7 +1722,7 @@ mod test {
         // The gap on the right should align correctly with the removed annotations
         // Both sides should start at the same line number
         expect![[r#"
-            Removed: .metadata.annotations:
+            Removed: .metadata.annotations:                                                 
             │   2 │ [dim]  name: my-service             [/] │   2 │ [dim]  name: my-service             [/] 
             │   3 │ [dim]  labels:                      [/] │   3 │ [dim]  labels:                      [/] 
             │   4 │ [dim]    app: my-app                [/] │   4 │ [dim]    app: my-app                [/] 
@@ -1791,7 +1805,7 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Removed: .config.cache:
+            Removed: .config.cache:                                                         
             │   1 │ [dim]config:                        [/] │   1 │ [dim]config:                        [/] 
             │   2 │ [dim]  database:                    [/] │   2 │ [dim]  database:                    [/] 
             │   3 │ [dim]    host: localhost            [/] │   3 │ [dim]    host: localhost            [/] 
@@ -1831,7 +1845,7 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Added: [bold].config.cache[/]:
+            Added: [bold].config.cache[/]:                                                  
             │   1 │ [dim]config:                        [/] │   1 │ [dim]config:                        [/] 
             │   2 │ [dim]  database:                    [/] │   2 │ [dim]  database:                    [/] 
             │   3 │ [dim]    host: localhost            [/] │   3 │ [dim]    host: localhost            [/] 
@@ -1868,7 +1882,7 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Added: [bold].person.city[/]:
+            Added: [bold].person.city[/]:                                                   
             │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
             │   2 │ [dim]  name: Alice                  [/] │   2 │ [dim]  name: Alice                  [/] 
             │   3 │ [dim]  age: 30                      [/] │   3 │ [dim]  age: 30                      [/] 
@@ -1909,6 +1923,7 @@ mod test {
         let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
+            Removed: .items[2]:                                                             
             │   1 │ [dim]items:                         [/] │   1 │ [dim]items:                         [/] 
             │   2 │ [dim]  - first                      [/] │   2 │ [dim]  - first                      [/] 
             │   3 │ [dim]  - second                     [/] │   3 │ [dim]  - second                     [/] 
@@ -2026,7 +2041,7 @@ mod test {
 
         // Only 1 line before and 1 line after the removed block
         expect![[r#"
-            Removed: .person.address:
+            Removed: .person.address:                                                       
             │   2 │ [dim]  name: Robert Anderson        [/] │   2 │ [dim]  name: Robert Anderson        [/] 
             │   3 │ [red]  address:                     [/] │     │                                 
             │   4 │ [red]    street: foo bar            [/] │     │                                 
@@ -2069,6 +2084,7 @@ mod test {
         let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
+            Added: [bold].items[2][/]:                                                      
             │   1 │ [dim]items:                         [/] │   1 │ [dim]items:                         [/] 
             │   2 │ [dim]  - first                      [/] │   2 │ [dim]  - first                      [/] 
             │   3 │ [dim]  - second                     [/] │   3 │ [dim]  - second                     [/] 
