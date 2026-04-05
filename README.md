@@ -29,7 +29,6 @@ Available options:
     -k, --kubernetes    Use Kubernetes comparison
     -m, --ignore-moved  Don't show changes for moved elements
     -i, --ignore-changes=PATH  Paths to ignore when comparing
-    -w, --watch         Watch the `left` and `right` files for changes and re-run
     -B, --lines-before=NUMBER  Number of context lines to show before each change (default: 5)
     -A, --lines-after=NUMBER   Number of context lines to show after each change (default: 5)
     -C, --lines-context=NUMBER Number of context lines before and after each change (overrides -A and -B)
@@ -149,16 +148,6 @@ Path patterns support:
 - Exact paths: `.metadata.name`
 - Array indices: `.spec.containers[0].image`
 - Wildcards: `.metadata.labels.*`
-
-## Features
-
-### Watch mode
-
-When you need to keep re-running `everdiff` as you evolve a set of documents, use `--watch` to let it watch all the input files and re-run when needed:
-
-```sh
-everdiff --watch before.yaml after.yaml
-```
 
 ## License
 

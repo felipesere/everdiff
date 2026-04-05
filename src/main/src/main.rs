@@ -1,7 +1,7 @@
 use std::io::{ErrorKind, Read};
 
 use anyhow::Context;
-use bpaf::{Parser, construct, long, short};
+use bpaf::{Parser, construct, short};
 use camino::Utf8Path;
 use everdiff_diff::path::IgnorePath;
 use everdiff_multidoc::{
@@ -9,7 +9,6 @@ use everdiff_multidoc::{
     source::{YamlSource, read_doc},
 };
 use everdiff_snippet::render_multidoc_diff;
-use notify::{RecursiveMode, Watcher};
 use owo_colors::OwoColorize;
 
 mod identifier;
@@ -19,7 +18,6 @@ struct Args {
     kubernetes: bool,
     ignore_moved: bool,
     ignore_changes: Vec<IgnorePath>,
-    watch: bool,
     verbosity: usize,
     left: camino::Utf8PathBuf,
     right: camino::Utf8PathBuf,
@@ -45,10 +43,6 @@ fn args() -> impl Parser<Args> {
         .help("Paths to ignore when comparing")
         .argument::<IgnorePath>("PATH")
         .many();
-
-    let watch = long("watch")
-        .help("Watch the `left` and `right` files for changes and re-run")
-        .switch();
 
     let word_wise_diff = short('w')
         .long("word-wise-diff")
@@ -88,7 +82,6 @@ fn args() -> impl Parser<Args> {
         kubernetes,
         ignore_moved,
         ignore_changes,
-        watch,
         verbosity,
         word_wise_diff,
         lines_before,
@@ -159,42 +152,6 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    if args.watch {
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        let mut watcher = notify::recommended_watcher(tx)?;
-        for p in &[&args.left, &args.right] {
-            watcher.watch(p.as_std_path(), RecursiveMode::NonRecursive)?;
-        }
-
-        for event in rx {
-            let _event = event?;
-            print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
-            let (left, right) = read_paths((&args.left, &args.right))?;
-
-            let diffs = multidoc::diff(&ctx, &left, &right);
-
-            let r = render_multidoc_diff(
-                (left, right),
-                diffs,
-                args.ignore_moved,
-                &args.ignore_changes,
-                args.word_wise_diff,
-                lines_before,
-                lines_after,
-                &mut out,
-            );
-
-            if let Err(e) = &r {
-                if e.kind() == ErrorKind::BrokenPipe {
-                    return Ok(());
-                } else {
-                    return r.context("failed to render diff");
-                }
-            }
-        }
-    }
-
     Ok(())
 }
 
@@ -213,12 +170,6 @@ fn setup_logging(verbosity: usize) -> Result<(), anyhow::Error> {
         out.finish(format_args!("{level}:{module}: {message}",))
     });
 
-    // Adjust log levels for moudles as needed
-    //    1 => base_config
-    //        .level(log::LevelFilter::Debug)
-    //        .level_for("rustls", log::LevelFilter::Warn)
-    //        .level_for("ureq", log::LevelFilter::Warn)
-    //        .level_for("ureq_proto", log::LevelFilter::Warn),
     base_config = match verbosity {
         0 => base_config.level(log::LevelFilter::Warn),
         1 => base_config.level(log::LevelFilter::Debug),

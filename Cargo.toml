@@ -24,7 +24,6 @@ fern = { version = "0.7", default-features = false }
 hashlink = "0.10.0"
 log = "0.4"
 nom = "8"
-notify = { version = "8.2.0", default-features = false, features = ["macos_fsevent"] }
 owo-colors = "4.1.0"
 saphyr = { git = "https://github.com/saphyr-rs/saphyr", version = "0.0.6" }
 serde = { version = "1.0.228" }
