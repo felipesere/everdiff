@@ -2,12 +2,15 @@ use core::option::Option::None;
 use std::{
     cmp::min,
     fmt::{self},
+    sync::Arc,
 };
 
-use crate::wrapping::Column;
 use everdiff_diff::{
     Entry,
     path::{NonEmptyPath, Path, Segment},
+};
+use everdiff_layout::{
+    Column, ColumnPair, Highlighted, InlineParts, PrefixedLine,
 };
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
@@ -88,7 +91,12 @@ pub struct RenderContext {
 }
 
 impl RenderContext {
-    pub fn new(max_width: u16, word_wise_diff: bool, lines_before: usize, lines_after: usize) -> Self {
+    pub fn new(
+        max_width: u16,
+        word_wise_diff: bool,
+        lines_before: usize,
+        lines_after: usize,
+    ) -> Self {
         RenderContext {
             max_width,
             word_wise_diff,
@@ -96,13 +104,6 @@ impl RenderContext {
             lines_after,
             theme: Theme::colored(),
         }
-    }
-
-    pub fn half_width(&self) -> usize {
-        // Fixed chrome per side: outer "│ " (2) + line widget "{:>3} " (4) + inner "│ " (2) = 8
-        // Two sides: 16 chars of total non-content width.
-        const CHROME: u16 = 8 * 2;
-        ((self.max_width - CHROME) / 2) as usize
     }
 }
 
@@ -271,7 +272,7 @@ mod snippet_tests {
 }
 
 struct Rendered {
-    content: crate::wrapping::Column,
+    content: Column,
     lines_above: usize,
     lines_below: usize,
 }
@@ -290,6 +291,7 @@ pub fn render_removal(
     left_doc: &YamlSource,
     right_doc: &YamlSource,
 ) -> String {
+    let title = format!("Removed: {path_to_change}:");
     render_change(
         ctx,
         path_to_change,
@@ -297,6 +299,7 @@ pub fn render_removal(
         left_doc,
         right_doc,
         ChangeType::Removal,
+        title,
     )
 }
 
@@ -307,6 +310,7 @@ pub fn render_added(
     left_doc: &YamlSource,
     right_doc: &YamlSource,
 ) -> String {
+    let title = format!("Added: {}:", ctx.theme.header(&path_to_change.to_string()));
     render_change(
         ctx,
         path_to_change,
@@ -314,6 +318,7 @@ pub fn render_added(
         left_doc,
         right_doc,
         ChangeType::Addition,
+        title,
     )
 }
 
@@ -330,6 +335,7 @@ fn render_change(
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     change_type: ChangeType,
+    title: String,
 ) -> String {
     log::debug!("Rendering change for {path_to_change}");
     log::debug!("The changed yaml node looks like: {:#?}", changed_yaml);
@@ -371,13 +377,18 @@ fn render_change(
         secondary.row_count()
     );
 
-    // Combine the two sides based on change type
-    let lines = match change_type {
-        ChangeType::Removal => primary.zip_with(secondary, ctx.half_width()),
-        ChangeType::Addition => secondary.zip_with(primary, ctx.half_width()),
+    let pair = ColumnPair::new(ctx.max_width);
+
+    // Combine the two sides based on change type, then prepend the title
+    let (mut left_col, mut right_col) = match change_type {
+        ChangeType::Removal => (primary, secondary),
+        ChangeType::Addition => (secondary, primary),
     };
 
-    lines.join("\n")
+    left_col.prepend(title);
+    right_col.prepend_blank(1);
+
+    pair.zip(left_col, right_col).join("\n")
 }
 
 fn render_primary_side(
@@ -386,7 +397,12 @@ fn render_primary_side(
     item: &Entry,
     (highlighting, unchanged): (Highlight, Highlight),
 ) -> Column {
-    use crate::wrapping::{SourceLineGroup, WrappedLine};
+    // TODO: pull up or directly in to the theme!
+    let highlighted = Arc::new(Box::new(highlighting));
+    let unchanged = Arc::new(Box::new(unchanged));
+
+    let pair = ColumnPair::new(ctx.max_width);
+    let mut column = pair.column();
 
     // Extract lines from primary document
     let primary_lines = primary_doc.lines();
@@ -405,27 +421,25 @@ fn render_primary_side(
     // Show a few more lines before and after the lines that have changed
     let start = change_start.saturating_sub(ctx.lines_before);
     let end = min(change_end + ctx.lines_after, primary_doc.last_line);
-    log::debug!("Snippet for primary document");
+    tracing::debug!("Snippet for primary document");
     let primary_snippet = Snippet::new_clamped(&primary_lines, start, end);
 
     // Format the primary side. change_end is inclusive, so use +1 for the exclusive range end.
     let changed_range = change_start..(change_end + 1);
-    log::debug!("We will highlight {change_start}..={change_end}");
-    let groups: Vec<SourceLineGroup> = primary_snippet
-        .iter()
-        .map(move |(line_nr, line)| {
-            let style = if changed_range.contains(&line_nr) {
-                highlighting
-            } else {
-                unchanged
-            };
+    tracing::debug!("We will highlight {change_start}..={change_end}");
 
-            let wrapped = WrappedLine::new(line_nr, line, ctx.half_width());
-            wrapped.format(style, ctx.half_width())
-        })
-        .collect();
+    // line_nr.get() - 1 mirrors LineWidget::from(Line) which subtracts 1 for 0-based display
+    for (nr, line) in primary_snippet.iter() {
+        let style = if changed_range.contains(&nr) {
+            highlighted.clone()
+        } else {
+            unchanged.clone()
+        };
+        let l = PrefixedLine::numbered(nr.get() - 1, Highlighted::new(line, style));
+        column.push(l);
+    }
 
-    Column(groups)
+    column
 }
 
 fn render_secondary_side(
@@ -437,9 +451,11 @@ fn render_secondary_side(
     gap_size: usize,
     unchanged: Highlight,
 ) -> Column {
-    use crate::wrapping::{FormattedRow, SourceLineGroup, WrappedLine};
-
     log::debug!("changed_node: {path_to_changed_node}");
+    let unchanged = Arc::new(Box::new(unchanged));
+
+    let pair = ColumnPair::new(ctx.max_width);
+    let mut column = pair.column();
 
     let gap_start =
         gap_start(primary_doc, secondary_doc, path_to_changed_node).unwrap_or(Line::one());
@@ -464,31 +480,20 @@ fn render_secondary_side(
     };
     log::debug!("Filler will be {filler_len}");
 
-    let mut groups: Vec<SourceLineGroup> = Vec::new();
-
-    // Filler lines (single-row groups)
-    for _ in 0..filler_len {
-        groups.push(SourceLineGroup(vec![FormattedRow::blank(ctx.half_width())]));
+    column.append_blank(filler_len);
+    for (nr, line) in before_gap.iter() {
+        let line = PrefixedLine::numbered(nr.get() - 1, Highlighted::new(line, unchanged.clone()));
+        column.push(line);
     }
-
-    // Pre-gap lines
-    for (line_nr, line) in before_gap.iter() {
-        let wrapped = WrappedLine::new(line_nr, line, ctx.half_width());
-        groups.push(wrapped.format(unchanged, ctx.half_width()));
-    }
-
-    // Gap lines (blank rows)
     for _ in 0..gap_size {
-        groups.push(SourceLineGroup(vec![FormattedRow::blank(ctx.half_width())]));
+        column.push(PrefixedLine::Filler);
+    }
+    for (nr, line) in after_gap.iter() {
+        let line = PrefixedLine::numbered(nr.get() - 1, Highlighted::new(line, unchanged.clone()));
+        column.push(line);
     }
 
-    // Post-gap lines
-    for (line_nr, line) in after_gap.iter() {
-        let wrapped = WrappedLine::new(line_nr, line, ctx.half_width());
-        groups.push(wrapped.format(unchanged, ctx.half_width()));
-    }
-
-    Column(groups)
+    column
 }
 
 /// Adjusts a path from primary document indexing to secondary document indexing.
@@ -553,7 +558,7 @@ pub fn gap_start(
     if let Some(before) = candidate_node_before_change {
         // Normal case: there's a node before the change, use its end line.
         log::debug!("the span ends on {}", before.span.end.line());
-        Some(secondary_doc.relative_inclusive_end(&before))
+        Some(secondary_doc.relative_inclusive_end(before))
     } else if let Some(after) = after_path {
         // No "before" node (e.g., adding at index 0 of an array).
         // Use the "after" node to find where the gap should go.
@@ -930,63 +935,46 @@ pub fn render_difference(
     right: MarkedYamlOwned,
     right_doc: &YamlSource,
 ) -> String {
+    let pair = ColumnPair::new(ctx.max_width);
+
     let title = match &path_to_change {
         Some(path) => format!("Changed: {}:", ctx.theme.header(&path.to_string())),
         None => "Changed:".to_string(),
     };
 
-    const CHROME: u16 = 8 * 2;
-    let max_width = (ctx.max_width - CHROME) / 2;
-    // TODO: Extract a function that construct smaller contexts...
-    let smaller_context = RenderContext {
-        word_wise_diff: ctx.word_wise_diff,
-        max_width,
-        theme: ctx.theme,
-        lines_before: ctx.lines_before,
-        lines_after: ctx.lines_after,
-    };
-
-    let (left, right) = render_changed_pair(&smaller_context, left, left_doc, right, right_doc);
-
-    use crate::wrapping::{FormattedRow, SourceLineGroup};
+    let (mut left, mut right) = render_changed_pair(ctx, &pair, left, left_doc, right, right_doc);
 
     let above_filler = left.lines_above.abs_diff(right.lines_above);
     let below_filler = left.lines_below.abs_diff(right.lines_below);
 
-    let half_width = usize::from(max_width);
-    let filler_group = || SourceLineGroup(vec![FormattedRow::blank(half_width)]);
-
-    let mut left_groups = left.content.0;
-    let mut right_groups = right.content.0;
-
     // Prepend top filler to the side with fewer lines above
-    if left.lines_above < right.lines_above {
-        let mut filler: Vec<_> = (0..above_filler).map(|_| filler_group()).collect();
-        filler.append(&mut left_groups);
-        left_groups = filler;
+    let (mut left_col, mut right_col) = if left.lines_above < right.lines_above {
+        left.content.prepend_blank(above_filler);
+        (left.content, right.content)
     } else {
-        let mut filler: Vec<_> = (0..above_filler).map(|_| filler_group()).collect();
-        filler.append(&mut right_groups);
-        right_groups = filler;
-    }
+        right.content.prepend_blank(above_filler);
+        (left.content, right.content)
+    };
+
+    // TODO: This is messed up!
+    left_col.prepend(title);
+    right_col.prepend_blank(1);
 
     // Append bottom filler to the side with fewer lines below
-    if left.lines_below < right.lines_below {
-        left_groups.extend((0..below_filler).map(|_| filler_group()));
+    let (left_col, right_col) = if left.lines_below < right.lines_below {
+        left_col.append_blank(below_filler);
+        (left_col, right_col)
     } else {
-        right_groups.extend((0..below_filler).map(|_| filler_group()));
-    }
+        right_col.append_blank(below_filler);
+        (left_col, right_col)
+    };
 
-    let left_col = Column(left_groups);
-    let right_col = Column(right_groups);
-
-    let body = left_col.zip_with(right_col, ctx.half_width()).join("\n");
-
-    format!("{title}\n{body}")
+    pair.zip(left_col, right_col).join("\n")
 }
 
 fn render_changed_pair(
     ctx: &RenderContext,
+    pair: &ColumnPair,
     left: MarkedYamlOwned,
     left_doc: &YamlSource,
     right: MarkedYamlOwned,
@@ -1002,19 +990,21 @@ fn render_changed_pair(
         (None, None)
     };
 
-    let left = render_changed_snippet(ctx, left_doc, left, left_parts);
-    let right = render_changed_snippet(ctx, right_doc, right, right_parts);
+    let left_col = pair.column();
+    let right_col = pair.column();
+
+    let left = render_changed_snippet(ctx, left_doc, left_col, left, left_parts);
+    let right = render_changed_snippet(ctx, right_doc, right_col, right, right_parts);
     (left, right)
 }
 
 fn render_changed_snippet(
     ctx: &RenderContext,
     source: &YamlSource,
+    mut column: Column,
     changed_yaml: MarkedYamlOwned,
     inline_parts: Option<Vec<InlinePart>>,
 ) -> Rendered {
-    use crate::wrapping::{SourceLineGroup, WrappedLineUsize, format_with_inline_highlights};
-
     let start_line_of_document = source.yaml.span.start.line();
 
     let lines: Vec<_> = source.content.lines().map(|s| s.to_string()).collect();
@@ -1027,39 +1017,65 @@ fn render_changed_snippet(
 
     let lines_above = changed_line - start;
     let lines_below = end - changed_line;
+    let changed = std::sync::Arc::new(ctx.theme.changed);
+    let dimmed = std::sync::Arc::new(ctx.theme.dimmed);
 
-    let width = usize::from(ctx.max_width);
-
-    let groups: Vec<SourceLineGroup> = left_snippet
+    left_snippet
         .iter()
         .zip(start..end)
         .map(|(line, line_nr)| {
-            if line_nr == changed_line {
-                if let Some(parts) = &inline_parts {
-                    let prefix = extract_yaml_prefix(line);
-                    format_with_inline_highlights(line_nr, prefix, parts, ctx.theme, width)
-                } else {
-                    let wrapped = WrappedLineUsize {
-                        line_nr,
-                        segments: crate::wrapping::wrap_text(line, width),
-                    };
-                    wrapped.format_with_usize(ctx.theme.changed, width)
-                }
-            } else {
-                let wrapped = WrappedLineUsize {
-                    line_nr,
-                    segments: crate::wrapping::wrap_text(line, width),
-                };
-                wrapped.format_with_usize(ctx.theme.dimmed, width)
+            if line_nr == changed_line
+                && let Some(parts) = &inline_parts
+            {
+                let prefix = extract_yaml_prefix(line);
+                return format_with_inline_highlights(line_nr, prefix, parts, ctx.theme);
             }
+            let highlight = if line_nr == changed_line {
+                Arc::clone(&changed)
+            } else {
+                Arc::clone(&dimmed)
+            };
+            PrefixedLine::numbered(line_nr, Highlighted::new(line, highlight))
         })
-        .collect();
+        .for_each(|l| column.push(l));
 
     Rendered {
-        content: Column(groups),
+        content: column,
         lines_above,
         lines_below,
     }
+}
+
+pub fn format_with_inline_highlights(
+    line_nr: usize,
+    prefix: &str,
+    parts: &[InlinePart],
+    theme: Theme,
+) -> PrefixedLine {
+    let mut inline_parts = InlineParts::new();
+
+    let dimmed = std::sync::Arc::new(theme.dimmed);
+    let changed = std::sync::Arc::new(theme.changed);
+    if let Some(key_part) = prefix.strip_suffix(": ") {
+        let key_start = key_part.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+        inline_parts.push(&key_part[..key_start], dimmed.clone());
+        inline_parts.push(&key_part[key_start..], changed.clone());
+        inline_parts.push(": ", dimmed.clone());
+    } else {
+        inline_parts.push(prefix, dimmed.clone());
+    }
+
+    for part in parts {
+        inline_parts.push(
+            &part.text,
+            if part.emphasized {
+                changed.clone()
+            } else {
+                dimmed.clone()
+            },
+        );
+    }
+    PrefixedLine::numbered(line_nr, inline_parts)
 }
 
 // pub struct LineWidget(pub Option<usize>);
@@ -1141,9 +1157,13 @@ mod test {
     use super::{RenderContext, render_added, render_difference, render_removal};
 
     fn ctx() -> RenderContext {
+        ctx_max_width(80)
+    }
+
+    fn ctx_max_width(max_width: u16) -> RenderContext {
         RenderContext {
             word_wise_diff: true,
-            max_width: 80,
+            max_width,
             theme: super::Theme::markers(),
             lines_before: 5,
             lines_after: 5,
@@ -1179,10 +1199,10 @@ mod test {
         let content = render_difference(&ctx(), path, left, &left_doc, right, &right_doc);
 
         expect![[r#"
-            Changed: [bold].person.name[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  [/][yellow]name[/][dim]: [/][yellow]S[/][dim]t[/][yellow]eve E.[/][dim] Anderson[/]│   2 │ [dim]  [/][yellow]name[/][dim]: [/][yellow]Rober[/][dim]t Anderson[/]
-            │   3 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               "#]]
+            Changed: [bold].person.name[/]:                                                 
+            │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
+            │   2 │ [dim]  [/][yellow]name[/][dim]: [/][yellow]S[/][dim]t[/][yellow]eve E.[/][dim] Anderson[/] │   2 │ [dim]  [/][yellow]name[/][dim]: [/][yellow]Rober[/][dim]t Anderson[/] 
+            │   3 │ [dim]  age: 12                      [/] │   3 │ [dim]  age: 12                      [/] "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1214,15 +1234,15 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Removed: .person.address:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  name: Robert Anderson[/] │   2 │ [dim]  name: Robert Anderson[/] 
-            │   3 │ [red]  address:[/]              │     │                                 
-            │   4 │ [red]    street: foo bar[/]     │     │                                 
-            │   5 │ [red]    nr: 1[/]               │     │                                 
-            │   6 │ [red]    postcode: ABC123[/]    │     │                                 
-            │   7 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               
-            │   8 │ [dim]  foo: bar[/]              │   4 │ [dim]  foo: bar[/]              
+            Removed: .person.address:                                                       
+            │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
+            │   2 │ [dim]  name: Robert Anderson        [/] │   2 │ [dim]  name: Robert Anderson        [/] 
+            │   3 │ [red]  address:                     [/] │     │                                 
+            │   4 │ [red]    street: foo bar            [/] │     │                                 
+            │   5 │ [red]    nr: 1                      [/] │     │                                 
+            │   6 │ [red]    postcode: ABC123           [/] │     │                                 
+            │   7 │ [dim]  age: 12                      [/] │   3 │ [dim]  age: 12                      [/] 
+            │   8 │ [dim]  foo: bar                     [/] │   4 │ [dim]  foo: bar                     [/] 
 
         "#]]
         .assert_eq(content.as_str());
@@ -1256,15 +1276,15 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Added: [bold].person.address[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  name: Robert Anderson[/] │   2 │ [dim]  name: Robert Anderson[/] 
-            │     │                                 │   3 │ [green]  address:[/]            
-            │     │                                 │   4 │ [green]    street: foo bar[/]   
-            │     │                                 │   5 │ [green]    nr: 1[/]             
-            │     │                                 │   6 │ [green]    postcode: ABC123[/]  
-            │   3 │ [dim]  age: 12[/]               │   7 │ [dim]  age: 12[/]               
-            │   4 │ [dim]  foo: bar[/]              │   8 │ [dim]  foo: bar[/]              
+            Added: [bold].person.address[/]:                                                
+            │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
+            │   2 │ [dim]  name: Robert Anderson        [/] │   2 │ [dim]  name: Robert Anderson        [/] 
+            │     │                                 │   3 │ [green]  address:                     [/] 
+            │     │                                 │   4 │ [green]    street: foo bar            [/] 
+            │     │                                 │   5 │ [green]    nr: 1                      [/] 
+            │     │                                 │   6 │ [green]    postcode: ABC123           [/] 
+            │   3 │ [dim]  age: 12                      [/] │   7 │ [dim]  age: 12                      [/] 
+            │   4 │ [dim]  foo: bar                     [/] │   8 │ [dim]  foo: bar                     [/] 
 
         "#]]
         .assert_eq(content.as_str());
@@ -1305,13 +1325,14 @@ mod test {
         let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]people:[/]                 │   1 │ [dim]people:[/]                 
-            │   2 │ [dim]  - name: Robert Anderson[/]│   2 │ [dim]  - name: Robert Anderson[/]
-            │   3 │ [dim]    age: 20[/]             │   3 │ [dim]    age: 20[/]             
-            │     │                                 │   4 │ [green]  - name: Adam Bar[/]    
-            │     │                                 │   5 │ [green]    age: 32[/]           
-            │   4 │ [dim]  - name: Sarah Foo[/]     │   6 │ [dim]  - name: Sarah Foo[/]     
-            │   5 │ [dim]    age: 31[/]             │   7 │ [dim]    age: 31[/]             "#]]
+            Added: [bold].people[1][/]:                                                     
+            │   1 │ [dim]people:                        [/] │   1 │ [dim]people:                        [/] 
+            │   2 │ [dim]  - name: Robert Anderson      [/] │   2 │ [dim]  - name: Robert Anderson      [/] 
+            │   3 │ [dim]    age: 20                    [/] │   3 │ [dim]    age: 20                    [/] 
+            │     │                                 │   4 │ [green]  - name: Adam Bar             [/] 
+            │     │                                 │   5 │ [green]    age: 32                    [/] 
+            │   4 │ [dim]  - name: Sarah Foo            [/] │   6 │ [dim]  - name: Sarah Foo            [/] 
+            │   5 │ [dim]    age: 31                    [/] │   7 │ [dim]    age: 31                    [/] "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1352,13 +1373,14 @@ mod test {
         // The gap on the left should align with the new element on the right
         // Both sides should show the `people:` array context
         expect![[r#"
-            │   1 │ [dim]people:[/]                 │   1 │ [dim]people:[/]                 
-            │     │                                 │   2 │ [green]  - name: New First Person[/]
-            │     │                                 │   3 │ [green]    age: 25[/]           
-            │   2 │ [dim]  - name: Robert Anderson[/]│   4 │ [dim]  - name: Robert Anderson[/]
-            │   3 │ [dim]    age: 20[/]             │   5 │ [dim]    age: 20[/]             
-            │   4 │ [dim]  - name: Sarah Foo[/]     │   6 │ [dim]  - name: Sarah Foo[/]     
-            │   5 │ [dim]    age: 31[/]             │   7 │ [dim]    age: 31[/]             "#]]
+            Added: [bold].people[0][/]:                                                     
+            │   1 │ [dim]people:                        [/] │   1 │ [dim]people:                        [/] 
+            │     │                                 │   2 │ [green]  - name: New First Person     [/] 
+            │     │                                 │   3 │ [green]    age: 25                    [/] 
+            │   2 │ [dim]  - name: Robert Anderson      [/] │   4 │ [dim]  - name: Robert Anderson      [/] 
+            │   3 │ [dim]    age: 20                    [/] │   5 │ [dim]    age: 20                    [/] 
+            │   4 │ [dim]  - name: Sarah Foo            [/] │   6 │ [dim]  - name: Sarah Foo            [/] 
+            │   5 │ [dim]    age: 31                    [/] │   7 │ [dim]    age: 31                    [/] "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1419,15 +1441,17 @@ mod test {
         // The left side should show the area around the `env:` array,
         // NOT the beginning of the file (line 1)
         expect![[r#"
-            │   6 │ [dim]  template:[/]             │   6 │ [dim]  template:[/]             
-            │   7 │ [dim]    spec:[/]               │   7 │ [dim]    spec:[/]               
-            │   8 │ [dim]      containers:[/]       │   8 │ [dim]      containers:[/]       
-            │   9 │ [dim]      - name: app[/]       │   9 │ [dim]      - name: app[/]       
-            │  10 │ [dim]        env:[/]            │  10 │ [dim]        env:[/]            
-            │     │                                 │  11 │ [green]        - name: NEW_FIRST_VAR[/]
-            │     │                                 │  12 │ [green]          value: "new"[/]
-            │  11 │ [dim]        - name: EXISTING_VAR[/]│  13 │ [dim]        - name: EXISTING_VAR[/]
-            │  12 │ [dim]          value: "existing"[/]│  14 │ [dim]          value: "existing"[/]"#]]
+            Added: [bold].spec.template.spec.contain                                        
+            ers[0].env[0][/]:                                                               
+            │   6 │ [dim]  template:                    [/] │   6 │ [dim]  template:                    [/] 
+            │   7 │ [dim]    spec:                      [/] │   7 │ [dim]    spec:                      [/] 
+            │   8 │ [dim]      containers:              [/] │   8 │ [dim]      containers:              [/] 
+            │   9 │ [dim]      - name: app              [/] │   9 │ [dim]      - name: app              [/] 
+            │  10 │ [dim]        env:                   [/] │  10 │ [dim]        env:                   [/] 
+            │     │                                 │  11 │ [green]        - name: NEW_FIRST_VAR  [/] 
+            │     │                                 │  12 │ [green]          value: "new"         [/] 
+            │  11 │ [dim]        - name: EXISTING_VAR   [/] │  13 │ [dim]        - name: EXISTING_VAR   [/] 
+            │  12 │ [dim]          value: "existing"    [/] │  14 │ [dim]          value: "existing"    [/] "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1453,43 +1477,32 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(
-            RenderContext {
-                word_wise_diff: true,
-                max_width: 80,
-                theme: super::Theme::markers(),
-                lines_before: 5,
-                lines_after: 5,
-            },
-            &left_doc,
-            &right_doc,
-            differences,
-        );
+        let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Changed: [bold].person.name[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve[/][yellow] E.[/][dim] Anderson[/]│   2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve[/][yellow]n[/][dim] Anderson[/]
-            │   3 │ [dim]  age: 12[/]               │   3 │ [dim]  location:[/]             
-            │     │                                 │   4 │ [dim]    street: 1 Kentish Street[/]
-            │     │                                 │   5 │ [dim]    postcode: KS87JJ[/]    
-            │     │                                 │   6 │ [dim]  age: 34[/]               
+            Changed: [bold].person.name[/]:                                                 
+            │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
+            │   2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve[/][yellow] E.[/][dim] Anderson[/] │   2 │ [dim]  [/][yellow]name[/][dim]: [/][dim]Steve[/][yellow]n[/][dim] Anderson[/] 
+            │   3 │ [dim]  age: 12                      [/] │   3 │ [dim]  location:                    [/] 
+                                                    │   4 │ [dim]    street: 1 Kentish Street   [/] 
+                                                    │   5 │ [dim]    postcode: KS87JJ           [/] 
+                                                    │   6 │ [dim]  age: 34                      [/] 
 
-            Changed: [bold].person.age[/]:
-            │     │                                 │   1 │ [dim]person:[/]                 
-            │     │                                 │   2 │ [dim]  name: Steven Anderson[/] 
-            │     │                                 │   3 │ [dim]  location:[/]             
-            │   1 │ [dim]person:[/]                 │   4 │ [dim]    street: 1 Kentish Street[/]
-            │   2 │ [dim]  name: Steve E. Anderson[/]│   5 │ [dim]    postcode: KS87JJ[/]    
-            │   3 │ [yellow]  age: 12[/]            │   6 │ [yellow]  age: 34[/]            
+            Changed: [bold].person.age[/]:                                                  
+                                                    │   1 │ [dim]person:                        [/] 
+                                                    │   2 │ [dim]  name: Steven Anderson        [/] 
+                                                    │   3 │ [dim]  location:                    [/] 
+            │   1 │ [dim]person:                        [/] │   4 │ [dim]    street: 1 Kentish Street   [/] 
+            │   2 │ [dim]  name: Steve E. Anderson      [/] │   5 │ [dim]    postcode: KS87JJ           [/] 
+            │   3 │ [yellow]  age: 12                      [/] │   6 │ [yellow]  age: 34                      [/] 
 
-            Added: [bold].person.location[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  name: Steve E. Anderson[/]│   2 │ [dim]  name: Steven Anderson[/] 
-            │     │                                 │   3 │ [green]  location:[/]           
-            │     │                                 │   4 │ [green]    street: 1 Kentish Street[/]
-            │     │                                 │   5 │ [green]    postcode: KS87JJ[/]  
-            │   3 │ [dim]  age: 12[/]               │   6 │ [dim]  age: 34[/]               
+            Added: [bold].person.location[/]:                                               
+            │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
+            │   2 │ [dim]  name: Steve E. Anderson      [/] │   2 │ [dim]  name: Steven Anderson        [/] 
+            │     │                                 │   3 │ [green]  location:                    [/] 
+            │     │                                 │   4 │ [green]    street: 1 Kentish Street   [/] 
+            │     │                                 │   5 │ [green]    postcode: KS87JJ           [/] 
+            │   3 │ [dim]  age: 12                      [/] │   6 │ [dim]  age: 34                      [/] 
 
         "#]]
         .assert_eq(content.as_str());
@@ -1548,44 +1561,33 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(
-            RenderContext {
-                word_wise_diff: true,
-                max_width: 150,
-                theme: super::Theme::markers(),
-                lines_before: 5,
-                lines_after: 5,
-            },
-            &left_doc,
-            &right_doc,
-            differences,
-        );
+        let content = render(ctx_max_width(150), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Added: [bold].metadata.annotations.this_is[/]:
-            │   9 │ [dim]    app: flux-engine-steam[/]                                 │   9 │ [dim]    app: flux-engine-steam[/]                                 
-            │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                 │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1[/]                 
-            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   
-            │  12 │ [dim]  annotations:[/]                                             │  12 │ [dim]  annotations:[/]                                             
-            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]
-            │     │                                                                    │  14 │ [green]    this_is: new[/]                                         
-            │  14 │ [dim]spec:[/]                                                      │  15 │ [dim]spec:[/]                                                      
-            │  15 │ [dim]  ports:[/]                                                   │  16 │ [dim]  ports:[/]                                                   
-            │  16 │ [dim]    - targetPort: 8501[/]                                     │  17 │ [dim]    - targetPort: 8502[/]                                     
-            │  17 │ [dim]      port: 3000[/]                                           │  18 │ [dim]      port: 3000[/]                                           
-            │  18 │ [dim]      name: https[/]                                          │  19 │ [dim]      name: https[/]                                          
+            Added: [bold].metadata.annotations.this_is[/]:                                                                                                        
+            │   9 │ [dim]    app: flux-engine-steam                                        [/] │   9 │ [dim]    app: flux-engine-steam                                        [/] 
+            │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1                        [/] │  10 │ [dim]    app.kubernetes.io/version: 0.0.27-pre1                        [/] 
+            │  11 │ [dim]    app.kubernetes.io/managed-by: batman                          [/] │  11 │ [dim]    app.kubernetes.io/managed-by: batman                          [/] 
+            │  12 │ [dim]  annotations:                                                    [/] │  12 │ [dim]  annotations:                                                    [/] 
+            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam   [/] │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam   [/] 
+            │     │                                                                    │  14 │ [green]    this_is: new                                                  [/] 
+            │  14 │ [dim]spec:                                                             [/] │  15 │ [dim]spec:                                                             [/] 
+            │  15 │ [dim]  ports:                                                          [/] │  16 │ [dim]  ports:                                                          [/] 
+            │  16 │ [dim]    - targetPort: 8501                                            [/] │  17 │ [dim]    - targetPort: 8502                                            [/] 
+            │  17 │ [dim]      port: 3000                                                  [/] │  18 │ [dim]      port: 3000                                                  [/] 
+            │  18 │ [dim]      name: https                                                 [/] │  19 │ [dim]      name: https                                                 [/] 
 
-            Changed: [bold].spec.ports[0].targetPort[/]:
-            │  11 │ [dim]    app.kubernetes.io/managed-by: batman[/]                   │  12 │ [dim]  annotations:[/]                                             
-            │  12 │ [dim]  annotations:[/]                                             │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]
-            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam[/]│  14 │ [dim]    this_is: new[/]                                           
-            │  14 │ [dim]spec:[/]                                                      │  15 │ [dim]spec:[/]                                                      
-            │  15 │ [dim]  ports:[/]                                                   │  16 │ [dim]  ports:[/]                                                   
-            │  16 │ [yellow]    - targetPort: 8501[/]                                  │  17 │ [yellow]    - targetPort: 8502[/]                                  
-            │  17 │ [dim]      port: 3000[/]                                           │  18 │ [dim]      port: 3000[/]                                           
-            │  18 │ [dim]      name: https[/]                                          │  19 │ [dim]      name: https[/]                                          
-            │  19 │ [dim]  selector:[/]                                                │  20 │ [dim]  selector:[/]                                                
-            │  20 │ [dim]    app: flux-engine-steam[/]                                 │  21 │ [dim]    app: flux-engine-steam[/]                                 
+            Changed: [bold].spec.ports[0].targetPort[/]:                                                                                                          
+            │  11 │ [dim]    app.kubernetes.io/managed-by: batman                          [/] │  12 │ [dim]  annotations:                                                    [/] 
+            │  12 │ [dim]  annotations:                                                    [/] │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam   [/] 
+            │  13 │ [dim]    github.com/repository_url: git@github.com:flux-engine-steam   [/] │  14 │ [dim]    this_is: new                                                  [/] 
+            │  14 │ [dim]spec:                                                             [/] │  15 │ [dim]spec:                                                             [/] 
+            │  15 │ [dim]  ports:                                                          [/] │  16 │ [dim]  ports:                                                          [/] 
+            │  16 │ [yellow]    - targetPort: 8501                                            [/] │  17 │ [yellow]    - targetPort: 8502                                            [/] 
+            │  17 │ [dim]      port: 3000                                                  [/] │  18 │ [dim]      port: 3000                                                  [/] 
+            │  18 │ [dim]      name: https                                                 [/] │  19 │ [dim]      name: https                                                 [/] 
+            │  19 │ [dim]  selector:                                                       [/] │  20 │ [dim]  selector:                                                       [/] 
+            │  20 │ [dim]    app: flux-engine-steam                                        [/] │  21 │ [dim]    app: flux-engine-steam                                        [/] 
 
         "#]].assert_eq(content.as_str());
     }
@@ -1625,13 +1627,14 @@ mod test {
         let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]people:[/]                 │   1 │ [dim]people:[/]                 
-            │   2 │ [dim]  - name: Alice[/]         │   2 │ [dim]  - name: Alice[/]         
-            │   3 │ [dim]    age: 25[/]             │   3 │ [dim]    age: 25[/]             
-            │   4 │ [dim]  - name: Bob[/]           │   4 │ [dim]  - name: Charlie[/]       
-            │   5 │ [dim]    age: 30[/]             │   5 │ [dim]    age: 35[/]             
-            │   6 │ [red]  - name: Charlie[/]       │     │                                 
-            │   7 │ [red]    age: 35[/]             │     │                                 "#]]
+            Removed: .people[2]:                                                            
+            │   1 │ [dim]people:                        [/] │   1 │ [dim]people:                        [/] 
+            │   2 │ [dim]  - name: Alice                [/] │   2 │ [dim]  - name: Alice                [/] 
+            │   3 │ [dim]    age: 25                    [/] │   3 │ [dim]    age: 25                    [/] 
+            │   4 │ [dim]  - name: Bob                  [/] │   4 │ [dim]  - name: Charlie              [/] 
+            │   5 │ [dim]    age: 30                    [/] │   5 │ [dim]    age: 35                    [/] 
+            │   6 │ [red]  - name: Charlie              [/] │     │                                 
+            │   7 │ [red]    age: 35                    [/] │     │                                 "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1671,13 +1674,14 @@ mod test {
         let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]people:[/]                 │   1 │ [dim]people:[/]                 
-            │   2 │ [dim]  - name: First Person[/]  │   2 │ [dim]  - name: Second Person[/] 
-            │   3 │ [dim]    age: 20[/]             │   3 │ [dim]    age: 30[/]             
-            │   4 │ [dim]  - name: Second Person[/] │   4 │ [dim]  - name: Third Person[/]  
-            │   5 │ [dim]    age: 30[/]             │   5 │ [dim]    age: 40[/]             
-            │   6 │ [red]  - name: Third Person[/]  │     │                                 
-            │   7 │ [red]    age: 40[/]             │     │                                 "#]]
+            Removed: .people[2]:                                                            
+            │   1 │ [dim]people:                        [/] │   1 │ [dim]people:                        [/] 
+            │   2 │ [dim]  - name: First Person         [/] │   2 │ [dim]  - name: Second Person        [/] 
+            │   3 │ [dim]    age: 20                    [/] │   3 │ [dim]    age: 30                    [/] 
+            │   4 │ [dim]  - name: Second Person        [/] │   4 │ [dim]  - name: Third Person         [/] 
+            │   5 │ [dim]    age: 30                    [/] │   5 │ [dim]    age: 40                    [/] 
+            │   6 │ [red]  - name: Third Person         [/] │     │                                 
+            │   7 │ [red]    age: 40                    [/] │     │                                 "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1718,17 +1722,17 @@ mod test {
         // The gap on the right should align correctly with the removed annotations
         // Both sides should start at the same line number
         expect![[r#"
-            Removed: .metadata.annotations:
-            │   2 │ [dim]  name: my-service[/]      │   2 │ [dim]  name: my-service[/]      
-            │   3 │ [dim]  labels:[/]               │   3 │ [dim]  labels:[/]               
-            │   4 │ [dim]    app: my-app[/]         │   4 │ [dim]    app: my-app[/]         
-            │   5 │ [dim]    version: "1.0"[/]      │   5 │ [dim]    version: "1.0"[/]      
-            │   6 │ [dim]    environment: production[/]│   6 │ [dim]    environment: production[/]
-            │   7 │ [red]  annotations:[/]          │     │                                 
-            │   8 │ [red]    description: "My service des[/]│     │                                 
-            │   ┆ │ [red]cription"[/]               │     │                                 
-            │   9 │ [dim]spec:[/]                   │   7 │ [dim]spec:[/]                   
-            │  10 │ [dim]  replicas: 3[/]           │   8 │ [dim]  replicas: 3[/]           
+            Removed: .metadata.annotations:                                                 
+            │   2 │ [dim]  name: my-service             [/] │   2 │ [dim]  name: my-service             [/] 
+            │   3 │ [dim]  labels:                      [/] │   3 │ [dim]  labels:                      [/] 
+            │   4 │ [dim]    app: my-app                [/] │   4 │ [dim]    app: my-app                [/] 
+            │   5 │ [dim]    version: "1.0"             [/] │   5 │ [dim]    version: "1.0"             [/] 
+            │   6 │ [dim]    environment: production    [/] │   6 │ [dim]    environment: production    [/] 
+            │   7 │ [red]  annotations:                 [/] │     │                                 
+            │   8 │ [red]    description: "My service de[/] │     │                                 
+            │   ┆ │ [red]scription"                     [/]                                         
+            │   9 │ [dim]spec:                          [/] │   7 │ [dim]spec:                          [/] 
+            │  10 │ [dim]  replicas: 3                  [/] │   8 │ [dim]  replicas: 3                  [/] 
 
         "#]]
         .assert_eq(content.as_str());
@@ -1763,12 +1767,12 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Changed: [bold].servers[1].port[/]:
-            │   1 │ [dim]servers:[/]                │   1 │ [dim]servers:[/]                
-            │   2 │ [dim]  - host: server1.example.com[/]│   2 │ [dim]  - host: server1.example.com[/]
-            │   3 │ [dim]    port: 8080[/]          │   3 │ [dim]    port: 8080[/]          
-            │   4 │ [dim]  - host: server2.example.com[/]│   4 │ [dim]  - host: server2.example.com[/]
-            │   5 │ [yellow]    port: 9090[/]       │   5 │ [yellow]    port: 9091[/]       
+            Changed: [bold].servers[1].port[/]:                                             
+            │   1 │ [dim]servers:                       [/] │   1 │ [dim]servers:                       [/] 
+            │   2 │ [dim]  - host: server1.example.com  [/] │   2 │ [dim]  - host: server1.example.com  [/] 
+            │   3 │ [dim]    port: 8080                 [/] │   3 │ [dim]    port: 8080                 [/] 
+            │   4 │ [dim]  - host: server2.example.com  [/] │   4 │ [dim]  - host: server2.example.com  [/] 
+            │   5 │ [yellow]    port: 9090                 [/] │   5 │ [yellow]    port: 9091                 [/] 
 
         "#]]
         .assert_eq(content.as_str());
@@ -1801,14 +1805,14 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Removed: .config.cache:
-            │   1 │ [dim]config:[/]                 │   1 │ [dim]config:[/]                 
-            │   2 │ [dim]  database:[/]             │   2 │ [dim]  database:[/]             
-            │   3 │ [dim]    host: localhost[/]     │   3 │ [dim]    host: localhost[/]     
-            │   4 │ [dim]    port: 5432[/]          │   4 │ [dim]    port: 5432[/]          
-            │   5 │ [red]  cache:[/]                │     │                                 
-            │   6 │ [red]    enabled: true[/]       │     │                                 
-            │   7 │ [red]    ttl: 3600[/]           │     │                                 
+            Removed: .config.cache:                                                         
+            │   1 │ [dim]config:                        [/] │   1 │ [dim]config:                        [/] 
+            │   2 │ [dim]  database:                    [/] │   2 │ [dim]  database:                    [/] 
+            │   3 │ [dim]    host: localhost            [/] │   3 │ [dim]    host: localhost            [/] 
+            │   4 │ [dim]    port: 5432                 [/] │   4 │ [dim]    port: 5432                 [/] 
+            │   5 │ [red]  cache:                       [/] │     │                                 
+            │   6 │ [red]    enabled: true              [/] │     │                                 
+            │   7 │ [red]    ttl: 3600                  [/] │     │                                 
 
         "#]]
         .assert_eq(content.as_str());
@@ -1841,14 +1845,14 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Added: [bold].config.cache[/]:
-            │   1 │ [dim]config:[/]                 │   1 │ [dim]config:[/]                 
-            │   2 │ [dim]  database:[/]             │   2 │ [dim]  database:[/]             
-            │   3 │ [dim]    host: localhost[/]     │   3 │ [dim]    host: localhost[/]     
-            │   4 │ [dim]    port: 5432[/]          │   4 │ [dim]    port: 5432[/]          
-            │     │                                 │   5 │ [green]  cache:[/]              
-            │     │                                 │   6 │ [green]    enabled: true[/]     
-            │     │                                 │   7 │ [green]    ttl: 3600[/]         
+            Added: [bold].config.cache[/]:                                                  
+            │   1 │ [dim]config:                        [/] │   1 │ [dim]config:                        [/] 
+            │   2 │ [dim]  database:                    [/] │   2 │ [dim]  database:                    [/] 
+            │   3 │ [dim]    host: localhost            [/] │   3 │ [dim]    host: localhost            [/] 
+            │   4 │ [dim]    port: 5432                 [/] │   4 │ [dim]    port: 5432                 [/] 
+            │     │                                 │   5 │ [green]  cache:                       [/] 
+            │     │                                 │   6 │ [green]    enabled: true              [/] 
+            │     │                                 │   7 │ [green]    ttl: 3600                  [/] 
 
         "#]]
         .assert_eq(content.as_str());
@@ -1878,11 +1882,11 @@ mod test {
         let content = render(ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
-            Added: [bold].person.city[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [dim]  name: Alice[/]           │   2 │ [dim]  name: Alice[/]           
-            │   3 │ [dim]  age: 30[/]               │   3 │ [dim]  age: 30[/]               
-            │     │                                 │   4 │ [green]  city: London[/]        
+            Added: [bold].person.city[/]:                                                   
+            │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
+            │   2 │ [dim]  name: Alice                  [/] │   2 │ [dim]  name: Alice                  [/] 
+            │   3 │ [dim]  age: 30                      [/] │   3 │ [dim]  age: 30                      [/] 
+            │     │                                 │   4 │ [green]  city: London                 [/] 
 
         "#]]
         .assert_eq(content.as_str());
@@ -1919,10 +1923,11 @@ mod test {
         let content = render_removal(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]items:[/]                  │   1 │ [dim]items:[/]                  
-            │   2 │ [dim]  - first[/]               │   2 │ [dim]  - first[/]               
-            │   3 │ [dim]  - second[/]              │   3 │ [dim]  - second[/]              
-            │   4 │ [red]  - third[/]               │     │                                 "#]]
+            Removed: .items[2]:                                                             
+            │   1 │ [dim]items:                         [/] │   1 │ [dim]items:                         [/] 
+            │   2 │ [dim]  - first                      [/] │   2 │ [dim]  - first                      [/] 
+            │   3 │ [dim]  - second                     [/] │   3 │ [dim]  - second                     [/] 
+            │   4 │ [red]  - third                      [/] │     │                                 "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1949,26 +1954,18 @@ mod test {
             panic!("Should have gotten a Change");
         };
 
-        let content = render_difference(
-            &RenderContext {
-                word_wise_diff: false,
-                max_width: 80,
-                theme: super::Theme::markers(),
-                lines_before: 1,
-                lines_after: 0,
-            },
-            path,
-            left,
-            &left_doc,
-            right,
-            &right_doc,
-        );
+        let mut ctx = ctx();
+        ctx.word_wise_diff = false;
+        ctx.lines_before = 1;
+        ctx.lines_after = 0;
+
+        let content = render_difference(&ctx, path, left, &left_doc, right, &right_doc);
 
         // Only 1 line before the changed line, no lines after
         expect![[r#"
-            Changed: [bold].person.name[/]:
-            │   1 │ [dim]person:[/]                 │   1 │ [dim]person:[/]                 
-            │   2 │ [yellow]  name: Steve E. Anderson[/]│   2 │ [yellow]  name: Robert Anderson[/]"#]]
+            Changed: [bold].person.name[/]:                                                 
+            │   1 │ [dim]person:                        [/] │   1 │ [dim]person:                        [/] 
+            │   2 │ [yellow]  name: Steve E. Anderson      [/] │   2 │ [yellow]  name: Robert Anderson        [/] "#]]
         .assert_eq(content.as_str());
     }
 
@@ -1995,26 +1992,18 @@ mod test {
             panic!("Should have gotten a Change");
         };
 
-        let content = render_difference(
-            &RenderContext {
-                word_wise_diff: false,
-                max_width: 80,
-                theme: super::Theme::markers(),
-                lines_before: 0,
-                lines_after: 1,
-            },
-            path,
-            left,
-            &left_doc,
-            right,
-            &right_doc,
-        );
+        let mut ctx = ctx();
+        ctx.word_wise_diff = false;
+        ctx.lines_before = 0;
+        ctx.lines_after = 1;
+
+        let content = render_difference(&ctx, path, left, &left_doc, right, &right_doc);
 
         // No lines before, 1 line after the changed line
         expect![[r#"
-            Changed: [bold].person.name[/]:
-            │   2 │ [yellow]  name: Steve E. Anderson[/]│   2 │ [yellow]  name: Robert Anderson[/]
-            │   3 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               "#]]
+            Changed: [bold].person.name[/]:                                                 
+            │   2 │ [yellow]  name: Steve E. Anderson      [/] │   2 │ [yellow]  name: Robert Anderson        [/] 
+            │   3 │ [dim]  age: 12                      [/] │   3 │ [dim]  age: 12                      [/] "#]]
         .assert_eq(content.as_str());
     }
 
@@ -2043,28 +2032,22 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(
-            RenderContext {
-                word_wise_diff: false,
-                max_width: 80,
-                theme: super::Theme::markers(),
-                lines_before: 1,
-                lines_after: 1,
-            },
-            &left_doc,
-            &right_doc,
-            differences,
-        );
+        let mut ctx = ctx();
+        ctx.word_wise_diff = false;
+        ctx.lines_before = 1;
+        ctx.lines_after = 1;
+
+        let content = render(ctx, &left_doc, &right_doc, differences);
 
         // Only 1 line before and 1 line after the removed block
         expect![[r#"
-            Removed: .person.address:
-            │   2 │ [dim]  name: Robert Anderson[/] │   2 │ [dim]  name: Robert Anderson[/] 
-            │   3 │ [red]  address:[/]              │     │                                 
-            │   4 │ [red]    street: foo bar[/]     │     │                                 
-            │   5 │ [red]    nr: 1[/]               │     │                                 
-            │   6 │ [red]    postcode: ABC123[/]    │     │                                 
-            │   7 │ [dim]  age: 12[/]               │   3 │ [dim]  age: 12[/]               
+            Removed: .person.address:                                                       
+            │   2 │ [dim]  name: Robert Anderson        [/] │   2 │ [dim]  name: Robert Anderson        [/] 
+            │   3 │ [red]  address:                     [/] │     │                                 
+            │   4 │ [red]    street: foo bar            [/] │     │                                 
+            │   5 │ [red]    nr: 1                      [/] │     │                                 
+            │   6 │ [red]    postcode: ABC123           [/] │     │                                 
+            │   7 │ [dim]  age: 12                      [/] │   3 │ [dim]  age: 12                      [/] 
 
         "#]]
         .assert_eq(content.as_str());
@@ -2101,10 +2084,11 @@ mod test {
         let content = render_added(&ctx(), path, value, &left_doc, &right_doc);
 
         expect![[r#"
-            │   1 │ [dim]items:[/]                  │   1 │ [dim]items:[/]                  
-            │   2 │ [dim]  - first[/]               │   2 │ [dim]  - first[/]               
-            │   3 │ [dim]  - second[/]              │   3 │ [dim]  - second[/]              
-            │     │                                 │   4 │ [green]  - third[/]             "#]]
+            Added: [bold].items[2][/]:                                                      
+            │   1 │ [dim]items:                         [/] │   1 │ [dim]items:                         [/] 
+            │   2 │ [dim]  - first                      [/] │   2 │ [dim]  - first                      [/] 
+            │   3 │ [dim]  - second                     [/] │   3 │ [dim]  - second                     [/] 
+            │     │                                 │   4 │ [green]  - third                      [/] "#]]
         .assert_eq(content.as_str());
     }
 }

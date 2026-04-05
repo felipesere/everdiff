@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src/diff", "src/multidoc", "src/snippet", "src/main", "src/line"]
+members = ["src/diff", "src/multidoc", "src/snippet", "src/main", "src/line", "src/layout"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ edition = "2024"
 [workspace.dependencies]
 # Internal crates
 everdiff-diff = { path = "src/diff" }
+everdiff-layout = { path = "src/layout" }
 everdiff-multidoc = { path = "src/multidoc" }
 everdiff-snippet = { path = "src/snippet" }
 everdiff-line = { path = "src/line" }
@@ -31,9 +32,11 @@ serde-saphyr = "0.0.10"
 similar = { version = "2.6.0", features = ["inline"] }
 terminal_size = { version = "0.4.3" }
 unicode-width = "0.2"
+tracing = "0.1"
 
 # Dev dependencies
 indoc = "2.0.5"
 pretty_assertions = "1.4.1"
 expect-test = "1.5.0"
 test-log = "0.2.18"
+tracing-test = "0.2"

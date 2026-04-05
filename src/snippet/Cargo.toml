@@ -7,6 +7,7 @@ edition.workspace = true
 everdiff-diff.workspace = true
 everdiff-multidoc.workspace = true
 everdiff-line.workspace = true
+everdiff-layout.workspace = true
 similar.workspace = true
 ansi-width.workspace = true
 anyhow.workspace = true
@@ -17,9 +18,11 @@ owo-colors.workspace = true
 saphyr.workspace = true
 terminal_size.workspace = true
 unicode-width.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 indoc.workspace = true
 pretty_assertions.workspace = true
 expect-test.workspace = true
 test-log.workspace = true
+tracing-test = { workspace = true, features = ["no-env-filter"] }
