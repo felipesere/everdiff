@@ -1,47 +1,26 @@
 use std::fmt::{self};
 
-use crate::{content::StyledContent, wrap::wrap_plain};
+use crate::wrap::wrap_plain;
 
-// --- Lineable trait --------------------------------------------------------------
-
-/// A value that can be consumed and rendered into a [`LineGroup`] at a fixed
-/// column width.
+/// A value that can be rendered into a [`LineGroup`] at a fixed column width.
 ///
-/// This is the interface [`Column::push`] accepts. Implementors wrap long content
-/// into multiple [`FormattedRow`]s but are **not** responsible for chrome —
-/// chrome (`│ nr │`) is the specific concern of [`PrefixedLine`], which is one
-/// implementor among several.
-///
-/// The key distinction from [`StyledContent`](crate::StyledContent):
-///
-/// | | Signature | Output | Chrome |
-/// |---|---|---|---|
-/// | [`StyledContent`](crate::StyledContent) | `&self` | `Vec<String>` | No |
-/// | [`Lineable`] | `self` | [`LineGroup`] | Only in [`PrefixedLine`] |
-///
-/// `StyledContent` is borrowed because [`PrefixedLine`] needs to call it and then
-/// do further work (adding chrome) on the result. `Lineable` consumes `self`
-/// because once a value is pushed onto a [`Column`] it is fully rendered.
+/// Implementors wrap content that is too wide into multiple [`FormattedRow`]s.
+/// This is the interface [`Column::push`] accepts.
 ///
 /// # Implementors
 ///
-/// - [`PrefixedLine`] — calls [`StyledContent::styled_segments`] on its inner
-///   content, then frames each segment with `│ nr │` chrome.
-/// - `String` / `&str` — plain text, no styling, no chrome; used for headers and
-///   labels.
+/// - `String` / `&str` — plain unstyled text; used for headers and labels.
 /// - [`Highlighted`](crate::Highlighted) and [`InlineParts`](crate::InlineParts) —
-///   styled content without chrome; their `Lineable` impls delegate to their own
-///   [`StyledContent`](crate::StyledContent) impl and wrap the results in
-///   [`FormattedRow`].
+///   ANSI-styled content.
+/// - [`PrefixedLine`] — wraps another [`Lineable`] and decorates each row with a
+///   line-number prefix.
 pub trait Lineable {
-    /// Consume `self` and produce all display rows for the given column width.
+    /// Produce all display rows for the given implementaor under a given column width.
     ///
     /// If the content is wider than `content_width` it must wrap, producing
     /// multiple [`FormattedRow`]s inside the returned [`LineGroup`].
-    fn into_line_group(self, content_width: u16) -> LineGroup;
+    fn as_line_group(&self, content_width: u16) -> LineGroup;
 }
-
-// --- Output types ----------------------------------------------------------------
 
 /// All display rows produced from one logical line pushed onto a [`Column`].
 ///
@@ -64,8 +43,6 @@ impl FormattedRow {
         FormattedRow(format!("{blank:<w$}", blank = ""))
     }
 }
-
-// --- LineWidget ------------------------------------------------------------------
 
 /// The 5-character slot between the `│` separators, carrying the line number or a
 /// decoration.
@@ -96,35 +73,29 @@ impl fmt::Display for LineWidget {
     }
 }
 
-// --- Chrome helpers --------------------------------------------------------------
-
-/// Visible columns consumed by the line-number chrome on each side:
+/// Visible columns consumed by the line-number prefix on each side:
 /// `│`(1) + [`LineWidget`](5) + `│`(1) + space(1) + trailing space(1) = 9.
 const CHROME: u16 = 9;
 
-/// Format one [`FormattedRow`] with the full `│ widget │ content ` chrome.
+/// Wrap `value` with the `│ widget │ … ` prefix to produce a [`FormattedRow`].
 ///
 /// `visual_width` is the number of *visible* columns available for `value`.
 /// ANSI overhead (bytes that don't advance the cursor) is measured and added to
 /// the format-string width so the padding fills exactly `visual_width` columns.
 fn format_chrome_row(widget: LineWidget, value: &str, visual_width: usize) -> FormattedRow {
     let extras = value.len() - ansi_width::ansi_width(value);
-    let used_width = visual_width + extras;
-    FormattedRow(format!("│{widget}│ {value:<used_width$} "))
+    let required_width = visual_width + extras;
+    FormattedRow(format!("│{widget}│ {value:<required_width$} "))
 }
 
-// --- PrefixedLine ----------------------------------------------------------------
-
-/// A line pushed into a [`Column`] that is rendered with `│ nr │` line-number chrome.
+/// A [`Lineable`] that decorates content with a line-number prefix (`│ nr │`).
 ///
 /// This is the primary [`Lineable`] type in everdiff's code view. Two variants:
 ///
-/// - `Numbered` — real content paired with a 0-based line index (displayed as
-///   `nr + 1`). The content is anything that implements [`StyledContent`], so it
-///   can carry ANSI colours without the chrome logic needing to know about them.
-/// - `Filler` — a blank row that still occupies the full chrome width. Used to
-///   pad the opposite side of a gap so [`ColumnPair::zip`] keeps the two sides
-///   aligned when one document has a block the other lacks.
+/// - `Numbered` — pairs any [`Lineable`] content with a 0-based line index
+///   (displayed as `nr + 1`).
+/// - `Filler` — a blank placeholder row used to keep the two sides of a
+///   [`ColumnPair`] aligned when one document has a block the other lacks.
 ///
 /// # Example
 ///
@@ -138,17 +109,17 @@ pub enum PrefixedLine {
         /// 0-based line index; rendered as `nr + 1`.
         nr: usize,
         /// The styled content to display after the chrome.
-        content: Box<dyn StyledContent>,
+        content: Box<dyn Lineable>,
     },
     /// A blank chrome-width placeholder, used to align gaps between documents.
     Filler,
 }
 
 impl PrefixedLine {
-    /// Construct a [`PrefixedLine::Numbered`] from any [`StyledContent`].
+    /// Construct a [`PrefixedLine::Numbered`] from any [`Lineable`].
     ///
     /// `nr` is a **0-based** line index; it will be displayed as `nr + 1`.
-    pub fn numbered(nr: usize, content: impl StyledContent + 'static) -> Self {
+    pub fn numbered(nr: usize, content: impl Lineable + 'static) -> Self {
         PrefixedLine::Numbered {
             nr,
             content: Box::new(content),
@@ -157,28 +128,23 @@ impl PrefixedLine {
 }
 
 impl Lineable for PrefixedLine {
-    fn into_line_group(self, content_width: u16) -> LineGroup {
+    fn as_line_group(&self, content_width: u16) -> LineGroup {
         let actual_width_u16 = content_width.saturating_sub(CHROME);
         let actual_width = actual_width_u16 as usize;
 
         let rows = match self {
             PrefixedLine::Numbered { nr, content } => content
-                .styled_segments(actual_width_u16)
+                .as_line_group(actual_width_u16)
+                .0
                 .into_iter()
                 .enumerate()
-                .map(|(i, styled)| {
+                .map(|(i, row)| {
                     let widget = if i == 0 {
-                        LineWidget::Nr(nr)
+                        LineWidget::Nr(*nr)
                     } else {
                         LineWidget::Continuation
                     };
-                    tracing::info!(
-                        content_width,
-                        actual_width,
-                        styled.len = styled.len(),
-                        "FormattedRow",
-                    );
-                    format_chrome_row(widget, &styled, actual_width)
+                    format_chrome_row(widget, &row.0, actual_width)
                 })
                 .collect(),
 
@@ -189,21 +155,8 @@ impl Lineable for PrefixedLine {
     }
 }
 
-// --- Lineable impls for primitive types ------------------------------------------
-
 impl Lineable for String {
-    fn into_line_group(self, content_width: u16) -> LineGroup {
-        let group = wrap_plain(&self, content_width)
-            .into_iter()
-            .map(FormattedRow)
-            .collect();
-
-        LineGroup(group)
-    }
-}
-
-impl Lineable for &str {
-    fn into_line_group(self, content_width: u16) -> LineGroup {
+    fn as_line_group(&self, content_width: u16) -> LineGroup {
         let group = wrap_plain(self, content_width)
             .into_iter()
             .map(FormattedRow)
@@ -213,7 +166,16 @@ impl Lineable for &str {
     }
 }
 
-// --- Column ----------------------------------------------------------------------
+impl Lineable for &str {
+    fn as_line_group(&self, content_width: u16) -> LineGroup {
+        let group = wrap_plain(self, content_width)
+            .into_iter()
+            .map(FormattedRow)
+            .collect();
+
+        LineGroup(group)
+    }
+}
 
 /// One side of a two-column diff view.
 ///
@@ -241,13 +203,13 @@ impl Column {
 
     /// Append a line to the bottom of the column.
     pub fn push(&mut self, line: impl Lineable) {
-        let group = line.into_line_group(self.content_width);
+        let group = line.as_line_group(self.content_width);
         self.groups.push(group);
     }
 
     /// Insert a line at the top of the column.
     pub fn prepend(&mut self, line: impl Lineable) {
-        let group = line.into_line_group(self.content_width);
+        let group = line.as_line_group(self.content_width);
         self.groups.insert(0, group);
     }
 
@@ -260,7 +222,6 @@ impl Column {
     }
 
     /// Insert `count` blank rows at the top.
-    // TODO: Is this the most efficient way to do this?
     pub fn prepend_blank(&mut self, count: usize) {
         let mut new_line_group = Vec::with_capacity(self.groups.len() + count);
         for _ in 0..count {
@@ -276,8 +237,6 @@ impl Column {
     }
 }
 
-// --- ColumnPair ------------------------------------------------------------------
-
 /// Coordinates two [`Column`]s for a side-by-side diff view.
 ///
 /// `ColumnPair` is the entry point for building two-column output:
@@ -290,7 +249,6 @@ impl Column {
 ///
 /// The pair splits the terminal width evenly: each column gets
 /// `terminal_width / 2` visible columns.
-// NOTE: consider if I need some kind of builder here
 #[derive(Debug)]
 pub struct ColumnPair {
     /// Visible terminal columns available to each side.

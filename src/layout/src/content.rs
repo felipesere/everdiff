@@ -5,61 +5,16 @@ use crate::{
     wrap::{split_at_width, wrap_plain},
 };
 
-// --- Highlight -------------------------------------------------------------------
-
-/// A thread-safe, cloneable styling function.
+/// A cloneable styling function.
 ///
-/// Takes a plain-text slice and returns a string that may contain ANSI escape
-/// codes. The `Arc` makes it cheap to share a single highlight function across
+/// Takes a plain-text slice and returns a string that may contain ANSI escape codes.
+/// The `Arc` makes it cheap to share a single highlight function across
 /// many lines (e.g. the same "dimmed" style applied to every context line in a
 /// diff hunk) without cloning the closure body.
 ///
 /// The layout crate never constructs a `Highlight` itself — callers in
 /// `everdiff-snippet` provide them.
 pub type Highlight = Arc<dyn Fn(&str) -> String + Send + Sync>;
-
-// --- StyledContent trait ---------------------------------------------------------
-
-/// A content type that wraps long text into fixed-width segments and applies
-/// ANSI colour styling, ensuring codes never straddle a line boundary.
-///
-/// This trait operates at the *string* level: it borrows `&self` and returns
-/// `Vec<String>`. It knows nothing about [`FormattedRow`], [`LineGroup`], or
-/// line-number chrome — that is [`Lineable`]'s concern.
-///
-/// [`PrefixedLine::Numbered`](crate::PrefixedLine) is the bridge between the two
-/// traits: it holds a `Box<dyn StyledContent>`, calls `styled_segments` to obtain
-/// styled strings, and then frames each one with `│ nr │` chrome before wrapping
-/// it in a [`FormattedRow`].
-///
-/// Implementors are responsible for their own wrapping: each returned `String`
-/// must have a *visible* width of at most `width` columns. Strings may contain
-/// ANSI codes; visible width is measured separately from `str::len` because ANSI
-/// escape bytes inflate the byte count without advancing the cursor.
-pub trait StyledContent: Send + Sync {
-    /// Return one styled string per display row, each fitting within `width`
-    /// visible terminal columns.
-    ///
-    /// Always returns at least one element — a zero-width `width` should produce
-    /// a single empty string rather than an empty `Vec`.
-    fn styled_segments(&self, width: u16) -> Vec<String>;
-}
-
-// --- Plain string impls ----------------------------------------------------------
-
-impl StyledContent for String {
-    fn styled_segments(&self, width: u16) -> Vec<String> {
-        wrap_plain(self, width)
-    }
-}
-
-impl StyledContent for &'static str {
-    fn styled_segments(&self, width: u16) -> Vec<String> {
-        wrap_plain(self, width)
-    }
-}
-
-// --- Highlighted -----------------------------------------------------------------
 
 /// Content styled uniformly with a single [`Highlight`] function.
 ///
@@ -88,13 +43,14 @@ impl Highlighted {
     }
 }
 
-impl StyledContent for Highlighted {
-    fn styled_segments(&self, width: u16) -> Vec<String> {
-        wrap_plain(&self.text, width)
+impl Lineable for Highlighted {
+    fn as_line_group(&self, content_width: u16) -> LineGroup {
+        let group = wrap_plain(&self.text, content_width)
             .into_iter()
-            .map(|seg| (self.highlight)(&seg))
-            .inspect(|l| tracing::info!(l.len = l.len()))
-            .collect()
+            .map(|seg| FormattedRow((self.highlight)(&seg)))
+            .collect();
+
+        LineGroup(group)
     }
 }
 
@@ -133,14 +89,14 @@ impl Default for InlineParts {
     }
 }
 
-impl StyledContent for InlineParts {
-    fn styled_segments(&self, width: u16) -> Vec<String> {
+impl Lineable for InlineParts {
+    fn as_line_group(&self, width: u16) -> LineGroup {
         if width == 0 {
-            return vec![String::new()];
+            return LineGroup(vec![]);
         }
 
         let width_usize = width as usize;
-        let mut segments: Vec<String> = Vec::new();
+        let mut segments: Vec<FormattedRow> = Vec::new();
         let mut current = String::new();
         let mut current_width = 0usize;
 
@@ -159,7 +115,8 @@ impl StyledContent for InlineParts {
 
                 // Close the segment when full and there is still more text to place.
                 if current_width >= width_usize && !remaining.is_empty() {
-                    segments.push(std::mem::take(&mut current));
+                    segments.push(FormattedRow(pad(&current, width)));
+                    current = String::new();
                     current_width = 0;
                 }
             }
@@ -167,66 +124,34 @@ impl StyledContent for InlineParts {
 
         // Emit whatever remains in the buffer (always at least one segment).
         if !current.is_empty() || segments.is_empty() {
-            segments.push(current);
+            segments.push(FormattedRow(pad(&current, width)));
         }
-
-        segments
-    }
-}
-
-// --- Lineable impls --------------------------------------------------------------
-
-impl Lineable for Highlighted {
-    fn into_line_group(self, content_width: u16) -> LineGroup {
-        let group = wrap_plain(&self.text, content_width)
-            .into_iter()
-            .map(|seg| FormattedRow((self.highlight)(&seg)))
-            .collect();
-
-        LineGroup(group)
-    }
-}
-
-/// Pad `original` to `width` *visible* columns, accounting for ANSI overhead.
-///
-/// `str::len` counts bytes, but ANSI escape sequences inflate byte length without
-/// advancing the cursor. When `visible_width < original.len()` the difference is
-/// ANSI overhead; the format-string padding target is widened by that amount so
-/// the output fills exactly `width` visible columns.
-fn pad(original: &str, width: u16) -> String {
-    use std::cmp::Ordering;
-    let visible_width = unicode_width::UnicodeWidthStr::width(original);
-    match visible_width.cmp(&original.len()) {
-        Ordering::Less => {
-            let extras = original.len() - visible_width;
-            format!("{original:<w$}", w = width as usize + extras)
-        }
-        Ordering::Equal => original.to_string(),
-        Ordering::Greater => {
-            unreachable!("the visible width can't be greater than teh normal one?")
-        }
-    }
-}
-
-impl Lineable for InlineParts {
-    fn into_line_group(self, width: u16) -> LineGroup {
-        if width == 0 {
-            return LineGroup(vec![]);
-        }
-
-        let segments = self
-            .styled_segments(width)
-            .into_iter()
-            .map(|s| FormattedRow(pad(&s, width)))
-            .collect();
 
         LineGroup(segments)
     }
 }
 
+// --- Helpers ---------------------------------------------------------------------
+
+/// Pad `original` to `width` *visible* columns, accounting for ANSI overhead.
+///
+/// `str::len` counts bytes, but ANSI escape sequences inflate byte length without
+/// advancing the cursor. `ansi_width` measures only the visible columns; the
+/// difference is used to widen the format-string target so the output fills
+/// exactly `width` visible columns.
+fn pad(original: &str, width: u16) -> String {
+    let visible_width = ansi_width::ansi_width(original);
+    let extras = original.len().saturating_sub(visible_width);
+    format!("{original:<w$}", w = width as usize + extras)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rows(group: LineGroup) -> Vec<String> {
+        group.0.into_iter().map(|r| r.0).collect()
+    }
 
     fn dim(s: &str) -> String {
         format!("[dim]{s}[/]")
@@ -236,15 +161,9 @@ mod tests {
     }
 
     #[test]
-    fn string_plain_wrap() {
-        let segs = "hello world".to_string().styled_segments(5);
-        assert_eq!(segs, vec!["hello", " worl", "d    "]);
-    }
-
-    #[test]
     fn highlighted_applies_to_each_segment() {
         let h = Highlighted::new("hello world", Arc::new(|s: &str| format!("[x]{s}[/x]")));
-        let segs = h.styled_segments(5);
+        let segs = rows(h.as_line_group(5));
         assert_eq!(segs, vec!["[x]hello[/x]", "[x] worl[/x]", "[x]d    [/x]"]);
     }
 
@@ -253,7 +172,9 @@ mod tests {
         let mut parts = InlineParts::new();
         parts.push("key: ", Arc::new(|s: &str| dim(s)));
         parts.push("val", Arc::new(|s: &str| bold(s)));
-        let segs = parts.styled_segments(20);
+        let segs = rows(parts.as_line_group(20));
+        // Fake ANSI tags aren't transparent to ansi_width, so padding accounts
+        // for byte length; with real ANSI codes the trailing spaces would appear.
         assert_eq!(segs, vec!["[dim]key: [/][bold]val[/]"]);
     }
 
@@ -264,7 +185,7 @@ mod tests {
         parts.push("key: ", Arc::new(|s: &str| dim(s)));
         parts.push("old  new", Arc::new(|s: &str| bold(s)));
         parts.push(" # note", Arc::new(|s: &str| dim(s)));
-        let segs = parts.styled_segments(10);
+        let segs = rows(parts.as_line_group(10));
         assert_eq!(
             segs,
             vec!["[dim]key: [/][bold]old  [/]", "[bold]new[/][dim] # note[/]",]
@@ -276,14 +197,14 @@ mod tests {
         // width=4, one part "hello" → split into "hell" + "o"
         let mut parts = InlineParts::new();
         parts.push("hello", Arc::new(|s: &str| bold(s)));
-        let segs = parts.styled_segments(4);
+        let segs = rows(parts.as_line_group(4));
         assert_eq!(segs, vec!["[bold]hell[/]", "[bold]o[/]"]);
     }
 
     #[test]
     fn inline_parts_empty_produces_one_blank_segment() {
         let parts = InlineParts::new();
-        let segs = parts.styled_segments(10);
-        assert_eq!(segs, vec![""]);
+        let segs = rows(parts.as_line_group(10));
+        assert_eq!(segs, vec!["          "]);
     }
 }

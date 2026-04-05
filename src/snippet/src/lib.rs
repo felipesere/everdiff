@@ -4,7 +4,7 @@ use std::{
 };
 
 use everdiff_diff::{Difference, path::IgnorePath};
-use everdiff_layout::{Column, ColumnPair, Highlighted, InlineParts};
+use everdiff_layout::{ColumnPair, Highlighted, InlineParts};
 use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
 use owo_colors::OwoColorize;
 
