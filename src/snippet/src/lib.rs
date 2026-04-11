@@ -50,23 +50,25 @@ pub fn render_multidoc_diff<W: Write>(
 
     for d in differences {
         match d {
-            DocDifference::Addition(AdditionalDoc { fields, .. }) => {
+            DocDifference::Addition(AdditionalDoc { fields, doc }) => {
                 let pair = ColumnPair::new(max_width);
                 let mut left = pair.column();
                 let mut right = pair.column();
-                left.push(Highlighted::new(
+                right.push(Highlighted::new(
                     "Additional document:",
                     Arc::new(|s: &str| s.green().to_string()),
                 ));
+                right.push(format!("{} [{}]", doc.0, doc.1));
                 for (k, v) in &fields.0 {
-                    left.push(format!("{k} -> {}", v.as_deref().unwrap_or("∅")));
+                    right.push(format!("{k} -> {}", v.as_deref().unwrap_or("∅")));
                 }
-                right.append_blank(1 + fields.0.len());
+                left.append_blank(2 + fields.0.len());
                 for l in pair.zip(left, right) {
                     writeln!(writer, "{l}")?;
                 }
+                writeln!(writer)?;
             }
-            DocDifference::Missing(MissingDoc { fields, .. }) => {
+            DocDifference::Missing(MissingDoc { fields, doc }) => {
                 let pair = ColumnPair::new(max_width);
                 let mut left = pair.column();
                 let mut right = pair.column();
@@ -74,13 +76,15 @@ pub fn render_multidoc_diff<W: Write>(
                     "Missing document:",
                     Arc::new(|s: &str| s.red().to_string()),
                 ));
+                left.push(format!("{} [{}]", doc.0, doc.1));
                 for (k, v) in &fields.0 {
                     left.push(format!("{k} -> {}", v.as_deref().unwrap_or("∅")));
                 }
-                right.append_blank(1 + fields.0.len());
+                right.append_blank(2 + fields.0.len());
                 for l in pair.zip(left, right) {
                     writeln!(writer, "{l}")?;
                 }
+                writeln!(writer)?;
             }
             DocDifference::Changed {
                 left: l,
