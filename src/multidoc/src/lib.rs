@@ -85,7 +85,7 @@ fn matching_docs(
 
             for (right, right_doc) in rights.iter().enumerate().skip(last_idx_used_on_right) {
                 if let Some(right_fields) = extract(right, right_doc) {
-                    seen_right_docs.insert(fields.clone(), (right_doc.file.clone(), right));
+                    seen_right_docs.insert(right_fields.clone(), (right_doc.file.clone(), right));
                     if fields == right_fields {
                         matches.push(MatchingDocs {
                             fields,
@@ -105,6 +105,16 @@ fn matching_docs(
             })
         }
     }
+    // Ensure every right doc is in seen_right_docs, including those that appear after the
+    // last matched index and were therefore never visited by the inner scan loop.
+    for (right, right_doc) in rights.iter().enumerate().skip(last_idx_used_on_right) {
+        if let Some(right_fields) = extract(right, right_doc) {
+            seen_right_docs
+                .entry(right_fields)
+                .or_insert_with(|| (right_doc.file.clone(), right));
+        }
+    }
+
     // let's go over all docs we've seen on the right and check which ones don't exist on the left
     for (fields, right_ref) in seen_right_docs {
         if seen_left_docs.contains_key(&fields) {
@@ -238,7 +248,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use crate::{
-        Context, Fields, diff,
+        Context, DocDifference, Fields, diff,
         source::{YamlSource, read_doc},
     };
     use indoc::indoc;
@@ -492,6 +502,115 @@ mod tests {
             ]
         "#]]
         .assert_debug_eq(&differences);
+    }
+
+    // Bug 1: when right-side docs are out of order relative to the left, a left doc that
+    // has a matching right doc is incorrectly reported as missing.
+    //
+    // Root cause: line 88 stored each right doc in `seen_right_docs` under the *left* doc's
+    // fields instead of the right doc's own fields, so the early-exit lookup on line 77
+    // (`seen_right_docs.get(&fields)`) never fires for later left docs.
+    #[test]
+    fn out_of_order_right_docs_are_not_falsely_missing() {
+        // Left:  [alpha, bravo]
+        // Right: [bravo, alpha]  — same docs, reversed order
+        let left = docs(indoc! {r#"
+        ---
+        metadata:
+          name: alpha
+        spec:
+          value: 1
+        ...
+        ---
+        metadata:
+          name: bravo
+        spec:
+          value: 2
+        ...
+        "#});
+
+        let right = docs(indoc! {r#"
+        ---
+        metadata:
+          name: bravo
+        spec:
+          value: 2
+        ...
+        ---
+        metadata:
+          name: alpha
+        spec:
+          value: 1
+        ...
+        "#});
+
+        let ctx = Context::new_with_doc_identifier(kubernetes_names());
+        let differences = diff(&ctx, &left, &right);
+
+        // Both docs are identical (just reordered), so there should be no differences at all.
+        assert_eq!(
+            differences,
+            vec![],
+            "expected no differences for identical docs in different order, got: {differences:#?}"
+        );
+    }
+
+    // Bug 2: right-only docs (additions) that appear *after* the position of the last matched
+    // right doc are never visited in the inner scan loop, so they are silently dropped and
+    // never reported as additions.
+    //
+    // Root cause: the inner loop skips from `last_idx_used_on_right` and only advances that
+    // cursor when a match is found.  Right docs beyond the final match are never recorded in
+    // `seen_right_docs`, and the final "additions" pass only inspects `seen_right_docs`.
+    #[test]
+    fn addition_at_end_of_right_is_detected() {
+        // Left:  [alpha, bravo]
+        // Right: [alpha, bravo, delta]  — delta is a new doc only on the right
+        let left = docs(indoc! {r#"
+        ---
+        metadata:
+          name: alpha
+        spec:
+          value: 1
+        ...
+        ---
+        metadata:
+          name: bravo
+        spec:
+          value: 2
+        ...
+        "#});
+
+        let right = docs(indoc! {r#"
+        ---
+        metadata:
+          name: alpha
+        spec:
+          value: 1
+        ...
+        ---
+        metadata:
+          name: bravo
+        spec:
+          value: 2
+        ...
+        ---
+        metadata:
+          name: delta
+        spec:
+          value: 99
+        ...
+        "#});
+
+        let ctx = Context::new_with_doc_identifier(kubernetes_names());
+        let differences = diff(&ctx, &left, &right);
+
+        assert_eq!(differences.len(), 1, "expected exactly one addition, got: {differences:#?}");
+        assert!(
+            matches!(&differences[0], DocDifference::Addition(a) if a.fields.0["metadata.name"] == Some("delta".to_string())),
+            "expected an Addition for 'delta', got: {:#?}",
+            differences[0]
+        );
     }
 
     #[test]

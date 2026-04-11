@@ -25,7 +25,7 @@ pub mod talos {
     use std::collections::BTreeMap;
 
     pub fn documents() -> IdentifierFn {
-        Box::new(|idx, source| {
+        Box::new(|_idx, source| {
             let doc = &source.yaml;
             let api_version = string_of(doc.get("apiVersion"));
             let version = string_of(doc.get("version"));
@@ -55,10 +55,6 @@ pub mod talos {
             if let Some(name) = name {
                 fields.insert("name".to_string(), Some(name));
             }
-
-            dbg!(&source.file);
-            dbg!(&idx);
-            dbg!(&fields);
 
             Some(Fields(fields))
         })

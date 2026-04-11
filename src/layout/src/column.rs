@@ -401,7 +401,6 @@ mod tests {
         right.push(with_nr(2, "short"));
 
         let lines = pair.zip(left, right);
-        dbg!(&lines);
         // left wraps to 2 rows, right has 1 → group produces 2 output lines
         assert_eq!(lines.len(), 2);
     }
