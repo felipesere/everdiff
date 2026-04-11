@@ -1,7 +1,7 @@
 use std::io::{ErrorKind, Read};
 
 use anyhow::Context;
-use bpaf::{Parser, construct, short};
+use bpaf::{Parser, construct, long, short};
 use camino::Utf8Path;
 use everdiff_diff::path::IgnorePath;
 use everdiff_multidoc::{
@@ -16,6 +16,7 @@ mod identifier;
 #[derive(Debug)]
 struct Args {
     kubernetes: bool,
+    talos: bool,
     ignore_moved: bool,
     ignore_changes: Vec<IgnorePath>,
     verbosity: usize,
@@ -32,6 +33,8 @@ fn args() -> impl Parser<Args> {
         .long("kubernetes")
         .help("Use Kubernetes comparison")
         .switch();
+
+    let talos = long("talos").help("Use Talos comparison").switch();
 
     let ignore_moved = short('m')
         .long("ignore-moved")
@@ -80,6 +83,7 @@ fn args() -> impl Parser<Args> {
 
     construct!(Args {
         kubernetes,
+        talos,
         ignore_moved,
         ignore_changes,
         verbosity,
@@ -125,6 +129,8 @@ fn main() -> anyhow::Result<()> {
 
     let id = if args.kubernetes {
         identifier::kubernetes::gvk()
+    } else if args.talos {
+        identifier::talos::documents()
     } else {
         identifier::by_index()
     };
