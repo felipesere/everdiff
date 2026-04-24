@@ -45,12 +45,15 @@ impl Highlighted {
 
 impl Lineable for Highlighted {
     fn as_line_group(&self, content_width: u16) -> LineGroup {
-        let group = wrap_plain(&self.text, content_width)
+        let rows = wrap_plain(&self.text, content_width)
             .into_iter()
             .map(|seg| FormattedRow((self.highlight)(&seg)))
             .collect();
 
-        LineGroup(group)
+        LineGroup {
+            rows,
+            overflow: FormattedRow::blank(content_width),
+        }
     }
 }
 
@@ -92,7 +95,10 @@ impl Default for InlineParts {
 impl Lineable for InlineParts {
     fn as_line_group(&self, width: u16) -> LineGroup {
         if width == 0 {
-            return LineGroup(vec![]);
+            return LineGroup {
+                rows: vec![],
+                overflow: FormattedRow::blank(width),
+            };
         }
 
         let width_usize = width as usize;
@@ -127,7 +133,10 @@ impl Lineable for InlineParts {
             segments.push(FormattedRow(pad(&current, width)));
         }
 
-        LineGroup(segments)
+        LineGroup {
+            rows: segments,
+            overflow: FormattedRow::blank(width),
+        }
     }
 }
 
@@ -150,7 +159,7 @@ mod tests {
     use super::*;
 
     fn rows(group: LineGroup) -> Vec<String> {
-        group.0.into_iter().map(|r| r.0).collect()
+        group.rows.into_iter().map(|r| r.0).collect()
     }
 
     fn dim(s: &str) -> String {

@@ -26,8 +26,15 @@ pub trait Lineable {
 ///
 /// A [`LineGroup`] contains exactly one [`FormattedRow`] when the line fits within
 /// the column width, or more when it wraps. [`ColumnPair::zip`] pairs groups from
-/// the left and right columns one-to-one and pads the shorter side with blank rows.
-pub struct LineGroup(pub Vec<FormattedRow>);
+/// the left and right columns one-to-one and pads the shorter side using `overflow`.
+///
+/// `overflow` is what the *other* side should display for every continuation row it
+/// lacks: a chrome filler (`│     │ …`) for `PrefixedLine` groups, a blank for
+/// plain-text groups.
+pub struct LineGroup {
+    pub rows: Vec<FormattedRow>,
+    pub(crate) overflow: FormattedRow,
+}
 
 /// A single terminal output row: a string already padded to the column's visible
 /// width and optionally containing ANSI escape codes.
@@ -38,7 +45,7 @@ pub struct LineGroup(pub Vec<FormattedRow>);
 pub struct FormattedRow(pub String);
 
 impl FormattedRow {
-    fn blank(content_width: u16) -> Self {
+    pub(crate) fn blank(content_width: u16) -> Self {
         let w = content_width as usize;
         FormattedRow(format!("{blank:<w$}", blank = ""))
     }
@@ -132,10 +139,12 @@ impl Lineable for PrefixedLine {
         let actual_width_u16 = content_width.saturating_sub(CHROME);
         let actual_width = actual_width_u16 as usize;
 
+        let chrome_filler = format_chrome_row(LineWidget::Filler, "", actual_width);
+
         let rows = match self {
             PrefixedLine::Numbered { nr, content } => content
                 .as_line_group(actual_width_u16)
-                .0
+                .rows
                 .into_iter()
                 .enumerate()
                 .map(|(i, row)| {
@@ -151,29 +160,38 @@ impl Lineable for PrefixedLine {
             PrefixedLine::Filler => vec![format_chrome_row(LineWidget::Filler, "", actual_width)],
         };
 
-        LineGroup(rows)
+        LineGroup {
+            rows,
+            overflow: chrome_filler,
+        }
     }
 }
 
 impl Lineable for String {
     fn as_line_group(&self, content_width: u16) -> LineGroup {
-        let group = wrap_plain(self, content_width)
+        let rows = wrap_plain(self, content_width)
             .into_iter()
             .map(FormattedRow)
             .collect();
 
-        LineGroup(group)
+        LineGroup {
+            rows,
+            overflow: FormattedRow::blank(content_width),
+        }
     }
 }
 
 impl Lineable for &str {
     fn as_line_group(&self, content_width: u16) -> LineGroup {
-        let group = wrap_plain(self, content_width)
+        let rows = wrap_plain(self, content_width)
             .into_iter()
             .map(FormattedRow)
             .collect();
 
-        LineGroup(group)
+        LineGroup {
+            rows,
+            overflow: FormattedRow::blank(content_width),
+        }
     }
 }
 
@@ -216,8 +234,11 @@ impl Column {
     /// Append `count` blank rows to the bottom (no content, no line-number chrome).
     pub fn append_blank(&mut self, count: usize) {
         for _ in 0..count {
-            self.groups
-                .push(LineGroup(vec![FormattedRow::blank(self.content_width)]));
+            let blank = FormattedRow::blank(self.content_width);
+            self.groups.push(LineGroup {
+                rows: vec![FormattedRow::blank(self.content_width)],
+                overflow: blank,
+            });
         }
     }
 
@@ -225,7 +246,11 @@ impl Column {
     pub fn prepend_blank(&mut self, count: usize) {
         let mut new_line_group = Vec::with_capacity(self.groups.len() + count);
         for _ in 0..count {
-            new_line_group.push(LineGroup(vec![FormattedRow::blank(self.content_width)]));
+            let blank = FormattedRow::blank(self.content_width);
+            new_line_group.push(LineGroup {
+                rows: vec![FormattedRow::blank(self.content_width)],
+                overflow: blank,
+            });
         }
         new_line_group.append(&mut self.groups);
         self.groups = new_line_group;
@@ -233,7 +258,7 @@ impl Column {
 
     /// Total number of display rows across all groups (accounting for wrapped lines).
     pub fn row_count(&self) -> usize {
-        self.groups.iter().map(|g| g.0.len()).sum()
+        self.groups.iter().map(|g| g.rows.len()).sum()
     }
 }
 
@@ -293,19 +318,23 @@ impl ColumnPair {
         let mut right_iter = right.groups.into_iter();
 
         for _ in 0..min_groups {
-            let left_rows = left_iter.next().unwrap().0;
-            let right_rows = right_iter.next().unwrap().0;
+            let left_group = left_iter.next().unwrap();
+            let right_group = right_iter.next().unwrap();
+            let left_overflow = left_group.overflow.0;
+            let right_overflow = right_group.overflow.0;
+            let left_rows = left_group.rows;
+            let right_rows = right_group.rows;
             let max_rows = left_rows.len().max(right_rows.len());
 
             for i in 0..max_rows {
                 let left = left_rows
                     .get(i)
                     .map(|row| row.0.as_str())
-                    .unwrap_or_default();
+                    .unwrap_or(left_overflow.as_str());
                 let right = right_rows
                     .get(i)
                     .map(|row| row.0.as_str())
-                    .unwrap_or_default();
+                    .unwrap_or(right_overflow.as_str());
                 let l_extras = left.chars().count() - ansi_width::ansi_width(left);
                 let r_extras = right.chars().count() - ansi_width::ansi_width(right);
                 let l_width = content_width + l_extras;
@@ -340,7 +369,7 @@ mod tests {
     fn column_push_with_nr() {
         let mut col = Column::new(20);
         col.push(with_nr(4, "hello"));
-        let row = &col.groups[0].0[0].0;
+        let row = &col.groups[0].rows[0].0;
         // nr=4 (0-based) → displayed as 5
         assert!(row.starts_with("│   5 │ hello"), "got: {row:?}");
     }
@@ -349,7 +378,7 @@ mod tests {
     fn column_push_wraps_into_continuation_rows() {
         let mut col = Column::new(14);
         col.push(with_nr(0, "hello world"));
-        let group = &col.groups[0].0;
+        let group = &col.groups[0].rows;
         assert_eq!(group.len(), 3); // "hello", " worl", "d"
         assert!(
             group[0].0.starts_with("│   1 │ hello "),
@@ -370,8 +399,8 @@ mod tests {
         assert_eq!(col.row_count(), 3);
         for g in &col.groups {
             // blank rows have no widget prefix, just padded spaces
-            assert_eq!(g.0[0].0.len(), 10, "got: {:?}", g.0[0].0);
-            assert!(g.0[0].0.trim().is_empty(), "got: {:?}", g.0[0].0);
+            assert_eq!(g.rows[0].0.len(), 10, "got: {:?}", g.rows[0].0);
+            assert!(g.rows[0].0.trim().is_empty(), "got: {:?}", g.rows[0].0);
         }
     }
 
@@ -403,13 +432,19 @@ mod tests {
         let lines = pair.zip(left, right);
         // left wraps to 2 rows, right has 1 → group produces 2 output lines
         assert_eq!(lines.len(), 2);
+        // The second output line: left has a continuation row, right should show a chrome filler
+        assert!(
+            lines[1].contains("│     │"),
+            "right side of overflow row should show chrome filler, got: {:?}",
+            lines[1]
+        );
     }
 
     #[test]
     fn highlighted_line_segments_are_styled() {
         let mut col = Column::new(20);
         col.push(highlighted("hello"));
-        let row = &col.groups[0].0[0].0;
+        let row = &col.groups[0].rows[0].0;
         assert_eq!(row, "│   2 │ [hl]hello      [/] ")
     }
 }

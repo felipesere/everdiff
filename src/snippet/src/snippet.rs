@@ -1730,7 +1730,7 @@ mod test {
             │   6 │ [dim]    environment: production    [/] │   6 │ [dim]    environment: production    [/] 
             │   7 │ [red]  annotations:                 [/] │     │                                 
             │   8 │ [red]    description: "My service de[/] │     │                                 
-            │   ┆ │ [red]scription"                     [/]                                         
+            │   ┆ │ [red]scription"                     [/] │     │                                 
             │   9 │ [dim]spec:                          [/] │   7 │ [dim]spec:                          [/] 
             │  10 │ [dim]  replicas: 3                  [/] │   8 │ [dim]  replicas: 3                  [/] 
 
