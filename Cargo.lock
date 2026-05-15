@@ -223,6 +223,7 @@ dependencies = [
  "serde",
  "serde-saphyr",
  "similar",
+ "terminal_size",
 ]
 
 [[package]]
@@ -290,7 +291,6 @@ dependencies = [
  "pretty_assertions",
  "saphyr",
  "similar",
- "terminal_size",
  "test-log",
  "tracing",
  "tracing-test",

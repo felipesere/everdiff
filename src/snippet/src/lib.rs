@@ -1,7 +1,4 @@
-use std::{
-    io::{IsTerminal, Write},
-    sync::Arc,
-};
+use std::{io::Write, sync::Arc};
 
 use everdiff_diff::{Difference, path::IgnorePath};
 use everdiff_layout::{ColumnPair, Highlighted, InlineParts};
@@ -21,32 +18,18 @@ pub use snippet::{
 #[allow(clippy::too_many_arguments)]
 pub fn render_multidoc_diff<W: Write>(
     (left, right): (Vec<YamlSource>, Vec<YamlSource>),
-    mut differences: Vec<DocDifference>,
+    differences: Vec<DocDifference>,
     ignore_moved: bool,
     ignore: &[IgnorePath],
     word_wise_diff: bool,
     lines_before: usize,
     lines_after: usize,
     writer: &mut W,
+    max_width: u16,
 ) -> std::io::Result<()> {
     if differences.is_empty() {
         writeln!(writer, "No differences found")?;
     }
-
-    // WARN: Go through these numbers at some point...
-    let max_width = if std::io::stdout().is_terminal() {
-        // Format for terminal
-        terminal_size::terminal_size()
-            .map(|(terminal_size::Width(n), _)| n)
-            .unwrap_or(80)
-    } else {
-        // When piped, assume wider or no limit
-        terminal_size::terminal_size_of(std::io::stderr())
-            .map(|(terminal_size::Width(n), _)| n)
-            .unwrap_or(80)
-    } - 10;
-
-    differences.sort();
 
     for d in differences {
         match d {
@@ -191,10 +174,7 @@ pub fn render(
                     "Moved: from {}",
                     ctx.theme.changed(&original_path.to_string())
                 ));
-                right.push(format!(
-                    "to {}:",
-                    ctx.theme.changed(&new_path.to_string())
-                ));
+                right.push(format!("to {}:", ctx.theme.changed(&new_path.to_string())));
                 for line in pair.zip(left, right) {
                     writeln!(&mut buf, "{line}").unwrap();
                 }

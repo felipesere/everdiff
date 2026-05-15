@@ -16,7 +16,6 @@ either.workspace = true
 log.workspace = true
 owo-colors.workspace = true
 saphyr.workspace = true
-terminal_size.workspace = true
 unicode-width.workspace = true
 tracing.workspace = true
 

@@ -1,4 +1,4 @@
-use std::io::{ErrorKind, Read};
+use std::io::{ErrorKind, IsTerminal, Read};
 
 use anyhow::Context;
 use bpaf::{Parser, construct, long, short};
@@ -19,6 +19,7 @@ struct Args {
     talos: bool,
     ignore_moved: bool,
     ignore_changes: Vec<IgnorePath>,
+    width: Option<u16>,
     verbosity: usize,
     left: camino::Utf8PathBuf,
     right: camino::Utf8PathBuf,
@@ -77,6 +78,8 @@ fn args() -> impl Parser<Args> {
         .many()
         .map(|v| v.len());
 
+    let width = long("width").help("Explicitly request the width to render. Most likely used by other applications calling everdiff").argument("WIDTH").optional();
+
     let left = bpaf::positional::<camino::Utf8PathBuf>("LEFT").help("Left file to compare");
 
     let right = bpaf::positional::<camino::Utf8PathBuf>("RIGHT").help("Right file to compare");
@@ -87,6 +90,7 @@ fn args() -> impl Parser<Args> {
         ignore_moved,
         ignore_changes,
         verbosity,
+        width,
         word_wise_diff,
         lines_before,
         lines_after,
@@ -94,6 +98,25 @@ fn args() -> impl Parser<Args> {
         left,
         right,
     })
+}
+
+fn max_width(argument: Option<u16>) -> u16 {
+    let raw = if let Some(argument) = argument {
+        argument
+    } else if std::io::stdout().is_terminal() {
+        // Format for terminal
+        terminal_size::terminal_size()
+            .map(|(terminal_size::Width(n), _)| n)
+            .unwrap_or(80)
+    } else {
+        // When piped, assume wider or no limit
+        terminal_size::terminal_size_of(std::io::stderr())
+            .map(|(terminal_size::Width(n), _)| n)
+            .unwrap_or(80)
+    };
+
+    // Go through this number at some ppint
+    raw - 10
 }
 
 fn main() -> anyhow::Result<()> {
@@ -108,6 +131,8 @@ fn main() -> anyhow::Result<()> {
         .run();
 
     let mut out = std::io::stdout().lock();
+
+    let max_width = max_width(args.width);
 
     setup_logging(args.verbosity)?;
 
@@ -148,6 +173,7 @@ fn main() -> anyhow::Result<()> {
         lines_before,
         lines_after,
         &mut out,
+        max_width,
     );
 
     if let Err(e) = &r {
