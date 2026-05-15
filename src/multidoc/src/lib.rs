@@ -142,6 +142,12 @@ fn matching_docs(
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Fields(pub BTreeMap<String, Option<String>>);
 
+impl Fields {
+    pub fn except(&self, v: &str) -> impl Iterator<Item = (&String, &Option<String>)> {
+        self.0.iter().filter(move |(k, _)| k.as_str() != v)
+    }
+}
+
 impl Display for Fields {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (k, v) in &self.0 {

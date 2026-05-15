@@ -134,7 +134,9 @@ fn changed_header(l: &DocumentRef, r: &DocumentRef, fields: Fields, max_width: u
     left.append_blank(1);
     right.append_blank(1);
 
-    for (k, v) in &fields.0 {
+    dbg!(&fields);
+
+    for (k, v) in fields.except("idx") {
         if let Some(v) = v {
             left.push(Highlighted::new(format!("{k} -> {v}"), dimmed.clone()));
         }
