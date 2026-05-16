@@ -44,10 +44,10 @@ pub fn render_multidoc_diff<W: Write>(
                     Arc::new(|s: &str| s.green().to_string()),
                 ));
                 right.push(format!("{} [{}]", doc.0, doc.1));
-                for (k, v) in &fields.0 {
+                for (k, v) in fields.as_ref() {
                     right.push(format!("{k} -> {}", v.as_deref().unwrap_or("∅")));
                 }
-                left.append_blank(2 + fields.0.len());
+                left.append_blank(2 + fields.len());
                 for l in pair.zip(left, right) {
                     writeln!(writer, "{l}")?;
                 }
@@ -62,10 +62,10 @@ pub fn render_multidoc_diff<W: Write>(
                     Arc::new(|s: &str| s.red().to_string()),
                 ));
                 left.push(format!("{} [{}]", doc.0, doc.1));
-                for (k, v) in &fields.0 {
+                for (k, v) in fields.as_ref() {
                     left.push(format!("{k} -> {}", v.as_deref().unwrap_or("∅")));
                 }
-                right.append_blank(2 + fields.0.len());
+                right.append_blank(2 + fields.len());
                 for l in pair.zip(left, right) {
                     writeln!(writer, "{l}")?;
                 }
@@ -131,18 +131,12 @@ fn changed_header(l: &DocumentRef, r: &DocumentRef, fields: Fields, max_width: u
     left.push(format!("{}:{}", l.0, l.1));
     right.push(format!("{}:{}", r.0, r.1));
 
-    left.append_blank(1);
-    right.append_blank(1);
-
-    dbg!(&fields);
-
-    for (k, v) in fields.except("idx") {
+    for (k, v) in fields.as_ref() {
         if let Some(v) = v {
             left.push(Highlighted::new(format!("{k} -> {v}"), dimmed.clone()));
         }
     }
-    left.append_blank(1);
-    right.append_blank(1 + fields.0.len());
+    right.append_blank(fields.len());
 
     let mut content: Vec<_> = header_pair
         .zip(left, right)
@@ -202,7 +196,7 @@ pub fn render(
 
 #[cfg(test)]
 mod test {
-    use std::{collections::BTreeMap, str::FromStr};
+    use std::str::FromStr;
 
     use camino::Utf8PathBuf;
     use everdiff_diff::{ArrayOrdering, Context, diff};
@@ -233,10 +227,7 @@ mod test {
             Utf8PathBuf::from_str("right/examples/deployment.flux-engine-steam.yaml").unwrap(),
             0usize,
         );
-        let fields = Fields(BTreeMap::from_iter([(
-            "idx".to_string(),
-            Some("0".to_string()),
-        )]));
+        let fields = Fields::default();
         let width = 160;
         let lines = changed_header(&l, &r, fields, width);
 
@@ -245,9 +236,6 @@ mod test {
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
             [4m[1mChanged document[0m[0m                                                                                                                                               ┃
             left/examples/deployment.flux-engine-steam.yaml:0                              right/examples/deployment.flux-engine-steam.yaml:0                              ┃
-                                                                                                                                                                           ┃
-            [2midx -> 0                                                                       [0m                                                                                ┃
-                                                                                                                                                                           ┃
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"#]].assert_eq(&actual);
     }
 

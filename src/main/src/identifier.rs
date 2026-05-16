@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use everdiff_multidoc::{Fields, IdentifierFn};
 use saphyr::MarkedYamlOwned;
 
@@ -7,12 +5,7 @@ use saphyr::MarkedYamlOwned;
 /// This effectively means that documents are diffed pair-wise in the
 /// order they show up in the YAML
 pub fn by_index() -> IdentifierFn {
-    Box::new(|idx, _source| {
-        Some(Fields(BTreeMap::from([(
-            "idx".to_string(),
-            Some(idx.to_string()),
-        )])))
-    })
+    Box::new(|idx, _source| Some(Fields::default().with_idx(idx)))
 }
 
 fn string_of(node: Option<&MarkedYamlOwned>) -> Option<String> {
@@ -22,7 +15,6 @@ fn string_of(node: Option<&MarkedYamlOwned>) -> Option<String> {
 pub mod talos {
     use super::*;
     use saphyr::SafelyIndex;
-    use std::collections::BTreeMap;
 
     pub fn documents() -> IdentifierFn {
         Box::new(|_idx, source| {
@@ -34,29 +26,29 @@ pub mod talos {
             let cluster = doc.get("cluster");
             let name = string_of(doc.get("name"));
 
-            let mut fields = BTreeMap::from([("kind".to_string(), kind)]);
+            let mut fields = Fields::default().with("kind", kind);
 
             if let Some(api_version) = api_version {
-                fields.insert("apiVersion".to_string(), Some(api_version));
+                fields.insert("apiVersion", api_version);
             }
 
             if let Some(version) = version {
-                fields.insert("version".to_string(), Some(version));
+                fields.insert("version", version);
             }
 
             if machine.is_some() {
-                fields.insert("machine".to_string(), Some("present".to_string()));
+                fields.insert("machine", "present".to_string());
             }
 
             if cluster.is_some() {
-                fields.insert("cluster".to_string(), Some("present".to_string()));
+                fields.insert("cluster", "present".to_string());
             }
 
-            if let Some(name) = name {
-                fields.insert("name".to_string(), Some(name));
+            if name.is_some() {
+                fields.insert("name".to_string(), name);
             }
 
-            Some(Fields(fields))
+            Some(fields)
         })
     }
 }
@@ -64,7 +56,6 @@ pub mod talos {
 pub mod kubernetes {
     use super::*;
     use saphyr::SafelyIndex;
-    use std::collections::BTreeMap;
 
     /// Keys to identify immutable kinds
     pub fn gvk() -> IdentifierFn {
@@ -75,11 +66,11 @@ pub mod kubernetes {
             // TODO: don't bail on missing metadata
             let name = string_of(doc.get("metadata")?.get("name"));
 
-            Some(Fields(BTreeMap::from([
-                ("api_version".to_string(), api_version),
-                ("kind".to_string(), kind),
-                ("metadata.name".to_string(), name),
-            ])))
+            let fields = Fields::default()
+                .with("api_version", api_version)
+                .with("kind", kind)
+                .with("metadata.name", name);
+            Some(fields)
         })
     }
 }

@@ -139,18 +139,43 @@ fn matching_docs(
 ///
 /// from a Kubernetes resource to diff
 // TODO: Add a proper consstructor and some APIs
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Fields(pub BTreeMap<String, Option<String>>);
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Fields {
+    idx: Option<usize>,
+    inner: BTreeMap<String, Option<String>>,
+}
 
 impl Fields {
-    pub fn except(&self, v: &str) -> impl Iterator<Item = (&String, &Option<String>)> {
-        self.0.iter().filter(move |(k, _)| k.as_str() != v)
+    pub fn new() -> Self {
+        Fields::default()
+    }
+
+    pub fn with_idx(mut self, idx: usize) -> Self {
+        self.idx = Some(idx);
+        self
+    }
+
+    pub fn with(mut self, key: impl Into<String>, value: impl Into<Option<String>>) -> Self {
+        self.inner.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn insert(&mut self, key: impl Into<String>, value: impl Into<Option<String>>) {
+        self.inner.insert(key.into(), value.into());
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 }
 
 impl Display for Fields {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (k, v) in &self.0 {
+        for (k, v) in &self.inner {
             f.write_fmt(format_args!(
                 "{k} -> {value}\n",
                 value = v.as_deref().unwrap_or("∅")
@@ -162,7 +187,7 @@ impl Display for Fields {
 
 impl AsRef<BTreeMap<String, Option<String>>> for Fields {
     fn as_ref(&self) -> &BTreeMap<String, Option<String>> {
-        &self.0
+        &self.inner
     }
 }
 
@@ -249,7 +274,7 @@ pub fn diff(ctx: &Context, lefts: &[YamlSource], rights: &[YamlSource]) -> Vec<D
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, str::FromStr};
+    use std::str::FromStr;
 
     use expect_test::expect;
     use pretty_assertions::assert_eq;
@@ -279,10 +304,10 @@ mod tests {
             let doc = &source.yaml;
             let name = string_of(doc.get("metadata")?.get("name"));
             let namespace = string_of(doc.get("metadata")?.get("namespace"));
-            Some(Fields(BTreeMap::from([
-                ("metadata.name".to_string(), name),
-                ("metadata.namespace".to_string(), namespace),
-            ])))
+            let fields = Fields::default()
+                .with("metadata.name", name)
+                .with("metadata.namespace", namespace);
+            Some(fields)
         })
     }
 
@@ -618,7 +643,7 @@ mod tests {
             "expected exactly one addition, got: {differences:#?}"
         );
         assert!(
-            matches!(&differences[0], DocDifference::Addition(a) if a.fields.0["metadata.name"] == Some("delta".to_string())),
+            matches!(&differences[0], DocDifference::Addition(a) if a.fields.inner["metadata.name"] == Some("delta".to_string())),
             "expected an Addition for 'delta', got: {:#?}",
             differences[0]
         );
@@ -626,10 +651,9 @@ mod tests {
 
     #[test]
     fn display_fields() {
-        let fields = Fields(BTreeMap::from([
-            ("api_version".to_string(), Some("bar".to_string())),
-            ("metadata.name".to_string(), Some("foo".to_string())),
-        ]));
+        let fields = Fields::new()
+            .with("api_version", "bar".to_string())
+            .with("metadata.name", "foo".to_string());
         assert_eq!(
             fields.to_string(),
             indoc! {r#"
