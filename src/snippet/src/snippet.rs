@@ -2,14 +2,13 @@ use core::option::Option::None;
 use std::{
     cmp::min,
     fmt::{self},
-    sync::Arc,
 };
 
 use everdiff_diff::{
     Entry,
     path::{NonEmptyPath, Path, Segment},
 };
-use everdiff_layout::{Column, ColumnPair, Highlighted, InlineParts, PrefixedLine};
+use everdiff_layout::{Column, ColumnPair, Highlight, Highlighted, InlineParts, PrefixedLine};
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
@@ -17,9 +16,7 @@ use saphyr::{MarkedYamlOwned, YamlDataOwned};
 use crate::inline_diff::{InlinePart, compute_inline_diff, extract_yaml_prefix};
 use crate::node::node_in;
 
-pub type Highlight = fn(&str) -> String;
-
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Theme {
     pub added: Highlight,
     pub removed: Highlight,
@@ -34,48 +31,48 @@ impl Theme {
     pub fn colored() -> Self {
         use owo_colors::OwoColorize;
         Theme {
-            added: |s| s.green().to_string(),
-            removed: |s| s.red().to_string(),
-            changed: |s| s.yellow().to_string(),
-            dimmed: |s| s.dimmed().to_string(),
-            header: |s| s.bold().to_string(),
+            added:   Highlight::new(|s| s.green().to_string()),
+            removed: Highlight::new(|s| s.red().to_string()),
+            changed: Highlight::new(|s| s.yellow().to_string()),
+            dimmed:  Highlight::new(|s| s.dimmed().to_string()),
+            header:  Highlight::new(|s| s.bold().to_string()),
         }
     }
 
     pub fn markers() -> Self {
         Theme {
-            added: |s| format!("[green]{s}[/]"),
-            removed: |s| format!("[red]{s}[/]"),
-            changed: |s| format!("[yellow]{s}[/]"),
-            dimmed: |s| format!("[dim]{s}[/]"),
-            header: |s| format!("[bold]{s}[/]"),
+            added:   Highlight::new(|s| format!("[green]{s}[/]")),
+            removed: Highlight::new(|s| format!("[red]{s}[/]")),
+            changed: Highlight::new(|s| format!("[yellow]{s}[/]")),
+            dimmed:  Highlight::new(|s| format!("[dim]{s}[/]")),
+            header:  Highlight::new(|s| format!("[bold]{s}[/]")),
         }
     }
 
     pub fn plain() -> Self {
         Theme {
-            added: |s| s.to_string(),
-            removed: |s| s.to_string(),
-            changed: |s| s.to_string(),
-            dimmed: |s| s.to_string(),
-            header: |s| s.to_string(),
+            added:   Highlight::new(|s| s.to_string()),
+            removed: Highlight::new(|s| s.to_string()),
+            changed: Highlight::new(|s| s.to_string()),
+            dimmed:  Highlight::new(|s| s.to_string()),
+            header:  Highlight::new(|s| s.to_string()),
         }
     }
 
     pub fn added(&self, s: &str) -> String {
-        (self.added)(s)
+        self.added.apply(s)
     }
     pub fn removed(&self, s: &str) -> String {
-        (self.removed)(s)
+        self.removed.apply(s)
     }
     pub fn changed(&self, s: &str) -> String {
-        (self.changed)(s)
+        self.changed.apply(s)
     }
     pub fn dimmed(&self, s: &str) -> String {
-        (self.dimmed)(s)
+        self.dimmed.apply(s)
     }
     pub fn header(&self, s: &str) -> String {
-        (self.header)(s)
+        self.header.apply(s)
     }
 }
 
@@ -347,15 +344,15 @@ fn render_change(
     };
 
     let highlighting = match change_type {
-        ChangeType::Removal => ctx.theme.removed,
-        ChangeType::Addition => ctx.theme.added,
+        ChangeType::Removal => ctx.theme.removed.clone(),
+        ChangeType::Addition => ctx.theme.added.clone(),
     };
 
     let primary = render_primary_side(
         ctx,
         larger_document,
         &changed_yaml,
-        (highlighting, ctx.theme.dimmed),
+        (highlighting, ctx.theme.dimmed.clone()),
     );
     let gap_size = changed_yaml.height();
     let primary_row_count = primary.row_count();
@@ -366,7 +363,7 @@ fn render_change(
         path_to_change,
         primary_row_count,
         gap_size,
-        ctx.theme.dimmed,
+        ctx.theme.dimmed.clone(),
     );
 
     log::debug!(
@@ -393,11 +390,8 @@ fn render_primary_side(
     ctx: &RenderContext,
     primary_doc: &YamlSource,
     item: &Entry,
-    (highlighting, unchanged): (Highlight, Highlight),
+    (highlighted, unchanged): (Highlight, Highlight),
 ) -> Column {
-    // TODO: pull up or directly in to the theme!
-    let highlighted = Arc::new(Box::new(highlighting));
-    let unchanged = Arc::new(Box::new(unchanged));
 
     let pair = ColumnPair::new(ctx.max_width);
     let mut column = pair.column();
@@ -450,7 +444,6 @@ fn render_secondary_side(
     unchanged: Highlight,
 ) -> Column {
     log::debug!("changed_node: {path_to_changed_node}");
-    let unchanged = Arc::new(Box::new(unchanged));
 
     let pair = ColumnPair::new(ctx.max_width);
     let mut column = pair.column();
@@ -1015,8 +1008,8 @@ fn render_changed_snippet(
 
     let lines_above = changed_line - start;
     let lines_below = end - changed_line;
-    let changed = std::sync::Arc::new(ctx.theme.changed);
-    let dimmed = std::sync::Arc::new(ctx.theme.dimmed);
+    let changed = ctx.theme.changed.clone();
+    let dimmed = ctx.theme.dimmed.clone();
 
     left_snippet
         .iter()
@@ -1026,12 +1019,12 @@ fn render_changed_snippet(
                 && let Some(parts) = &inline_parts
             {
                 let prefix = extract_yaml_prefix(line);
-                return format_with_inline_highlights(line_nr, prefix, parts, ctx.theme);
+                return format_with_inline_highlights(line_nr, prefix, parts, ctx.theme.clone());
             }
             let highlight = if line_nr == changed_line {
-                Arc::clone(&changed)
+                changed.clone()
             } else {
-                Arc::clone(&dimmed)
+                dimmed.clone()
             };
             PrefixedLine::numbered(line_nr, Highlighted::new(line, highlight))
         })
@@ -1052,8 +1045,8 @@ pub fn format_with_inline_highlights(
 ) -> PrefixedLine {
     let mut inline_parts = InlineParts::new();
 
-    let dimmed = std::sync::Arc::new(theme.dimmed);
-    let changed = std::sync::Arc::new(theme.changed);
+    let dimmed = theme.dimmed.clone();
+    let changed = theme.changed.clone();
     if let Some(key_part) = prefix.strip_suffix(": ") {
         let key_start = key_part.find(|c: char| !c.is_whitespace()).unwrap_or(0);
         inline_parts.push(&key_part[..key_start], dimmed.clone());

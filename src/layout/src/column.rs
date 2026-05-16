@@ -349,10 +349,8 @@ impl ColumnPair {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
-    use crate::content::Highlighted;
+    use crate::content::{Highlight, Highlighted};
 
     fn with_nr(n: usize, s: &str) -> PrefixedLine {
         PrefixedLine::numbered(n, s.to_string())
@@ -361,7 +359,7 @@ mod tests {
     fn highlighted(s: &str) -> PrefixedLine {
         PrefixedLine::numbered(
             1,
-            Highlighted::new(s, Arc::new(|t: &str| format!("[hl]{t}[/]"))),
+            Highlighted::new(s, Highlight::new(|t| format!("[hl]{t}[/]"))),
         )
     }
 

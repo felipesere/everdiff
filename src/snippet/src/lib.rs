@@ -1,4 +1,4 @@
-use std::{io::Write, sync::Arc};
+use std::io::Write;
 
 use everdiff_diff::{Difference, path::IgnorePath};
 use everdiff_layout::{ColumnPair, Highlighted, InlineParts};
@@ -9,8 +9,9 @@ mod inline_diff;
 mod node;
 mod snippet;
 
+pub use everdiff_layout::Highlight;
 pub use snippet::{
-    Highlight, LineWidget, RenderContext, Theme, gap_start, render_added, render_difference,
+    LineWidget, RenderContext, Theme, gap_start, render_added, render_difference,
     render_removal,
 };
 
@@ -41,7 +42,7 @@ pub fn render_multidoc_diff<W: Write>(
                 let mut right = pair.column();
                 right.push(Highlighted::new(
                     "Additional document:",
-                    Arc::new(ctx.theme.added),
+                    ctx.theme.added.clone(),
                 ));
                 right.push(format!("{} [{}]", doc.0, doc.1));
                 for (k, v) in fields.as_ref() {
@@ -59,7 +60,7 @@ pub fn render_multidoc_diff<W: Write>(
                 let mut right = pair.column();
                 left.push(Highlighted::new(
                     "Missing document:",
-                    Arc::new(ctx.theme.removed),
+                    ctx.theme.removed.clone(),
                 ));
                 left.push(format!("{} [{}]", doc.0, doc.1));
                 for (k, v) in fields.as_ref() {
@@ -125,7 +126,7 @@ fn changed_header(
     let mut left = header_pair.column();
     let mut right = header_pair.column();
     let mut inline_style = InlineParts::new();
-    inline_style.push("Changed document", Arc::new(theme.header));
+    inline_style.push("Changed document", theme.header.clone());
     left.push(inline_style);
     right.append_blank(1);
 
@@ -133,7 +134,7 @@ fn changed_header(
     left.push(format!("{}:{}", l.0, l.1));
     right.push(format!("{}:{}", r.0, r.1));
 
-    let dimmed = Arc::new(theme.dimmed);
+    let dimmed = theme.dimmed.clone();
 
     for (k, v) in fields.as_ref() {
         if let Some(v) = v {

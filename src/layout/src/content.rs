@@ -1,20 +1,36 @@
-use std::sync::Arc;
-
 use crate::{
     column::{FormattedRow, LineGroup, Lineable},
     wrap::{split_at_width, wrap_plain},
 };
 
-/// A cloneable styling function.
-///
-/// Takes a plain-text slice and returns a string that may contain ANSI escape codes.
-/// The `Arc` makes it cheap to share a single highlight function across
-/// many lines (e.g. the same "dimmed" style applied to every context line in a
-/// diff hunk) without cloning the closure body.
+/// An opaque, cloneable styling function.
 ///
 /// The layout crate never constructs a `Highlight` itself — callers in
-/// `everdiff-snippet` provide them.
-pub type Highlight = Arc<dyn Fn(&str) -> String + Send + Sync>;
+/// `everdiff-snippet` provide them via [`Theme`](crate::Theme).
+#[derive(Clone)]
+pub struct Highlight(fn(&str) -> String);
+
+impl Highlight {
+    /// Wrap a plain function pointer as a [`Highlight`].
+    ///
+    /// Non-capturing closures coerce to `fn` pointers and can be passed
+    /// directly:
+    ///
+    /// ```rust,ignore
+    /// let h = Highlight::new(|s| format!("\x1b[32m{s}\x1b[0m"));
+    /// ```
+    pub fn new(f: fn(&str) -> String) -> Self {
+        Self(f)
+    }
+
+    /// Apply the styling function to `val` and return the styled string.
+    ///
+    /// The returned string may contain ANSI escape codes; its visible width
+    /// can differ from its byte length.
+    pub fn apply(&self, val: &str) -> String {
+        (self.0)(val)
+    }
+}
 
 /// Content styled uniformly with a single [`Highlight`] function.
 ///
@@ -47,7 +63,7 @@ impl Lineable for Highlighted {
     fn as_line_group(&self, content_width: u16) -> LineGroup {
         let rows = wrap_plain(&self.text, content_width)
             .into_iter()
-            .map(|seg| FormattedRow((self.highlight)(&seg)))
+            .map(|seg| FormattedRow(self.highlight.apply(&seg)))
             .collect();
 
         LineGroup {
@@ -113,7 +129,7 @@ impl Lineable for InlineParts {
                 let (fits, rest) = split_at_width(remaining, remaining_available_space as u16);
 
                 if !fits.is_empty() {
-                    current.push_str(&highlight(fits));
+                    current.push_str(&highlight.apply(fits));
                     current_width += unicode_width::UnicodeWidthStr::width(fits);
                 }
 
@@ -171,7 +187,10 @@ mod tests {
 
     #[test]
     fn highlighted_applies_to_each_segment() {
-        let h = Highlighted::new("hello world", Arc::new(|s: &str| format!("[x]{s}[/x]")));
+        let h = Highlighted::new(
+            "hello world",
+            Highlight::new(|s: &str| format!("[x]{s}[/x]")),
+        );
         let segs = rows(h.as_line_group(5));
         assert_eq!(segs, vec!["[x]hello[/x]", "[x] worl[/x]", "[x]d    [/x]"]);
     }
@@ -179,8 +198,8 @@ mod tests {
     #[test]
     fn inline_parts_no_wrap_needed() {
         let mut parts = InlineParts::new();
-        parts.push("key: ", Arc::new(|s: &str| dim(s)));
-        parts.push("val", Arc::new(|s: &str| bold(s)));
+        parts.push("key: ", Highlight::new(|s: &str| dim(s)));
+        parts.push("val", Highlight::new(|s: &str| bold(s)));
         let segs = rows(parts.as_line_group(20));
         // Fake ANSI tags aren't transparent to ansi_width, so padding accounts
         // for byte length; with real ANSI codes the trailing spaces would appear.
@@ -191,9 +210,9 @@ mod tests {
     fn inline_parts_wraps_across_part_boundary() {
         // width=10, parts: "key: "(5) + "old  new"(8) + " # note"(7)
         let mut parts = InlineParts::new();
-        parts.push("key: ", Arc::new(|s: &str| dim(s)));
-        parts.push("old  new", Arc::new(|s: &str| bold(s)));
-        parts.push(" # note", Arc::new(|s: &str| dim(s)));
+        parts.push("key: ", Highlight::new(|s: &str| dim(s)));
+        parts.push("old  new", Highlight::new(|s: &str| bold(s)));
+        parts.push(" # note", Highlight::new(|s: &str| dim(s)));
         let segs = rows(parts.as_line_group(10));
         assert_eq!(
             segs,
@@ -205,7 +224,7 @@ mod tests {
     fn inline_parts_part_split_mid_word() {
         // width=4, one part "hello" → split into "hell" + "o"
         let mut parts = InlineParts::new();
-        parts.push("hello", Arc::new(|s: &str| bold(s)));
+        parts.push("hello", Highlight::new(|s: &str| bold(s)));
         let segs = rows(parts.as_line_group(4));
         assert_eq!(segs, vec!["[bold]hell[/]", "[bold]o[/]"]);
     }
