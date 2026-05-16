@@ -19,22 +19,27 @@ cargo install --path .
 ## Usage
 
 ```
-everdiff [-k] [-m] [-i=PATH]... [-w] [-B=NUMBER] [-A=NUMBER] [-C=NUMBER] [-v]... LEFT RIGHT
+everdiff [-k] [--talos] [-m] [-i=PATH]... [-v]... [--width=WIDTH] [-w] [-B=NUMBER] [-A=NUMBER] [-C=NUMBER] LEFT RIGHT
 
 Available positional items:
-    LEFT                Left file to compare
-    RIGHT               Right file to compare
+    LEFT                      Left file to compare
+    RIGHT                     Right file to compare
 
 Available options:
-    -k, --kubernetes    Use Kubernetes comparison
-    -m, --ignore-moved  Don't show changes for moved elements
+    -k, --kubernetes          Use Kubernetes comparison
+        --talos               Use Talos comparison
+    -m, --ignore-moved        Don't show changes for moved elements
     -i, --ignore-changes=PATH  Paths to ignore when comparing
-    -B, --lines-before=NUMBER  Number of context lines to show before each change (default: 5)
-    -A, --lines-after=NUMBER   Number of context lines to show after each change (default: 5)
-    -C, --lines-context=NUMBER Number of context lines before and after each change (overrides -A and -B)
-    -v, --verbose       Increase verbosity level (can be repeated)
-    -h, --help          Prints help information
-    --version           Show version information
+    -v, --verbose             Increase verbosity level (can be repeated)
+        --width=WIDTH         Explicitly request the width to render. Most likely used by other
+                              applications calling everdiff
+    -w, --word-wise-diff      Highlight character based differences where possible
+    -B, --lines-before=NUMBER  Number of context lines to show before each change
+    -A, --lines-after=NUMBER   Number of context lines to show after each change
+    -C, --lines-context=NUMBER  Number of context lines to show before and after each change
+                              (overrides -A and -B)
+    -h, --help                Prints help information
+    -V, --version             Prints version information
 ```
 
 ## Examples
@@ -96,14 +101,13 @@ everdiff --kubernetes before.yaml after.yaml
 Documents are identified by `apiVersion`, `kind`, and `metadata.name` rather than by position:
 
 ```
-Changed document:
-    ╭───────────────┬───────────────────╮
-    │ api_version   ┆ apps/v1           │
-    ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
-    │ kind          ┆ Deployment        │
-    ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
-    │ metadata.name ┆ flux-engine-steam │
-    ╰───────────────┴───────────────────╯
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+Changed document                                                                ┃
+before.yaml:0                            after.yaml:0                           ┃
+api_version -> apps/v1                                                          ┃
+kind -> Deployment                                                              ┃
+metadata.name -> flux-engine-steam                                              ┃
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 Changed: .spec.replicas:
 │  14 │ spec:                           │  15 │ spec:
 │  15 │   replicas: 3                   │  16 │   replicas: 4
