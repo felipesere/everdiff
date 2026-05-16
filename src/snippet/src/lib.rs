@@ -2,7 +2,9 @@ use std::{io::Write, sync::Arc};
 
 use everdiff_diff::{Difference, path::IgnorePath};
 use everdiff_layout::{ColumnPair, Highlighted, InlineParts};
-use everdiff_multidoc::{AdditionalDoc, DocDifference, MissingDoc, source::YamlSource};
+use everdiff_multidoc::{
+    AdditionalDoc, DocDifference, DocumentRef, Fields, MissingDoc, source::YamlSource,
+};
 use owo_colors::OwoColorize;
 
 mod inline_diff;
@@ -93,38 +95,8 @@ pub fn render_multidoc_diff<W: Write>(
                         .collect()
                 };
 
-                {
-                    let dimmed = Arc::new(Box::new(|s: &str| s.dimmed().to_string()));
-                    let bold_underline =
-                        Arc::new(Box::new(|s: &str| s.bold().underline().to_string()));
-
-                    let header_pair = ColumnPair::new(max_width);
-                    let mut left = header_pair.column();
-                    let mut right = header_pair.column();
-                    let mut inline_style = InlineParts::new();
-                    inline_style.push("Changed document", bold_underline);
-                    // left.new_push(Highlighted::new("Changed document:", bold_underline)); // this is meh
-                    left.push(inline_style);
-                    right.append_blank(1);
-
-                    left.push(l.0.to_string());
-                    right.push(r.0.to_string());
-
-                    left.append_blank(1);
-                    right.append_blank(1);
-
-                    for (k, v) in &fields.0 {
-                        if let Some(v) = v {
-                            left.push(Highlighted::new(format!("{k} -> {v}"), dimmed.clone()));
-                        }
-                    }
-                    left.append_blank(1);
-                    right.append_blank(1 + fields.0.len());
-
-                    for l in header_pair.zip(left, right) {
-                        writeln!(writer, "{l}")?;
-                    }
-                }
+                let header = changed_header(&l, &r, fields, max_width).join("\n");
+                writeln!(writer, "{header}")?;
 
                 let actual_left_doc = &left[l.1];
                 let actual_right_doc = &right[r.1];
@@ -139,6 +111,47 @@ pub fn render_multidoc_diff<W: Write>(
         }
     }
     Ok(())
+}
+
+fn changed_header(l: &DocumentRef, r: &DocumentRef, fields: Fields, max_width: u16) -> Vec<String> {
+    // we resever one character of space to add a "┃" for sytling
+    let usable_width = max_width - 1;
+    let dimmed = Arc::new(Box::new(|s: &str| s.dimmed().to_string()));
+    let bold_underline = Arc::new(Box::new(|s: &str| s.bold().underline().to_string()));
+
+    let header_pair = ColumnPair::new(usable_width);
+    let mut left = header_pair.column();
+    let mut right = header_pair.column();
+    let mut inline_style = InlineParts::new();
+    inline_style.push("Changed document", bold_underline);
+    left.push(inline_style);
+    right.append_blank(1);
+
+    // TODO: we should make DocumentRef a proper struct with a Display impl
+    left.push(format!("{}:{}", l.0, l.1));
+    right.push(format!("{}:{}", r.0, r.1));
+
+    left.append_blank(1);
+    right.append_blank(1);
+
+    for (k, v) in &fields.0 {
+        if let Some(v) = v {
+            left.push(Highlighted::new(format!("{k} -> {v}"), dimmed.clone()));
+        }
+    }
+    left.append_blank(1);
+    right.append_blank(1 + fields.0.len());
+
+    let mut content: Vec<_> = header_pair
+        .zip(left, right)
+        .iter()
+        .map(|l| format!("{l} ┃"))
+        .collect();
+    let line = "━".repeat(usable_width as usize);
+    content.insert(0, format!("{line}┓"));
+    content.push(format!("{line}┛"));
+
+    content
 }
 
 pub fn render(
@@ -187,19 +200,53 @@ pub fn render(
 
 #[cfg(test)]
 mod test {
+    use std::{collections::BTreeMap, str::FromStr};
+
+    use camino::Utf8PathBuf;
     use everdiff_diff::{ArrayOrdering, Context, diff};
     use everdiff_layout::ColumnPair;
-    use everdiff_multidoc::source::{YamlSource, read_doc};
+    use everdiff_multidoc::{
+        Fields,
+        source::{YamlSource, read_doc},
+    };
     use expect_test::expect;
     use indoc::indoc;
     use tracing_test::traced_test;
 
-    use crate::{RenderContext, Theme, render};
+    use crate::{RenderContext, Theme, changed_header, render};
 
     fn yaml_source(yaml: &'static str) -> YamlSource {
         let mut docs =
             read_doc(yaml, &camino::Utf8PathBuf::new()).expect("to have parsed properly");
         docs.remove(0)
+    }
+
+    #[test]
+    fn render_changed_header() {
+        let l = (
+            Utf8PathBuf::from_str("left/examples/deployment.flux-engine-steam.yaml").unwrap(),
+            0usize,
+        );
+        let r = (
+            Utf8PathBuf::from_str("right/examples/deployment.flux-engine-steam.yaml").unwrap(),
+            0usize,
+        );
+        let fields = Fields(BTreeMap::from_iter([(
+            "idx".to_string(),
+            Some("0".to_string()),
+        )]));
+        let width = 160;
+        let lines = changed_header(&l, &r, fields, width);
+
+        let actual = lines.join("\n");
+        expect![[r#"
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+            [4m[1mChanged document[0m[0m                                                                                                                                               ┃
+            left/examples/deployment.flux-engine-steam.yaml:0                              right/examples/deployment.flux-engine-steam.yaml:0                              ┃
+                                                                                                                                                                           ┃
+            [2midx -> 0                                                                       [0m                                                                                ┃
+                                                                                                                                                                           ┃
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"#]].assert_eq(&actual);
     }
 
     #[traced_test]

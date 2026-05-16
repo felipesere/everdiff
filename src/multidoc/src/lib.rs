@@ -10,9 +10,9 @@ pub mod source;
 /// Fn that identifies a document by inspecting keys
 pub type IdentifierFn = Box<dyn Fn(usize, &YamlSource) -> Option<Fields>>;
 
-// The underlying file path and the index _in_ that file.
-// In YAML a file can contain multiple documents separated by
-// `---` and `...`.
+/// The underlying file path and the index _in_ that file.
+/// In YAML a file can contain multiple documents separated by
+/// `---` and `...`.
 pub type DocumentRef = (camino::Utf8PathBuf, usize);
 
 /// Two matching documents, they have the same output for `Fields`
@@ -138,6 +138,7 @@ fn matching_docs(
 /// * metadata.name
 ///
 /// from a Kubernetes resource to diff
+// TODO: Add a proper consstructor and some APIs
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Fields(pub BTreeMap<String, Option<String>>);
 
@@ -605,7 +606,11 @@ mod tests {
         let ctx = Context::new_with_doc_identifier(kubernetes_names());
         let differences = diff(&ctx, &left, &right);
 
-        assert_eq!(differences.len(), 1, "expected exactly one addition, got: {differences:#?}");
+        assert_eq!(
+            differences.len(),
+            1,
+            "expected exactly one addition, got: {differences:#?}"
+        );
         assert!(
             matches!(&differences[0], DocDifference::Addition(a) if a.fields.0["metadata.name"] == Some("delta".to_string())),
             "expected an Addition for 'delta', got: {:#?}",

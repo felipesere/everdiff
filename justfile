@@ -12,3 +12,6 @@ dispatch-release version:
 
 check:
   cargo clippy
+
+install:
+  cargo install --path src/main --offline
