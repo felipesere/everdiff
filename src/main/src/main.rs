@@ -9,7 +9,6 @@ use everdiff_multidoc::{
     source::{YamlSource, read_doc},
 };
 use everdiff_snippet::render_multidoc_diff;
-use owo_colors::OwoColorize;
 
 mod identifier;
 
@@ -189,6 +188,7 @@ fn main() -> anyhow::Result<()> {
 
 fn setup_logging(verbosity: usize) -> Result<(), anyhow::Error> {
     let mut base_config = fern::Dispatch::new().format(move |out, message, record| {
+        use owo_colors::OwoColorize;
         let level = match record.level() {
             log::Level::Error => "ERROR".red().to_string(),
             log::Level::Warn => "WARN".yellow().to_string(),

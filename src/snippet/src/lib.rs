@@ -5,8 +5,6 @@ use everdiff_layout::{ColumnPair, Highlighted, InlineParts};
 use everdiff_multidoc::{
     AdditionalDoc, DocDifference, DocumentRef, Fields, MissingDoc, source::YamlSource,
 };
-use owo_colors::OwoColorize;
-
 mod inline_diff;
 mod node;
 mod snippet;
@@ -33,6 +31,8 @@ pub fn render_multidoc_diff<W: Write>(
         writeln!(writer, "No differences found")?;
     }
 
+    let ctx = RenderContext::new(max_width, word_wise_diff, lines_before, lines_after);
+
     for d in differences {
         match d {
             DocDifference::Addition(AdditionalDoc { fields, doc }) => {
@@ -41,7 +41,7 @@ pub fn render_multidoc_diff<W: Write>(
                 let mut right = pair.column();
                 right.push(Highlighted::new(
                     "Additional document:",
-                    Arc::new(|s: &str| s.green().to_string()),
+                    Arc::new(ctx.theme.added),
                 ));
                 right.push(format!("{} [{}]", doc.0, doc.1));
                 for (k, v) in fields.as_ref() {
@@ -59,7 +59,7 @@ pub fn render_multidoc_diff<W: Write>(
                 let mut right = pair.column();
                 left.push(Highlighted::new(
                     "Missing document:",
-                    Arc::new(|s: &str| s.red().to_string()),
+                    Arc::new(ctx.theme.removed),
                 ));
                 left.push(format!("{} [{}]", doc.0, doc.1));
                 for (k, v) in fields.as_ref() {
@@ -95,17 +95,16 @@ pub fn render_multidoc_diff<W: Write>(
                         .collect()
                 };
 
-                let header = changed_header(&l, &r, fields, max_width).join("\n");
+                let header = changed_header(&l, &r, fields, max_width, &ctx.theme).join("\n");
                 writeln!(writer, "{header}")?;
 
                 let actual_left_doc = &left[l.1];
                 let actual_right_doc = &right[r.1];
 
-                let ctx = RenderContext::new(max_width, word_wise_diff, lines_before, lines_after);
                 write!(
                     writer,
                     "{}",
-                    render(ctx, actual_left_doc, actual_right_doc, differences)
+                    render(&ctx, actual_left_doc, actual_right_doc, differences)
                 )?;
             }
         }
@@ -113,23 +112,28 @@ pub fn render_multidoc_diff<W: Write>(
     Ok(())
 }
 
-fn changed_header(l: &DocumentRef, r: &DocumentRef, fields: Fields, max_width: u16) -> Vec<String> {
+fn changed_header(
+    l: &DocumentRef,
+    r: &DocumentRef,
+    fields: Fields,
+    max_width: u16,
+    theme: &Theme,
+) -> Vec<String> {
     // we resever one character of space to add a "┃" for sytling
     let usable_width = max_width - 1;
-    let dimmed = Arc::new(Box::new(|s: &str| s.dimmed().to_string()));
-    let bold_underline = Arc::new(Box::new(|s: &str| s.bold().underline().to_string()));
-
     let header_pair = ColumnPair::new(usable_width);
     let mut left = header_pair.column();
     let mut right = header_pair.column();
     let mut inline_style = InlineParts::new();
-    inline_style.push("Changed document", bold_underline);
+    inline_style.push("Changed document", Arc::new(theme.header));
     left.push(inline_style);
     right.append_blank(1);
 
     // TODO: we should make DocumentRef a proper struct with a Display impl
     left.push(format!("{}:{}", l.0, l.1));
     right.push(format!("{}:{}", r.0, r.1));
+
+    let dimmed = Arc::new(theme.dimmed);
 
     for (k, v) in fields.as_ref() {
         if let Some(v) = v {
@@ -147,11 +151,11 @@ fn changed_header(l: &DocumentRef, r: &DocumentRef, fields: Fields, max_width: u
     content.insert(0, format!("{line}┓"));
     content.push(format!("{line}┛"));
 
-    content
+    content.iter().map(|l| theme.changed(l)).collect()
 }
 
 pub fn render(
-    ctx: RenderContext,
+    ctx: &RenderContext,
     left_doc: &YamlSource,
     right_doc: &YamlSource,
     differences: Vec<Difference>,
@@ -161,15 +165,15 @@ pub fn render(
     for d in differences {
         match d {
             Difference::Added { path, value } => {
-                let added = render_added(&ctx, path, value, left_doc, right_doc);
+                let added = render_added(ctx, path, value, left_doc, right_doc);
                 writeln!(&mut buf, "{added}").unwrap();
             }
             Difference::Removed { path, value } => {
-                let output = render_removal(&ctx, path, value, left_doc, right_doc);
+                let output = render_removal(ctx, path, value, left_doc, right_doc);
                 writeln!(&mut buf, "{output}").unwrap();
             }
             Difference::Changed { path, left, right } => {
-                let combined = render_difference(&ctx, path, left, left_doc, right, right_doc);
+                let combined = render_difference(ctx, path, left, left_doc, right, right_doc);
                 writeln!(&mut buf, "{combined}").unwrap();
             }
             Difference::Moved {
@@ -227,14 +231,15 @@ mod test {
             Utf8PathBuf::from_str("right/examples/deployment.flux-engine-steam.yaml").unwrap(),
             0usize,
         );
+        let theme = Theme::plain();
         let fields = Fields::default();
         let width = 160;
-        let lines = changed_header(&l, &r, fields, width);
+        let lines = changed_header(&l, &r, fields, width, &theme);
 
         let actual = lines.join("\n");
         expect![[r#"
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-            [4m[1mChanged document[0m[0m                                                                                                                                               ┃
+            Changed document                                                                                                                                               ┃
             left/examples/deployment.flux-engine-steam.yaml:0                              right/examples/deployment.flux-engine-steam.yaml:0                              ┃
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"#]].assert_eq(&actual);
     }
@@ -278,7 +283,7 @@ mod test {
 
         let differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx, &left_doc, &right_doc, differences);
+        let content = render(&ctx, &left_doc, &right_doc, differences);
 
         let rendered = header_pair.zip(left, right).join("\n");
 

@@ -9,9 +9,7 @@ use everdiff_diff::{
     Entry,
     path::{NonEmptyPath, Path, Segment},
 };
-use everdiff_layout::{
-    Column, ColumnPair, Highlighted, InlineParts, PrefixedLine,
-};
+use everdiff_layout::{Column, ColumnPair, Highlighted, InlineParts, PrefixedLine};
 use everdiff_line::Line;
 use everdiff_multidoc::source::YamlSource;
 use saphyr::{MarkedYamlOwned, YamlDataOwned};
@@ -1231,7 +1229,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences);
+        let content = render(&ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Removed: .person.address:                                                       
@@ -1273,7 +1271,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences);
+        let content = render(&ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: [bold].person.address[/]:                                                
@@ -1477,7 +1475,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences);
+        let content = render(&ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Changed: [bold].person.name[/]:                                                 
@@ -1561,7 +1559,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx_max_width(150), &left_doc, &right_doc, differences);
+        let content = render(&ctx_max_width(150), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: [bold].metadata.annotations.this_is[/]:                                                                                                        
@@ -1717,7 +1715,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences);
+        let content = render(&ctx(), &left_doc, &right_doc, differences);
 
         // The gap on the right should align correctly with the removed annotations
         // Both sides should start at the same line number
@@ -1764,7 +1762,7 @@ mod test {
 
         let differences = diff(diff_ctx, &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences);
+        let content = render(&ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Changed: [bold].servers[1].port[/]:                                             
@@ -1802,7 +1800,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences);
+        let content = render(&ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Removed: .config.cache:                                                         
@@ -1842,7 +1840,7 @@ mod test {
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
 
-        let content = render(ctx(), &left_doc, &right_doc, differences);
+        let content = render(&ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: [bold].config.cache[/]:                                                  
@@ -1879,7 +1877,7 @@ mod test {
         "#});
 
         let differences = diff(Context::default(), &left_doc.yaml, &right_doc.yaml);
-        let content = render(ctx(), &left_doc, &right_doc, differences);
+        let content = render(&ctx(), &left_doc, &right_doc, differences);
 
         expect![[r#"
             Added: [bold].person.city[/]:                                                   
@@ -2037,7 +2035,7 @@ mod test {
         ctx.lines_before = 1;
         ctx.lines_after = 1;
 
-        let content = render(ctx, &left_doc, &right_doc, differences);
+        let content = render(&ctx, &left_doc, &right_doc, differences);
 
         // Only 1 line before and 1 line after the removed block
         expect![[r#"
