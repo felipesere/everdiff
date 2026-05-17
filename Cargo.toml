@@ -20,11 +20,12 @@ anyhow = "1.0.94"
 bpaf = "0.9"
 camino = "1.1.9"
 fern = { version = "0.7", default-features = false }
-hashlink = "0.11.0"
+hashlink = "0.12"
 log = "0.4"
 nom = "8"
 owo-colors = "4.1.0"
-saphyr = { git = "https://github.com/saphyr-rs/saphyr", version = "0.0.6" }
+# saphyr = { git = "https://github.com/saphyr-rs/saphyr", version = "0.0.6" }
+saphyr = { version = "0.0.11" }
 similar = { version = "3.1", features = ["inline"] }
 terminal_size = { version = "0.4.3" }
 unicode-width = "0.2"
