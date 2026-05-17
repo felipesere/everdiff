@@ -31,31 +31,31 @@ impl Theme {
     pub fn colored() -> Self {
         use owo_colors::OwoColorize;
         Theme {
-            added:   Highlight::new(|s| s.green().to_string()),
+            added: Highlight::new(|s| s.green().to_string()),
             removed: Highlight::new(|s| s.red().to_string()),
             changed: Highlight::new(|s| s.yellow().to_string()),
-            dimmed:  Highlight::new(|s| s.dimmed().to_string()),
-            header:  Highlight::new(|s| s.bold().to_string()),
+            dimmed: Highlight::new(|s| s.dimmed().to_string()),
+            header: Highlight::new(|s| s.bold().to_string()),
         }
     }
 
     pub fn markers() -> Self {
         Theme {
-            added:   Highlight::new(|s| format!("[green]{s}[/]")),
+            added: Highlight::new(|s| format!("[green]{s}[/]")),
             removed: Highlight::new(|s| format!("[red]{s}[/]")),
             changed: Highlight::new(|s| format!("[yellow]{s}[/]")),
-            dimmed:  Highlight::new(|s| format!("[dim]{s}[/]")),
-            header:  Highlight::new(|s| format!("[bold]{s}[/]")),
+            dimmed: Highlight::new(|s| format!("[dim]{s}[/]")),
+            header: Highlight::new(|s| format!("[bold]{s}[/]")),
         }
     }
 
     pub fn plain() -> Self {
         Theme {
-            added:   Highlight::new(|s| s.to_string()),
+            added: Highlight::new(|s| s.to_string()),
             removed: Highlight::new(|s| s.to_string()),
             changed: Highlight::new(|s| s.to_string()),
-            dimmed:  Highlight::new(|s| s.to_string()),
-            header:  Highlight::new(|s| s.to_string()),
+            dimmed: Highlight::new(|s| s.to_string()),
+            header: Highlight::new(|s| s.to_string()),
         }
     }
 
@@ -392,7 +392,6 @@ fn render_primary_side(
     item: &Entry,
     (highlighted, unchanged): (Highlight, Highlight),
 ) -> Column {
-
     let pair = ColumnPair::new(ctx.max_width);
     let mut column = pair.column();
 
@@ -413,12 +412,10 @@ fn render_primary_side(
     // Show a few more lines before and after the lines that have changed
     let start = change_start.saturating_sub(ctx.lines_before);
     let end = min(change_end + ctx.lines_after, primary_doc.last_line);
-    tracing::debug!("Snippet for primary document");
     let primary_snippet = Snippet::new_clamped(&primary_lines, start, end);
 
     // Format the primary side. change_end is inclusive, so use +1 for the exclusive range end.
     let changed_range = change_start..(change_end + 1);
-    tracing::debug!("We will highlight {change_start}..={change_end}");
 
     // line_nr.get() - 1 mirrors LineWidget::from(Line) which subtracts 1 for 0-based display
     for (nr, line) in primary_snippet.iter() {

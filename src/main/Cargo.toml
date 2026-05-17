@@ -12,7 +12,6 @@ path = "src/main.rs"
 everdiff-diff.workspace = true
 everdiff-multidoc.workspace = true
 everdiff-snippet.workspace = true
-everdiff-line.workspace = true
 anyhow.workspace = true
 saphyr.workspace = true
 bpaf.workspace = true
@@ -20,8 +19,6 @@ camino.workspace = true
 fern.workspace = true
 log.workspace = true
 owo-colors.workspace = true
-serde.workspace = true
-similar.workspace = true
 terminal_size.workspace = true
 
 [dev-dependencies]

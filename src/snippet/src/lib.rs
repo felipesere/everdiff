@@ -11,8 +11,7 @@ mod snippet;
 
 pub use everdiff_layout::Highlight;
 pub use snippet::{
-    LineWidget, RenderContext, Theme, gap_start, render_added, render_difference,
-    render_removal,
+    LineWidget, RenderContext, Theme, gap_start, render_added, render_difference, render_removal,
 };
 
 // TODO: Add more output format options (JSON, machine-readable formats, colored HTML output)
@@ -212,7 +211,6 @@ mod test {
     };
     use expect_test::expect;
     use indoc::indoc;
-    use tracing_test::traced_test;
 
     use crate::{RenderContext, Theme, changed_header, render};
 
@@ -245,7 +243,6 @@ mod test {
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"#]].assert_eq(&actual);
     }
 
-    #[traced_test]
     #[test]
     fn why_does_this_not_align() {
         let max_width = 100;

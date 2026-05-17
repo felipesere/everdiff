@@ -19,14 +19,12 @@ ansi-width = "0.1.0"
 anyhow = "1.0.94"
 bpaf = "0.9"
 camino = "1.1.9"
-either = "1.15.0"
 fern = { version = "0.7", default-features = false }
 hashlink = "0.11.0"
 log = "0.4"
 nom = "8"
 owo-colors = "4.1.0"
 saphyr = { git = "https://github.com/saphyr-rs/saphyr", version = "0.0.6" }
-serde = { version = "1.0.228" }
 similar = { version = "3.1", features = ["inline"] }
 terminal_size = { version = "0.4.3" }
 unicode-width = "0.2"
@@ -37,7 +35,6 @@ indoc = "2.0.5"
 pretty_assertions = "1.4.1"
 expect-test = "1.5.0"
 test-log = "0.2.18"
-tracing-test = "0.2"
 
 [profile.release]
 opt-level = "z"       # optimize for size ("s" is a lighter touch)
