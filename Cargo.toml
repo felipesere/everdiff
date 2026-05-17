@@ -38,3 +38,10 @@ pretty_assertions = "1.4.1"
 expect-test = "1.5.0"
 test-log = "0.2.18"
 tracing-test = "0.2"
+
+[profile.release]
+opt-level = "z"       # optimize for size ("s" is a lighter touch)
+lto = true            # link-time optimization — big win
+codegen-units = 1     # less parallelism, better optimization + dedup
+panic = "abort"       # strips unwinding machinery — often saves hundreds of KB
+strip = true          # strip symbols from final binary
